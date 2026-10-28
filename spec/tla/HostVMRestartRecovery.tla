@@ -1,6 +1,9 @@
 ----------------------- MODULE HostVMRestartRecovery -----------------------
 EXTENDS Naturals
 
+\* Shutdown and disk-release actions apply to the macOS VZ Host.
+\* Linux Host exit closes control authority and preserves the independent VMM.
+
 CONSTANTS EnforceInstalledStateGuard, StartSucceeds, RecoverySucceeds, MaxRecoveryAttempts
 
 \* recoveryAttempts counts automatic restart attempts across unexpected stops.

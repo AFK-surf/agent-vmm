@@ -42,6 +42,16 @@ type maintenanceReceipt struct {
 	UpdatedAt int64 `json:"updatedAt"`
 }
 
+func maintenanceReport(receipt *maintenanceReceipt) any {
+	if receipt == nil {
+		return nil
+	}
+	return struct {
+		ContractVersion int `json:"contractVersion"`
+		*maintenanceReceipt
+	}{cliContractVersion, receipt}
+}
+
 func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
 	if request.Version != 1 || !operationIDPattern.MatchString(request.RequestID) || !request.ConfirmSharedHost {
 		return errors.New("maintenance requires version 1, a stable requestId and explicit shared Host confirmation")

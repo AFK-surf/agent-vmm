@@ -170,6 +170,9 @@ func drainService(ctx context.Context, value paths) error {
 }
 
 func removeService(ctx context.Context, value paths, purge bool) error {
+	if err := drainService(ctx, value); err != nil {
+		return err
+	}
 	_, observeErr := observeHostService(ctx, value)
 	if observeErr != nil && !errors.Is(observeErr, errHostServiceNotFound) {
 		return fmt.Errorf("host service status could not be read before uninstall: %w", observeErr)
@@ -183,9 +186,6 @@ func removeService(ctx context.Context, value paths, purge bool) error {
 		return errors.New("host service definition could not be removed")
 	}
 	if err := runCommand(ctx, "systemctl", "daemon-reload"); err != nil {
-		return err
-	}
-	if err := waitForVMMExit(ctx, value); err != nil {
 		return err
 	}
 	_ = os.Remove(value.serviceConfigFile)

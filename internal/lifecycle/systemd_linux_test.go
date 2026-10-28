@@ -11,6 +11,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 func testPaths(root string) paths {
@@ -270,6 +273,107 @@ func TestReconcileServiceDrainsOnlyForChangedRelease(t *testing.T) {
 			}
 			if drainCalls != wantDrain || stops != 1 {
 				t.Fatalf("drains=%d stops=%d", drainCalls, stops)
+			}
+		})
+	}
+}
+
+func TestRemoveServiceStopsGuestBeforeRemovingHost(t *testing.T) {
+	for _, test := range []struct {
+		name               string
+		refuseStop, locked bool
+	}{
+		{name: "stopped Guest"},
+		{name: "stop refused", refuseStop: true},
+		{name: "writer remains", locked: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			value := testPaths(t.TempDir())
+			writeTestRelease(t, value.source, "release-a")
+			installed, err := installRelease(value, value.source)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, path := range []string{value.unit, filepath.Join(value.applicationData, "instance", "state.raw"), filepath.Join(value.applicationData, "credentials")} {
+				if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(path, []byte("retained"), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			lock, err := os.OpenFile(filepath.Join(value.applicationData, "instance", "vmm.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer lock.Close()
+			if err := unix.FcntlFlock(lock.Fd(), unix.F_OFD_SETLK, &unix.Flock_t{Type: unix.F_WRLCK}); err != nil {
+				t.Fatal(err)
+			}
+			guestRunning, hostRunning, stopped := true, true, false
+			value.owner = &serviceOwner{drainVM: func(context.Context, paths, string) error {
+				stopped = true
+				if test.refuseStop {
+					return errors.New("stop refused")
+				}
+				guestRunning = false
+				if !test.locked {
+					return lock.Close()
+				}
+				return nil
+			}}
+			previous := commandOutput
+			defer func() { commandOutput = previous }()
+			commandOutput = func(_ context.Context, name string, args ...string) ([]byte, error) {
+				if name != "systemctl" {
+					t.Fatalf("unexpected command %s", name)
+				}
+				if args[0] == "show" {
+					if hostRunning {
+						return []byte("LoadState=loaded\nActiveState=active\nMainPID=42\n"), nil
+					}
+					return []byte("LoadState=loaded\nActiveState=inactive\nMainPID=0\n"), nil
+				}
+				if guestRunning {
+					return nil, errors.New("Host service changed before explicit Guest stop")
+				}
+				if args[0] == "stop" || args[0] == "disable" {
+					hostRunning = false
+				}
+				return nil, nil
+			}
+			ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+			defer cancel()
+			err = removeService(ctx, value, test.refuseStop)
+			if !stopped {
+				t.Fatal("uninstall did not request explicit Guest stop")
+			}
+			if test.refuseStop || test.locked {
+				if err == nil {
+					t.Fatal("uninstall succeeded without confirmed writer exit")
+				}
+				for _, path := range []string{value.unit, filepath.Join(value.installRoot, installed, "agent-vmm"), filepath.Join(value.applicationData, "instance", "state.raw"), filepath.Join(value.applicationData, "credentials")} {
+					if _, err := os.Stat(path); err != nil {
+						t.Fatalf("failed stop removed %s: %v", path, err)
+					}
+				}
+				if test.refuseStop && !hostRunning {
+					t.Fatal("refused VM stop removed the running Host")
+				}
+				return
+			}
+			if err != nil || hostRunning {
+				t.Fatalf("uninstall error=%v Host running=%t", err, hostRunning)
+			}
+			for _, path := range []string{value.unit, value.installRoot} {
+				if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+					t.Fatalf("uninstall retained %s: %v", path, err)
+				}
+			}
+			for _, name := range []string{"instance/state.raw", "credentials"} {
+				if data, err := os.ReadFile(filepath.Join(value.applicationData, name)); err != nil || string(data) != "retained" {
+					t.Fatalf("uninstall changed %s: %q %v", name, data, err)
+				}
 			}
 		})
 	}

@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -248,7 +249,7 @@ func TestServeSessionRoutesOnlyTheExactAllocationGeneration(t *testing.T) {
 
 func applianceHello() *remotev1.HostHello {
 	features := []string{}
-	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, Capacity: &remotev1.Capacity{PerEnvironmentLimits: &remotev1.ResourceLimits{Pids: uint32Pointer(256), DiskBytes: uint64Pointer(2 << 30)}, MaxEgressMode: remotev1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}}
+	return &remotev1.HostHello{ProtocolVersion: strconv.Itoa(controllerremote.ProtocolVersion), RegistrationId: "registration", ConnectionInstance: "connection", ConnectionEpoch: 7, InventoryWatermark: 1, PoolRevision: 3, SupportedFeatures: features, Capacity: &remotev1.Capacity{PerEnvironmentLimits: &remotev1.ResourceLimits{Pids: uint32Pointer(256), DiskBytes: uint64Pointer(2 << 30)}, MaxEgressMode: remotev1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET}}
 }
 
 func uint32Pointer(value uint32) *uint32 { return &value }

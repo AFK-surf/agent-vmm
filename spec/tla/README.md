@@ -70,8 +70,11 @@ physical disk arithmetic stay in their own narrow models.
   and active sessions before restart, requires a fresh boot with policies and connectors restored, and
   fails closed after `MaxRecoveryAttempts` attempts across stops. `RecoveryRetry`
   abstracts the Go backoff delay. The model does not reset the count after a
-  stable run, so it checks the stricter bound. Host shutdown is mutually exclusive with
-  that owner. `RecoverySuccess` abstracts only the admission commit: the
+  stable run, so it checks the stricter bound. macOS Host shutdown is mutually exclusive with
+  that owner. Its shutdown and disk-release actions cover the macOS VZ Host.
+  Linux Host exit closes control authority and preserves the independent VMM.
+  Explicit VM stop still requires Guest shutdown and disk release on both platforms.
+  `RecoverySuccess` abstracts only the admission commit: the
   Go owner performs boot, policy replay, and connector restoration as ordered
   steps while admission remains revoked. Disk identity and filesystem contents
   remain Go configuration concerns outside this lifecycle model. The separate

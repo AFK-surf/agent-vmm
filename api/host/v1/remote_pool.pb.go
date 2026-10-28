@@ -360,6 +360,7 @@ type ConnectorStatus struct {
 	FailureCode      string                   `protobuf:"bytes,8,opt,name=failure_code,json=failureCode,proto3" json:"failure_code,omitempty"`
 	FailureMessage   string                   `protobuf:"bytes,9,opt,name=failure_message,json=failureMessage,proto3" json:"failure_message,omitempty"`
 	DomainMetrics    *ControllerDomainMetrics `protobuf:"bytes,10,opt,name=domain_metrics,json=domainMetrics,proto3" json:"domain_metrics,omitempty"`
+	RemoteProtocol   *RemoteProtocolStatus    `protobuf:"bytes,11,opt,name=remote_protocol,json=remoteProtocol,proto3" json:"remote_protocol,omitempty"`
 	unknownFields    protoimpl.UnknownFields
 	sizeCache        protoimpl.SizeCache
 }
@@ -464,6 +465,83 @@ func (x *ConnectorStatus) GetDomainMetrics() *ControllerDomainMetrics {
 	return nil
 }
 
+func (x *ConnectorStatus) GetRemoteProtocol() *RemoteProtocolStatus {
+	if x != nil {
+		return x.RemoteProtocol
+	}
+	return nil
+}
+
+// RemoteProtocolStatus records the current controller protocol refusal for one registration.
+// It is absent after a successful connection and is not a lifecycle authority.
+type RemoteProtocolStatus struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HostProtocol  string                 `protobuf:"bytes,1,opt,name=host_protocol,json=hostProtocol,proto3" json:"host_protocol,omitempty"`
+	MinProtocol   uint32                 `protobuf:"varint,2,opt,name=min_protocol,json=minProtocol,proto3" json:"min_protocol,omitempty"`
+	MaxProtocol   uint32                 `protobuf:"varint,3,opt,name=max_protocol,json=maxProtocol,proto3" json:"max_protocol,omitempty"`
+	HostSide      string                 `protobuf:"bytes,4,opt,name=host_side,json=hostSide,proto3" json:"host_side,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoteProtocolStatus) Reset() {
+	*x = RemoteProtocolStatus{}
+	mi := &file_host_v1_remote_pool_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoteProtocolStatus) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoteProtocolStatus) ProtoMessage() {}
+
+func (x *RemoteProtocolStatus) ProtoReflect() protoreflect.Message {
+	mi := &file_host_v1_remote_pool_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoteProtocolStatus.ProtoReflect.Descriptor instead.
+func (*RemoteProtocolStatus) Descriptor() ([]byte, []int) {
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *RemoteProtocolStatus) GetHostProtocol() string {
+	if x != nil {
+		return x.HostProtocol
+	}
+	return ""
+}
+
+func (x *RemoteProtocolStatus) GetMinProtocol() uint32 {
+	if x != nil {
+		return x.MinProtocol
+	}
+	return 0
+}
+
+func (x *RemoteProtocolStatus) GetMaxProtocol() uint32 {
+	if x != nil {
+		return x.MaxProtocol
+	}
+	return 0
+}
+
+func (x *RemoteProtocolStatus) GetHostSide() string {
+	if x != nil {
+		return x.HostSide
+	}
+	return ""
+}
+
 // ControllerDomainMetrics reports sampled traffic and session diagnostics for one registration
 // domain.
 type ControllerDomainMetrics struct {
@@ -483,7 +561,7 @@ type ControllerDomainMetrics struct {
 
 func (x *ControllerDomainMetrics) Reset() {
 	*x = ControllerDomainMetrics{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[1]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[2]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -495,7 +573,7 @@ func (x *ControllerDomainMetrics) String() string {
 func (*ControllerDomainMetrics) ProtoMessage() {}
 
 func (x *ControllerDomainMetrics) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[1]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[2]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -508,7 +586,7 @@ func (x *ControllerDomainMetrics) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ControllerDomainMetrics.ProtoReflect.Descriptor instead.
 func (*ControllerDomainMetrics) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{1}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{2}
 }
 
 func (x *ControllerDomainMetrics) GetBytesToController() uint64 {
@@ -587,7 +665,7 @@ type RemotePoolPolicy struct {
 
 func (x *RemotePoolPolicy) Reset() {
 	*x = RemotePoolPolicy{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[2]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -599,7 +677,7 @@ func (x *RemotePoolPolicy) String() string {
 func (*RemotePoolPolicy) ProtoMessage() {}
 
 func (x *RemotePoolPolicy) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[2]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -612,7 +690,7 @@ func (x *RemotePoolPolicy) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemotePoolPolicy.ProtoReflect.Descriptor instead.
 func (*RemotePoolPolicy) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{2}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *RemotePoolPolicy) GetPerEnvironmentLimits() *ResourceLimits {
@@ -665,7 +743,7 @@ type RemoteRegistration struct {
 
 func (x *RemoteRegistration) Reset() {
 	*x = RemoteRegistration{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[3]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -677,7 +755,7 @@ func (x *RemoteRegistration) String() string {
 func (*RemoteRegistration) ProtoMessage() {}
 
 func (x *RemoteRegistration) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[3]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -690,7 +768,7 @@ func (x *RemoteRegistration) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteRegistration.ProtoReflect.Descriptor instead.
 func (*RemoteRegistration) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{3}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *RemoteRegistration) GetId() string {
@@ -844,7 +922,7 @@ type BeginRemoteEnrollmentRequest struct {
 
 func (x *BeginRemoteEnrollmentRequest) Reset() {
 	*x = BeginRemoteEnrollmentRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[4]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -856,7 +934,7 @@ func (x *BeginRemoteEnrollmentRequest) String() string {
 func (*BeginRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *BeginRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[4]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -869,7 +947,7 @@ func (x *BeginRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*BeginRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{4}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *BeginRemoteEnrollmentRequest) GetRequestId() string {
@@ -940,7 +1018,7 @@ type ApplyManagedRemoteEnrollmentRequest struct {
 
 func (x *ApplyManagedRemoteEnrollmentRequest) Reset() {
 	*x = ApplyManagedRemoteEnrollmentRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[5]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -952,7 +1030,7 @@ func (x *ApplyManagedRemoteEnrollmentRequest) String() string {
 func (*ApplyManagedRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *ApplyManagedRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[5]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -965,7 +1043,7 @@ func (x *ApplyManagedRemoteEnrollmentRequest) ProtoReflect() protoreflect.Messag
 
 // Deprecated: Use ApplyManagedRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*ApplyManagedRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{5}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *ApplyManagedRemoteEnrollmentRequest) GetRegistration() *BeginRemoteEnrollmentRequest {
@@ -995,7 +1073,7 @@ type CompleteRemoteEnrollmentRequest struct {
 
 func (x *CompleteRemoteEnrollmentRequest) Reset() {
 	*x = CompleteRemoteEnrollmentRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[6]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1007,7 +1085,7 @@ func (x *CompleteRemoteEnrollmentRequest) String() string {
 func (*CompleteRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *CompleteRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[6]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1020,7 +1098,7 @@ func (x *CompleteRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{6}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *CompleteRemoteEnrollmentRequest) GetRequestId() string {
@@ -1057,7 +1135,7 @@ type RetryRemoteEnrollmentRequest struct {
 
 func (x *RetryRemoteEnrollmentRequest) Reset() {
 	*x = RetryRemoteEnrollmentRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[7]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1069,7 +1147,7 @@ func (x *RetryRemoteEnrollmentRequest) String() string {
 func (*RetryRemoteEnrollmentRequest) ProtoMessage() {}
 
 func (x *RetryRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[7]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1082,7 +1160,7 @@ func (x *RetryRemoteEnrollmentRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RetryRemoteEnrollmentRequest.ProtoReflect.Descriptor instead.
 func (*RetryRemoteEnrollmentRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{7}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *RetryRemoteEnrollmentRequest) GetRequestId() string {
@@ -1119,7 +1197,7 @@ type BeginRemoteRevocationRequest struct {
 
 func (x *BeginRemoteRevocationRequest) Reset() {
 	*x = BeginRemoteRevocationRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[8]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1131,7 +1209,7 @@ func (x *BeginRemoteRevocationRequest) String() string {
 func (*BeginRemoteRevocationRequest) ProtoMessage() {}
 
 func (x *BeginRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[8]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1144,7 +1222,7 @@ func (x *BeginRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRemoteRevocationRequest.ProtoReflect.Descriptor instead.
 func (*BeginRemoteRevocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{8}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *BeginRemoteRevocationRequest) GetRequestId() string {
@@ -1181,7 +1259,7 @@ type CompleteRemoteRevocationRequest struct {
 
 func (x *CompleteRemoteRevocationRequest) Reset() {
 	*x = CompleteRemoteRevocationRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[9]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1193,7 +1271,7 @@ func (x *CompleteRemoteRevocationRequest) String() string {
 func (*CompleteRemoteRevocationRequest) ProtoMessage() {}
 
 func (x *CompleteRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[9]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1206,7 +1284,7 @@ func (x *CompleteRemoteRevocationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CompleteRemoteRevocationRequest.ProtoReflect.Descriptor instead.
 func (*CompleteRemoteRevocationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{9}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *CompleteRemoteRevocationRequest) GetRequestId() string {
@@ -1244,7 +1322,7 @@ type UpdateRemotePoolRequest struct {
 
 func (x *UpdateRemotePoolRequest) Reset() {
 	*x = UpdateRemotePoolRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[10]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1256,7 +1334,7 @@ func (x *UpdateRemotePoolRequest) String() string {
 func (*UpdateRemotePoolRequest) ProtoMessage() {}
 
 func (x *UpdateRemotePoolRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[10]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1269,7 +1347,7 @@ func (x *UpdateRemotePoolRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use UpdateRemotePoolRequest.ProtoReflect.Descriptor instead.
 func (*UpdateRemotePoolRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{10}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *UpdateRemotePoolRequest) GetRequestId() string {
@@ -1314,7 +1392,7 @@ type SetRemoteRegistrationStateRequest struct {
 
 func (x *SetRemoteRegistrationStateRequest) Reset() {
 	*x = SetRemoteRegistrationStateRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[11]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1326,7 +1404,7 @@ func (x *SetRemoteRegistrationStateRequest) String() string {
 func (*SetRemoteRegistrationStateRequest) ProtoMessage() {}
 
 func (x *SetRemoteRegistrationStateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[11]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1339,7 +1417,7 @@ func (x *SetRemoteRegistrationStateRequest) ProtoReflect() protoreflect.Message 
 
 // Deprecated: Use SetRemoteRegistrationStateRequest.ProtoReflect.Descriptor instead.
 func (*SetRemoteRegistrationStateRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{11}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{12}
 }
 
 func (x *SetRemoteRegistrationStateRequest) GetRequestId() string {
@@ -1381,7 +1459,7 @@ type GetRemoteRegistrationRequest struct {
 
 func (x *GetRemoteRegistrationRequest) Reset() {
 	*x = GetRemoteRegistrationRequest{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[12]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1393,7 +1471,7 @@ func (x *GetRemoteRegistrationRequest) String() string {
 func (*GetRemoteRegistrationRequest) ProtoMessage() {}
 
 func (x *GetRemoteRegistrationRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[12]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1406,7 +1484,7 @@ func (x *GetRemoteRegistrationRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetRemoteRegistrationRequest.ProtoReflect.Descriptor instead.
 func (*GetRemoteRegistrationRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{12}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *GetRemoteRegistrationRequest) GetRegistrationId() string {
@@ -1434,7 +1512,7 @@ type RemoteAllocation struct {
 
 func (x *RemoteAllocation) Reset() {
 	*x = RemoteAllocation{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[13]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1446,7 +1524,7 @@ func (x *RemoteAllocation) String() string {
 func (*RemoteAllocation) ProtoMessage() {}
 
 func (x *RemoteAllocation) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[13]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1459,7 +1537,7 @@ func (x *RemoteAllocation) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RemoteAllocation.ProtoReflect.Descriptor instead.
 func (*RemoteAllocation) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{13}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{14}
 }
 
 func (x *RemoteAllocation) GetAllocationId() string {
@@ -1531,7 +1609,7 @@ type LocalRegistrationMetadata struct {
 
 func (x *LocalRegistrationMetadata) Reset() {
 	*x = LocalRegistrationMetadata{}
-	mi := &file_host_v1_remote_pool_proto_msgTypes[14]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1543,7 +1621,7 @@ func (x *LocalRegistrationMetadata) String() string {
 func (*LocalRegistrationMetadata) ProtoMessage() {}
 
 func (x *LocalRegistrationMetadata) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_remote_pool_proto_msgTypes[14]
+	mi := &file_host_v1_remote_pool_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1556,7 +1634,7 @@ func (x *LocalRegistrationMetadata) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use LocalRegistrationMetadata.ProtoReflect.Descriptor instead.
 func (*LocalRegistrationMetadata) Descriptor() ([]byte, []int) {
-	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{14}
+	return file_host_v1_remote_pool_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *LocalRegistrationMetadata) GetId() string {
@@ -1584,7 +1662,7 @@ var File_host_v1_remote_pool_proto protoreflect.FileDescriptor
 
 const file_host_v1_remote_pool_proto_rawDesc = "" +
 	"\n" +
-	"\x19host/v1/remote_pool.proto\x12\x10agentvmm.host.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17host/v1/resources.proto\"\xcb\x04\n" +
+	"\x19host/v1/remote_pool.proto\x12\x10agentvmm.host.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x17host/v1/resources.proto\"\x9c\x05\n" +
 	"\x0fConnectorStatus\x126\n" +
 	"\x05phase\x18\x01 \x01(\x0e2 .agentvmm.host.v1.ConnectorPhaseR\x05phase\x12+\n" +
 	"\x11connector_release\x18\x02 \x01(\tR\x10connectorRelease\x12;\n" +
@@ -1597,7 +1675,13 @@ const file_host_v1_remote_pool_proto_rawDesc = "" +
 	"\ffailure_code\x18\b \x01(\tR\vfailureCode\x12'\n" +
 	"\x0ffailure_message\x18\t \x01(\tR\x0efailureMessage\x12P\n" +
 	"\x0edomain_metrics\x18\n" +
-	" \x01(\v2).agentvmm.host.v1.ControllerDomainMetricsR\rdomainMetrics\"\xbe\x03\n" +
+	" \x01(\v2).agentvmm.host.v1.ControllerDomainMetricsR\rdomainMetrics\x12O\n" +
+	"\x0fremote_protocol\x18\v \x01(\v2&.agentvmm.host.v1.RemoteProtocolStatusR\x0eremoteProtocol\"\x9e\x01\n" +
+	"\x14RemoteProtocolStatus\x12#\n" +
+	"\rhost_protocol\x18\x01 \x01(\tR\fhostProtocol\x12!\n" +
+	"\fmin_protocol\x18\x02 \x01(\rR\vminProtocol\x12!\n" +
+	"\fmax_protocol\x18\x03 \x01(\rR\vmaxProtocol\x12\x1b\n" +
+	"\thost_side\x18\x04 \x01(\tR\bhostSide\"\xbe\x03\n" +
 	"\x17ControllerDomainMetrics\x12.\n" +
 	"\x13bytes_to_controller\x18\x01 \x01(\x04R\x11bytesToController\x12(\n" +
 	"\x10bytes_to_runtime\x18\x02 \x01(\x04R\x0ebytesToRuntime\x12\x1f\n" +
@@ -1751,7 +1835,7 @@ func file_host_v1_remote_pool_proto_rawDescGZIP() []byte {
 }
 
 var file_host_v1_remote_pool_proto_enumTypes = make([]protoimpl.EnumInfo, 6)
-var file_host_v1_remote_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 15)
+var file_host_v1_remote_pool_proto_msgTypes = make([]protoimpl.MessageInfo, 16)
 var file_host_v1_remote_pool_proto_goTypes = []any{
 	(RemoteRegistrationState)(0),                // 0: agentvmm.host.v1.RemoteRegistrationState
 	(RemoteRegistrationOwnerKind)(0),            // 1: agentvmm.host.v1.RemoteRegistrationOwnerKind
@@ -1760,59 +1844,61 @@ var file_host_v1_remote_pool_proto_goTypes = []any{
 	(ConnectorPhase)(0),                         // 4: agentvmm.host.v1.ConnectorPhase
 	(AllocationState)(0),                        // 5: agentvmm.host.v1.AllocationState
 	(*ConnectorStatus)(nil),                     // 6: agentvmm.host.v1.ConnectorStatus
-	(*ControllerDomainMetrics)(nil),             // 7: agentvmm.host.v1.ControllerDomainMetrics
-	(*RemotePoolPolicy)(nil),                    // 8: agentvmm.host.v1.RemotePoolPolicy
-	(*RemoteRegistration)(nil),                  // 9: agentvmm.host.v1.RemoteRegistration
-	(*BeginRemoteEnrollmentRequest)(nil),        // 10: agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	(*ApplyManagedRemoteEnrollmentRequest)(nil), // 11: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
-	(*CompleteRemoteEnrollmentRequest)(nil),     // 12: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
-	(*RetryRemoteEnrollmentRequest)(nil),        // 13: agentvmm.host.v1.RetryRemoteEnrollmentRequest
-	(*BeginRemoteRevocationRequest)(nil),        // 14: agentvmm.host.v1.BeginRemoteRevocationRequest
-	(*CompleteRemoteRevocationRequest)(nil),     // 15: agentvmm.host.v1.CompleteRemoteRevocationRequest
-	(*UpdateRemotePoolRequest)(nil),             // 16: agentvmm.host.v1.UpdateRemotePoolRequest
-	(*SetRemoteRegistrationStateRequest)(nil),   // 17: agentvmm.host.v1.SetRemoteRegistrationStateRequest
-	(*GetRemoteRegistrationRequest)(nil),        // 18: agentvmm.host.v1.GetRemoteRegistrationRequest
-	(*RemoteAllocation)(nil),                    // 19: agentvmm.host.v1.RemoteAllocation
-	(*LocalRegistrationMetadata)(nil),           // 20: agentvmm.host.v1.LocalRegistrationMetadata
-	(*timestamppb.Timestamp)(nil),               // 21: google.protobuf.Timestamp
-	(*ResourceLimits)(nil),                      // 22: agentvmm.host.v1.ResourceLimits
-	(EgressMode)(0),                             // 23: agentvmm.host.v1.EgressMode
-	(*durationpb.Duration)(nil),                 // 24: google.protobuf.Duration
+	(*RemoteProtocolStatus)(nil),                // 7: agentvmm.host.v1.RemoteProtocolStatus
+	(*ControllerDomainMetrics)(nil),             // 8: agentvmm.host.v1.ControllerDomainMetrics
+	(*RemotePoolPolicy)(nil),                    // 9: agentvmm.host.v1.RemotePoolPolicy
+	(*RemoteRegistration)(nil),                  // 10: agentvmm.host.v1.RemoteRegistration
+	(*BeginRemoteEnrollmentRequest)(nil),        // 11: agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	(*ApplyManagedRemoteEnrollmentRequest)(nil), // 12: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
+	(*CompleteRemoteEnrollmentRequest)(nil),     // 13: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
+	(*RetryRemoteEnrollmentRequest)(nil),        // 14: agentvmm.host.v1.RetryRemoteEnrollmentRequest
+	(*BeginRemoteRevocationRequest)(nil),        // 15: agentvmm.host.v1.BeginRemoteRevocationRequest
+	(*CompleteRemoteRevocationRequest)(nil),     // 16: agentvmm.host.v1.CompleteRemoteRevocationRequest
+	(*UpdateRemotePoolRequest)(nil),             // 17: agentvmm.host.v1.UpdateRemotePoolRequest
+	(*SetRemoteRegistrationStateRequest)(nil),   // 18: agentvmm.host.v1.SetRemoteRegistrationStateRequest
+	(*GetRemoteRegistrationRequest)(nil),        // 19: agentvmm.host.v1.GetRemoteRegistrationRequest
+	(*RemoteAllocation)(nil),                    // 20: agentvmm.host.v1.RemoteAllocation
+	(*LocalRegistrationMetadata)(nil),           // 21: agentvmm.host.v1.LocalRegistrationMetadata
+	(*timestamppb.Timestamp)(nil),               // 22: google.protobuf.Timestamp
+	(*ResourceLimits)(nil),                      // 23: agentvmm.host.v1.ResourceLimits
+	(EgressMode)(0),                             // 24: agentvmm.host.v1.EgressMode
+	(*durationpb.Duration)(nil),                 // 25: google.protobuf.Duration
 }
 var file_host_v1_remote_pool_proto_depIdxs = []int32{
 	4,  // 0: agentvmm.host.v1.ConnectorStatus.phase:type_name -> agentvmm.host.v1.ConnectorPhase
-	21, // 1: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
-	21, // 2: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
-	21, // 3: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
-	21, // 4: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
-	7,  // 5: agentvmm.host.v1.ConnectorStatus.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
-	21, // 6: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
-	22, // 7: agentvmm.host.v1.RemotePoolPolicy.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
-	23, // 8: agentvmm.host.v1.RemotePoolPolicy.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	24, // 9: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
-	8,  // 10: agentvmm.host.v1.RemoteRegistration.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
-	0,  // 11: agentvmm.host.v1.RemoteRegistration.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	2,  // 12: agentvmm.host.v1.RemoteRegistration.connection_state:type_name -> agentvmm.host.v1.RemoteConnectionState
-	19, // 13: agentvmm.host.v1.RemoteRegistration.allocations:type_name -> agentvmm.host.v1.RemoteAllocation
-	3,  // 14: agentvmm.host.v1.RemoteRegistration.enrollment_state:type_name -> agentvmm.host.v1.RemoteEnrollmentState
-	6,  // 15: agentvmm.host.v1.RemoteRegistration.connector_status:type_name -> agentvmm.host.v1.ConnectorStatus
-	21, // 16: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
-	21, // 17: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
-	1,  // 18: agentvmm.host.v1.RemoteRegistration.owner_kind:type_name -> agentvmm.host.v1.RemoteRegistrationOwnerKind
-	7,  // 19: agentvmm.host.v1.RemoteRegistration.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
-	8,  // 20: agentvmm.host.v1.BeginRemoteEnrollmentRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
-	10, // 21: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest.registration:type_name -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	8,  // 22: agentvmm.host.v1.UpdateRemotePoolRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
-	0,  // 23: agentvmm.host.v1.SetRemoteRegistrationStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	22, // 24: agentvmm.host.v1.RemoteAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	23, // 25: agentvmm.host.v1.RemoteAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	5,  // 26: agentvmm.host.v1.RemoteAllocation.state:type_name -> agentvmm.host.v1.AllocationState
-	0,  // 27: agentvmm.host.v1.LocalRegistrationMetadata.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
-	28, // [28:28] is the sub-list for method output_type
-	28, // [28:28] is the sub-list for method input_type
-	28, // [28:28] is the sub-list for extension type_name
-	28, // [28:28] is the sub-list for extension extendee
-	0,  // [0:28] is the sub-list for field type_name
+	22, // 1: agentvmm.host.v1.ConnectorStatus.observed_at:type_name -> google.protobuf.Timestamp
+	22, // 2: agentvmm.host.v1.ConnectorStatus.last_connected_at:type_name -> google.protobuf.Timestamp
+	22, // 3: agentvmm.host.v1.ConnectorStatus.disconnected_at:type_name -> google.protobuf.Timestamp
+	22, // 4: agentvmm.host.v1.ConnectorStatus.next_retry_at:type_name -> google.protobuf.Timestamp
+	8,  // 5: agentvmm.host.v1.ConnectorStatus.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
+	7,  // 6: agentvmm.host.v1.ConnectorStatus.remote_protocol:type_name -> agentvmm.host.v1.RemoteProtocolStatus
+	22, // 7: agentvmm.host.v1.ControllerDomainMetrics.sampled_at:type_name -> google.protobuf.Timestamp
+	23, // 8: agentvmm.host.v1.RemotePoolPolicy.per_environment_limits:type_name -> agentvmm.host.v1.ResourceLimits
+	24, // 9: agentvmm.host.v1.RemotePoolPolicy.max_egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	25, // 10: agentvmm.host.v1.RemotePoolPolicy.stop_grace:type_name -> google.protobuf.Duration
+	9,  // 11: agentvmm.host.v1.RemoteRegistration.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	0,  // 12: agentvmm.host.v1.RemoteRegistration.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
+	2,  // 13: agentvmm.host.v1.RemoteRegistration.connection_state:type_name -> agentvmm.host.v1.RemoteConnectionState
+	20, // 14: agentvmm.host.v1.RemoteRegistration.allocations:type_name -> agentvmm.host.v1.RemoteAllocation
+	3,  // 15: agentvmm.host.v1.RemoteRegistration.enrollment_state:type_name -> agentvmm.host.v1.RemoteEnrollmentState
+	6,  // 16: agentvmm.host.v1.RemoteRegistration.connector_status:type_name -> agentvmm.host.v1.ConnectorStatus
+	22, // 17: agentvmm.host.v1.RemoteRegistration.created_at:type_name -> google.protobuf.Timestamp
+	22, // 18: agentvmm.host.v1.RemoteRegistration.updated_at:type_name -> google.protobuf.Timestamp
+	1,  // 19: agentvmm.host.v1.RemoteRegistration.owner_kind:type_name -> agentvmm.host.v1.RemoteRegistrationOwnerKind
+	8,  // 20: agentvmm.host.v1.RemoteRegistration.domain_metrics:type_name -> agentvmm.host.v1.ControllerDomainMetrics
+	9,  // 21: agentvmm.host.v1.BeginRemoteEnrollmentRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	11, // 22: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest.registration:type_name -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	9,  // 23: agentvmm.host.v1.UpdateRemotePoolRequest.pool:type_name -> agentvmm.host.v1.RemotePoolPolicy
+	0,  // 24: agentvmm.host.v1.SetRemoteRegistrationStateRequest.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
+	23, // 25: agentvmm.host.v1.RemoteAllocation.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	24, // 26: agentvmm.host.v1.RemoteAllocation.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	5,  // 27: agentvmm.host.v1.RemoteAllocation.state:type_name -> agentvmm.host.v1.AllocationState
+	0,  // 28: agentvmm.host.v1.LocalRegistrationMetadata.state:type_name -> agentvmm.host.v1.RemoteRegistrationState
+	29, // [29:29] is the sub-list for method output_type
+	29, // [29:29] is the sub-list for method input_type
+	29, // [29:29] is the sub-list for extension type_name
+	29, // [29:29] is the sub-list for extension extendee
+	0,  // [0:29] is the sub-list for field type_name
 }
 
 func init() { file_host_v1_remote_pool_proto_init() }
@@ -1827,7 +1913,7 @@ func file_host_v1_remote_pool_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_host_v1_remote_pool_proto_rawDesc), len(file_host_v1_remote_pool_proto_rawDesc)),
 			NumEnums:      6,
-			NumMessages:   15,
+			NumMessages:   16,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -58,6 +58,7 @@ func TestMaintenanceSameVersionReinstallPreservesIdentityAndReallyReplaces(t *te
 	if err != nil || got.Outcome != "succeeded" || replaces != 1 {
 		t.Fatalf("%+v replacements=%d err=%v", got, replaces, err)
 	}
+	writeContractFixture(t, "maintenance.json", maintenanceReport(&got))
 	data, err := os.ReadFile(key)
 	if err != nil || string(data) != "private identity" {
 		t.Fatalf("identity changed: %q %v", data, err)

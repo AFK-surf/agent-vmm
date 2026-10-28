@@ -36,6 +36,7 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -140,14 +141,15 @@ func (server *fakeLocal) EnsureAllocation(_ context.Context, request *connectorv
 
 type fakeController struct {
 	remotev1.UnimplementedRemoteControllerServiceServer
-	t      *testing.T
-	hello  *remotev1.HostHello
-	key    *ecdsa.PrivateKey
-	reject codes.Code
+	t           *testing.T
+	hello       *remotev1.HostHello
+	key         *ecdsa.PrivateKey
+	reject      codes.Code
+	rejectError error
 }
 
 func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != ProtocolVersion || request.GetDeviceIdentity().GetDeviceId() == "" {
+	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != strconv.Itoa(ProtocolVersion) || request.GetDeviceIdentity().GetDeviceId() == "" {
 		return nil, status.Error(codes.Unauthenticated, "rejected")
 	}
 	if server.key == nil {
@@ -212,6 +214,9 @@ func configureEnrollmentTrust(t *testing.T, config *Config) *fakeEnrollmentTrust
 	return implementation
 }
 func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
+	if server.rejectError != nil {
+		return server.rejectError
+	}
 	if server.reject != codes.OK {
 		return status.Error(server.reject, "rejected")
 	}
@@ -221,7 +226,7 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.C
 	}
 	session, err := controllerremote.AcceptControl(stream, "registration-a")
 	if err != nil {
-		return status.Error(codes.InvalidArgument, err.Error())
+		return err
 	}
 	server.hello = session.Hello()
 	if err := session.Ready(); err != nil {
@@ -300,6 +305,18 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 	}
 	if controller.hello.GetRegistrationId() != "registration-a" || controller.hello.GetPoolRevision() != 7 || len(controller.hello.GetInventory()) != 1 {
 		t.Fatalf("unexpected hello: %+v", controller.hello)
+	}
+	if directory := os.Getenv("AGENT_VMM_CONTRACT_OUTPUT_DIR"); directory != "" {
+		data, err := protojson.Marshal(controller.hello)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(directory, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(directory, "hello.json"), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -424,12 +441,13 @@ func (*unavailableCredentials) Load(context.Context, string) ([]byte, error) {
 
 func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnContextCancellation(t *testing.T) {
 	tests := []struct {
-		name   string
-		reject codes.Code
-		store  CredentialStore
-		state  hostv1.RemoteRegistrationState
-		phase  hostv1.ConnectorPhase
-		code   string
+		name        string
+		reject      codes.Code
+		rejectError error
+		store       CredentialStore
+		state       hostv1.RemoteRegistrationState
+		phase       hostv1.ConnectorPhase
+		code        string
 	}{
 		{name: "unauthenticated", reject: codes.Unauthenticated, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
 		{name: "permission denied", reject: codes.PermissionDenied, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
@@ -721,4 +739,53 @@ func runOneAttempt(parent context.Context, config Config) error {
 		return err
 	}
 	return failure
+}
+
+func TestRunProtocolRefusalUsesCappedBackoffAndPreservesRegistration(t *testing.T) {
+	failure, err := status.New(codes.FailedPrecondition, "unsupported Host protocol").WithDetails(&errdetails.ErrorInfo{
+		Domain: hostv1.ErrorDomain, Reason: "REMOTE_PROTOCOL_UNSUPPORTED", Metadata: map[string]string{"host_protocol": "4", "min_protocol": "5", "max_protocol": "5", "host_side": "too_old"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	local := &fakeLocal{registration: testRegistration()}
+	endpoint, roots := startTLSServer(t, "localhost", &fakeController{t: t, rejectError: failure.Err()})
+	credentials := &memoryCredentials{value: []byte("credential-one")}
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: credentials, Roots: roots}}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, config) }()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		local.mu.Lock()
+		var refusal *hostv1.ConnectorStatus
+		for _, report := range local.reports {
+			if report.GetFailureCode() == "REMOTE_PROTOCOL_UNSUPPORTED" {
+				refusal = proto.Clone(report).(*hostv1.ConnectorStatus)
+			}
+		}
+		states, ensures := len(local.states), local.ensureCalls
+		local.mu.Unlock()
+		if refusal != nil {
+			delay := refusal.GetNextRetryAt().AsTime().Sub(refusal.GetObservedAt().AsTime())
+			if delay < MaxReconnectDelay/2-time.Second || delay > MaxReconnectDelay || refusal.GetRemoteProtocol().GetHostSide() != "too_old" || refusal.GetRemoteProtocol().GetMinProtocol() != 5 || refusal.GetReconnectAttempt() != 1 || states != 0 || ensures != 0 {
+				t.Fatalf("refusal=%v delay=%s states=%d ensures=%d", refusal, delay, states, ensures)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("protocol refusal was not reported")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	credentials.mu.Lock()
+	defer credentials.mu.Unlock()
+	if credentials.deleted || len(credentials.replacements) != 0 || string(credentials.value) != "credential-one" || local.registration.GetState() != hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED {
+		t.Fatal("protocol refusal changed registration authority")
+	}
 }

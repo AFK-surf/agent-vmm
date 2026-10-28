@@ -7,6 +7,12 @@ Source: `host/v1/remote_pool.proto`.
 ConnectorStatus observes transport recovery separately from registration admission state.
 
 
+## Message `RemoteProtocolStatus`
+
+RemoteProtocolStatus records the current controller protocol refusal for one registration.
+It is absent after a successful connection and is not a lifecycle authority.
+
+
 ## Message `ControllerDomainMetrics`
 
 ControllerDomainMetrics reports sampled traffic and session diagnostics for one registration

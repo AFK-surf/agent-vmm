@@ -59,6 +59,16 @@ message ConnectorStatus {
   string failure_code = 8;
   string failure_message = 9;
   ControllerDomainMetrics domain_metrics = 10;
+  RemoteProtocolStatus remote_protocol = 11;
+}
+
+// RemoteProtocolStatus records the current controller protocol refusal for one registration.
+// It is absent after a successful connection and is not a lifecycle authority.
+message RemoteProtocolStatus {
+  string host_protocol = 1;
+  uint32 min_protocol = 2;
+  uint32 max_protocol = 3;
+  string host_side = 4;
 }
 
 // ControllerDomainMetrics reports sampled traffic and session diagnostics for one registration

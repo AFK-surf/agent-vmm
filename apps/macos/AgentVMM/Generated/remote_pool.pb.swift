@@ -369,11 +369,40 @@ public nonisolated struct Agentvmm_Host_V1_ConnectorStatus: @unchecked Sendable 
   /// Clears the value of `domainMetrics`. Subsequent reads from it will return its default value.
   public mutating func clearDomainMetrics() {_uniqueStorage()._domainMetrics = nil}
 
+  public var remoteProtocol: Agentvmm_Host_V1_RemoteProtocolStatus {
+    get {_storage._remoteProtocol ?? Agentvmm_Host_V1_RemoteProtocolStatus()}
+    set {_uniqueStorage()._remoteProtocol = newValue}
+  }
+  /// Returns true if `remoteProtocol` has been explicitly set.
+  public var hasRemoteProtocol: Bool {_storage._remoteProtocol != nil}
+  /// Clears the value of `remoteProtocol`. Subsequent reads from it will return its default value.
+  public mutating func clearRemoteProtocol() {_uniqueStorage()._remoteProtocol = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
   fileprivate var _storage = _StorageClass.defaultInstance
+}
+
+/// RemoteProtocolStatus records the current controller protocol refusal for one registration.
+/// It is absent after a successful connection and is not a lifecycle authority.
+public nonisolated struct Agentvmm_Host_V1_RemoteProtocolStatus: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var hostProtocol: String = String()
+
+  public var minProtocol: UInt32 = 0
+
+  public var maxProtocol: UInt32 = 0
+
+  public var hostSide: String = String()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
 }
 
 /// ControllerDomainMetrics reports sampled traffic and session diagnostics for one registration
@@ -861,7 +890,7 @@ nonisolated extension Agentvmm_Host_V1_AllocationState: SwiftProtobuf._ProtoName
 
 nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ConnectorStatus"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}phase\0\u{3}connector_release\0\u{3}observed_at\0\u{3}last_connected_at\0\u{3}disconnected_at\0\u{3}next_retry_at\0\u{3}reconnect_attempt\0\u{3}failure_code\0\u{3}failure_message\0\u{3}domain_metrics\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}phase\0\u{3}connector_release\0\u{3}observed_at\0\u{3}last_connected_at\0\u{3}disconnected_at\0\u{3}next_retry_at\0\u{3}reconnect_attempt\0\u{3}failure_code\0\u{3}failure_message\0\u{3}domain_metrics\0\u{3}remote_protocol\0")
 
   fileprivate class _StorageClass {
     var _phase: Agentvmm_Host_V1_ConnectorPhase = .unspecified
@@ -874,6 +903,7 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
     var _failureCode: String = String()
     var _failureMessage: String = String()
     var _domainMetrics: Agentvmm_Host_V1_ControllerDomainMetrics? = nil
+    var _remoteProtocol: Agentvmm_Host_V1_RemoteProtocolStatus? = nil
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -894,6 +924,7 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
       _failureCode = source._failureCode
       _failureMessage = source._failureMessage
       _domainMetrics = source._domainMetrics
+      _remoteProtocol = source._remoteProtocol
     }
   }
 
@@ -922,6 +953,7 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
         case 8: try { try decoder.decodeSingularStringField(value: &_storage._failureCode) }()
         case 9: try { try decoder.decodeSingularStringField(value: &_storage._failureMessage) }()
         case 10: try { try decoder.decodeSingularMessageField(value: &_storage._domainMetrics) }()
+        case 11: try { try decoder.decodeSingularMessageField(value: &_storage._remoteProtocol) }()
         default: break
         }
       }
@@ -964,6 +996,9 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
       try { if let v = _storage._domainMetrics {
         try visitor.visitSingularMessageField(value: v, fieldNumber: 10)
       } }()
+      try { if let v = _storage._remoteProtocol {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+      } }()
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -983,10 +1018,56 @@ nonisolated extension Agentvmm_Host_V1_ConnectorStatus: SwiftProtobuf.Message, S
         if _storage._failureCode != rhs_storage._failureCode {return false}
         if _storage._failureMessage != rhs_storage._failureMessage {return false}
         if _storage._domainMetrics != rhs_storage._domainMetrics {return false}
+        if _storage._remoteProtocol != rhs_storage._remoteProtocol {return false}
         return true
       }
       if !storagesAreEqual {return false}
     }
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_RemoteProtocolStatus: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RemoteProtocolStatus"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}host_protocol\0\u{3}min_protocol\0\u{3}max_protocol\0\u{3}host_side\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularStringField(value: &self.hostProtocol) }()
+      case 2: try { try decoder.decodeSingularUInt32Field(value: &self.minProtocol) }()
+      case 3: try { try decoder.decodeSingularUInt32Field(value: &self.maxProtocol) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.hostSide) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    if !self.hostProtocol.isEmpty {
+      try visitor.visitSingularStringField(value: self.hostProtocol, fieldNumber: 1)
+    }
+    if self.minProtocol != 0 {
+      try visitor.visitSingularUInt32Field(value: self.minProtocol, fieldNumber: 2)
+    }
+    if self.maxProtocol != 0 {
+      try visitor.visitSingularUInt32Field(value: self.maxProtocol, fieldNumber: 3)
+    }
+    if !self.hostSide.isEmpty {
+      try visitor.visitSingularStringField(value: self.hostSide, fieldNumber: 4)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_RemoteProtocolStatus, rhs: Agentvmm_Host_V1_RemoteProtocolStatus) -> Bool {
+    if lhs.hostProtocol != rhs.hostProtocol {return false}
+    if lhs.minProtocol != rhs.minProtocol {return false}
+    if lhs.maxProtocol != rhs.maxProtocol {return false}
+    if lhs.hostSide != rhs.hostSide {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

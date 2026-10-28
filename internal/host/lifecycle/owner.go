@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -376,6 +377,10 @@ func (owner *Owner) shutdownOwned(ctx context.Context) error {
 
 func (owner *Owner) stopForShutdown(ctx context.Context) error {
 	owner.prepareVMTransition(ctx)
+	// The Linux VMM owns its process and disks across Host restarts.
+	if runtime.GOOS == "linux" {
+		return nil
+	}
 	if owner.manager.Snapshot().GetState() == hostv1.VMState_VM_STATE_RUNNING {
 		_, gracefulErr := owner.manager.Stop(ctx, false)
 		if gracefulErr == nil {

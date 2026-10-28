@@ -83,6 +83,10 @@ It then starts the service and VM. It preserves `/var/lib/agent-vmm`.
 A surviving VMM lock blocks replacement. Identify the exact owner before another action.
 Never delete the state directory to repair an update.
 
+Host service stop or restart preserves the independent VMM and its workloads.
+Update and uninstall stop the VM through the Host before stopping the service and confirming disk release.
+A failed VM stop preserves the service definition, installed release, and data for retry.
+
 ## Enrollment and observation
 
 `install --operation-stdin --request-id REQUEST` accepts a managed operation descriptor through stdin.
@@ -108,6 +112,11 @@ Schema 39 is the forward-migration baseline. Older data requires an approved res
 The Host migrates supported SQLite schemas before admitting controllers or runtime operations.
 One transaction commits all pending changes and version records. An interrupted transaction leaves the previous committed state.
 `version --json` reports `minimumSchema` and `currentSchema` for the target database decoder.
+It also reports `contractVersion=1` for the helper output contract.
+`status` and non-null `maintenance` or `maintenance-status` receipts report the same contract version.
+Unknown fields are additive. A consumer must understand the fields that its requested operation uses.
+A contract mismatch does not authorize data deletion, re-enrollment, or termination of independent children.
+If the installed helper cannot interpret the operation, use the existing update path from a verified target bundle.
 Maintenance checks this range before stopping or replacing the current Host.
 Its retained `target_older_than_data` receipt code means any unsupported source schema.
 Direct Host startup applies the same compatibility rule.

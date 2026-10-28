@@ -12,7 +12,17 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
+const cliContractVersion = 1
+
+type remoteProtocolStatus struct {
+	HostProtocol string `json:"hostProtocol"`
+	MinProtocol  uint32 `json:"minProtocol"`
+	MaxProtocol  uint32 `json:"maxProtocol"`
+	HostSide     string `json:"hostSide"`
+}
+
 type serviceStatus struct {
+	ContractVersion      int                                    `json:"contractVersion"`
 	AppInstalled         bool                                   `json:"appInstalled"`
 	ServiceApp           string                                 `json:"serviceApp"`
 	ServiceUser          string                                 `json:"serviceUser"`
@@ -33,6 +43,7 @@ type serviceStatus struct {
 	HostHealth           *hostv1.HealthStatus                   `json:"hostHealth,omitempty"`
 	RegistrationRead     string                                 `json:"registrationRead,omitempty"`
 	RegistrationState    string                                 `json:"registrationState,omitempty"`
+	RemoteProtocol       *remoteProtocolStatus                  `json:"remoteProtocol,omitempty"`
 	RegistrationReason   string                                 `json:"registrationReason,omitempty"`
 	HostResources        *hostv1.LayerResources                 `json:"hostResources,omitempty"`
 	GuestResources       *hostv1.LayerResources                 `json:"guestResources,omitempty"`
@@ -58,6 +69,7 @@ func readStatus(value paths) serviceStatus {
 
 func readStatusContext(ctx context.Context, value paths, registrationIDs ...string) serviceStatus {
 	result := serviceStatus{
+		ContractVersion:  cliContractVersion,
 		AppInstalled:     directory(value.app),
 		ServiceApp:       value.app,
 		ServiceUser:      value.service.User,
@@ -99,6 +111,7 @@ func readStatusContext(ctx context.Context, value paths, registrationIDs ...stri
 		result.RegistrationRead = facts.registrationRead
 		result.RegistrationState = facts.registrationState
 		result.RegistrationReason = facts.registrationReason
+		result.RemoteProtocol = facts.remoteProtocol
 		result.ConnectorLoaded = facts.connectorConnected
 		result.Snapshot = facts.snapshot
 		if facts.snapshot != nil {

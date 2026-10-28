@@ -4,6 +4,28 @@ The public wire owner is `api/remote/v1/remote.proto`.
 Controllers use [the Go controller SDK](../../controller/remote) for stream validation and virtual connections.
 `ControlSession` and `AcceptSession` own stream decoding. Integrations must not copy a private decoder.
 
+## Protocol window
+
+`controller/remote` defines integer `ProtocolVersion=4` and `MinProtocolVersion=4`.
+Hello sends the version as a decimal integer string.
+The controller accepts the inclusive range between those values.
+Versions 1 through 3 are unsupported. The first window contains only version 4.
+A later window can retain the previous version only when its message and operation semantics remain implemented.
+The window does not promise that an older controller can interpret a newer Host.
+
+An unsupported or malformed version returns gRPC `FailedPrecondition` with `google.rpc.ErrorInfo`.
+Its domain is `agent-vmm`, and its reason is `REMOTE_PROTOCOL_UNSUPPORTED`.
+Metadata contains `host_protocol`, `min_protocol`, `max_protocol`, and `host_side` (`too_old` or `too_new`).
+Malformed versions use `too_old`. Controllers must preserve these details through their gRPC boundary.
+Registration identity, connection epoch, and command target checks retain their existing owners.
+
+A connector that recognizes this refusal starts with its existing 30-second capped backoff and jitter.
+The refusal does not revoke credentials, change admission, or stop independent children and accepted work.
+Registration `ConnectorStatus.remote_protocol` records only the current refusal.
+A successful connection or a later status without this refusal clears it.
+The Host keeps this diagnostic in memory. After Host restart, it remains absent until another refusal arrives.
+An older Host does not acquire these diagnostic fields through a server update.
+
 ## Registration and enrollment
 
 Enrollment binds one registration, one device identity, and a one-time token.

@@ -9,8 +9,8 @@ User={{.User}}
 Group={{.Group}}
 WorkingDirectory={{.State}}
 ExecStart={{.Current}}/agent-vmm host --bundle {{.Current}}/guest --instance {{.State}}/instance --serial-log {{.State}}/logs/serial.log --operator-socket {{.State}}/operator.sock --remote-compute-socket {{.State}}/remote-compute.sock --database {{.State}}/host.sqlite --session-directory {{.State}}/sessions --data-worker {{.Current}}/agent-vmm-data --disable-personal-mesh-pairing
-# The VMM child has its own session and must outlive a Host restart. An
-# explicit stop sends SIGTERM to the Host, which stops the VM first.
+# Host stop or restart preserves the independent VMM child.
+# Update and uninstall stop the VM explicitly before stopping the Host.
 KillMode=process
 Restart=on-failure
 RestartSec=5

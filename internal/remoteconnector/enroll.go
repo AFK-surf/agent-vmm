@@ -3,6 +3,7 @@ package remoteconnector
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 )
@@ -29,7 +30,7 @@ func Enroll(ctx context.Context, config Config, token []byte) (string, error) {
 	defer client.connection.Close()
 	requestToken := append([]byte(nil), token...)
 	wipe(token)
-	request := &remotev1.EnrollRequest{ProtocolVersion: ProtocolVersion, RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, DeviceIdentity: identity}
+	request := &remotev1.EnrollRequest{ProtocolVersion: strconv.Itoa(ProtocolVersion), RegistrationId: config.RegistrationID, EnrollmentToken: requestToken, DeviceIdentity: identity}
 	response, err := client.client.Enroll(ctx, request)
 	wipe(requestToken)
 	request.EnrollmentToken = nil

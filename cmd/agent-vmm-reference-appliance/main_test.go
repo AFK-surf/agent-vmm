@@ -2,12 +2,10 @@ package main
 
 import (
 	"context"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/test/bufconn"
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -18,6 +16,9 @@ import (
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/test/bufconn"
 )
 
 type referenceControlStream struct {
@@ -32,7 +33,7 @@ type referenceControlStream struct {
 
 func newReferenceControlStream(ctx context.Context, inventory []*remotev1.Allocation) *referenceControlStream {
 	return &referenceControlStream{ctx: ctx, responses: make(chan *remotev1.ConnectRequest, 32), hello: &remotev1.HostHello{
-		ProtocolVersion: controllerremote.ProtocolVersion, RegistrationId: "registration", ConnectionEpoch: 7,
+		ProtocolVersion: strconv.Itoa(controllerremote.ProtocolVersion), RegistrationId: "registration", ConnectionEpoch: 7,
 		InventoryWatermark: 3, PoolRevision: 2, Inventory: inventory,
 	}}
 }

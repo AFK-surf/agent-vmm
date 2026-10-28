@@ -96,6 +96,8 @@ type Owner struct {
 	remoteEnrollmentLocks    locks.Keyed[string]
 	remoteConnectionEpochMu  sync.Mutex
 	remoteConnectionEpochs   map[string]uint64
+	connectorStatusMu        sync.Mutex
+	connectorProtocols       map[string]connectorProtocolObservation
 	domainMetricsMu          sync.Mutex
 	domainMetrics            map[string]*controllerDomainMetricState
 	allocationRetirementWake chan struct{}

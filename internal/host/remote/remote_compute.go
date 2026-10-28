@@ -209,8 +209,13 @@ func (server *Owner) ReportConnectorStatus(ctx context.Context, request *connect
 		}
 	}
 	failureCode, failureMessage := connectorFailure(statusValue.GetFailureCode())
+	server.connectorStatusMu.Lock()
 	updated, err := server.store.ReportConnectorStatus(ctx, registration.ID, request.GetConnectionInstance(), int32(statusValue.GetPhase()),
 		statusValue.GetConnectorRelease(), observed, nextRetry, statusValue.GetReconnectAttempt(), failureCode, failureMessage)
+	if err == nil {
+		server.recordConnectorProtocolLocked(updated, statusValue.GetRemoteProtocol())
+	}
+	server.connectorStatusMu.Unlock()
 	if err != nil {
 		return nil, err
 	}
@@ -232,6 +237,8 @@ func connectorFailure(code string) (string, string) {
 		return code, "Connector configuration must be repaired."
 	case "CREDENTIAL_UNAVAILABLE":
 		return code, "The controller credential is unavailable. Retry enrollment."
+	case "REMOTE_PROTOCOL_UNSUPPORTED":
+		return code, "The controller does not support this Host protocol."
 	case "CONTROLLER_AUTH_FAILED":
 		return code, "Controller authentication failed."
 	case "CONNECTION_ENDED", "CONNECTION_FAILED":
@@ -243,6 +250,7 @@ func connectorFailure(code string) (string, string) {
 
 func (controller *Owner) RegistrationCurrent(ctx context.Context, registration store.RemoteRegistration) *hostv1.RemoteRegistration {
 	result := registrationToProto(registration)
+	result.ConnectorStatus.RemoteProtocol = controller.connectorProtocol(registration)
 	result.DomainMetrics = controller.controllerDomainMetrics(registration.ID)
 	environments, _ := controller.store.ListRemoteEnvironments(ctx, registration.ID)
 	for _, environment := range environments {
@@ -253,6 +261,7 @@ func (controller *Owner) RegistrationCurrent(ctx context.Context, registration s
 
 func (controller *Owner) remoteRegistrationSnapshot(registration store.RemoteRegistration, environments []store.Environment) *hostv1.RemoteRegistration {
 	result := registrationToProto(registration)
+	result.ConnectorStatus.RemoteProtocol = controller.connectorProtocol(registration)
 	result.DomainMetrics = controller.controllerDomainMetrics(registration.ID)
 	for _, environment := range environments {
 		result.Allocations = append(result.Allocations, controller.Allocation(environment))

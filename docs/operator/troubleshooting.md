@@ -48,5 +48,16 @@ Authentication and configuration failures remain observable and retry under the 
 Only explicit credential revocation ends that registration's connector authority.
 Read [the remote protocol](../protocols/remote.md) before resolving an unknown result.
 
+For one registration, read `status --registration-id ID` through the lifecycle helper.
+`remoteProtocol` appears only for the current protocol refusal and can be absent after Host restart.
+It does not report Host health or registration admission.
+
+| Protocol refusal | Recovery |
+| --- | --- |
+| `remoteProtocol.hostSide=too_old` | Update the local component through existing maintenance. |
+| `remoteProtocol.hostSide=too_new` | Wait for a compatible controller update. Do not reinstall the Host. |
+| Helper output contract is missing or too old | Use the existing update path from a verified target bundle. |
+| Helper output contract is too new | Update Comma before using operations that it cannot interpret. |
+
 Use [install and update](install-and-update.md) for application replacement.
 Use [cleanup](cleanup-and-local-resources.md) for exact resource deletion.

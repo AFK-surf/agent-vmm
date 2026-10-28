@@ -39,7 +39,7 @@ func executeMaintenanceCommand(command string, service serviceRequest, args []st
 		if err != nil {
 			fatal(err.Error())
 		}
-		_ = json.NewEncoder(os.Stdout).Encode(result)
+		_ = json.NewEncoder(os.Stdout).Encode(maintenanceReport(result))
 		return
 	}
 	var request maintenanceRequest
@@ -83,7 +83,7 @@ func executeMaintenanceCommand(command string, service serviceRequest, args []st
 		_ = json.NewEncoder(os.Stdout).Encode(map[string]any{"error": map[string]string{"code": "owner_busy", "message": err.Error()}})
 		fatal(fmt.Sprintf("Host maintenance: %v", err))
 	}
-	_ = json.NewEncoder(os.Stdout).Encode(result)
+	_ = json.NewEncoder(os.Stdout).Encode(maintenanceReport(&result))
 	if err != nil {
 		fatal(fmt.Sprintf("Host maintenance: %v", err))
 	}

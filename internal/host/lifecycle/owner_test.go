@@ -7,6 +7,7 @@ import (
 	"errors"
 	"log/slog"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -221,12 +222,64 @@ func TestVMLifecycleOwnerTimedOutShutdownCanBeRetried(t *testing.T) {
 	}
 
 	close(release)
-	cleaned := false
-	owner.manager = &lifecycleTestManager{snapshot: func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING} }, stop: func(context.Context, bool) (*hostv1.VM, error) { cleaned = true; return &hostv1.VM{}, nil }}
-	if err := owner.Shutdown(context.Background()); err != nil || !cleaned {
-		t.Fatalf("retried shutdown error = %v, cleaned = %t", err, cleaned)
+	stopped := false
+	owner.manager = &lifecycleTestManager{snapshot: func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING} }, stop: func(context.Context, bool) (*hostv1.VM, error) { stopped = true; return &hostv1.VM{}, nil }}
+	if err := owner.Shutdown(context.Background()); err != nil || !owner.closing || stopped != (runtime.GOOS == "darwin") {
+		t.Fatalf("retried shutdown error = %v, closing = %t, VM stopped = %t", err, owner.closing, stopped)
 	}
 }
+
+func TestHostShutdownClosesRuntimeAuthority(t *testing.T) {
+	owner := lifecycleTestOwner(t)
+	runtime := &shutdownRuntime{closed: make(map[string]bool)}
+	owner.workloads, owner.services, owner.remote, owner.sessions, owner.appliances = runtime, runtime, runtime, runtime, runtime
+	cleared := false
+	owner.manager = &lifecycleTestManager{
+		snapshot: func() *hostv1.VM { return &hostv1.VM{State: hostv1.VMState_VM_STATE_RUNNING} },
+		stop:     func(context.Context, bool) (*hostv1.VM, error) { return &hostv1.VM{}, nil },
+		clear:    func() { cleared = true },
+	}
+	owner.admission.Store(1)
+	recovery, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	owner.recovery = cancel
+	owner.recoveryWG.Add(1)
+	done := make(chan struct{})
+	go func() {
+		defer owner.recoveryWG.Done()
+		<-recovery.Done()
+		close(done)
+	}()
+	if err := owner.Shutdown(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	default:
+		t.Fatal("Host shutdown did not wait for recovery to end")
+	}
+	if owner.AdmitsRemoteWork() || !cleared {
+		t.Fatalf("Host shutdown: admission=%t handlers cleared=%t", owner.AdmitsRemoteWork(), cleared)
+	}
+	for _, component := range []string{"workload-recovery", "egress", "connectors", "sessions", "appliances"} {
+		if !runtime.closed[component] {
+			t.Errorf("Host shutdown left %s active", component)
+		}
+	}
+}
+
+type shutdownRuntime struct {
+	lifecycleTestRuntime
+	closed map[string]bool
+}
+
+func (runtime *shutdownRuntime) ResetWorkloadRecovery()     { runtime.closed["workload-recovery"] = true }
+func (runtime *shutdownRuntime) StopEgress()                { runtime.closed["egress"] = true }
+func (runtime *shutdownRuntime) StopAllExternalConnectors() { runtime.closed["connectors"] = true }
+func (runtime *shutdownRuntime) RevokeAllSessions(context.Context) {
+	runtime.closed["sessions"] = true
+}
+func (runtime *shutdownRuntime) InvalidateAppliances() { runtime.closed["appliances"] = true }
 
 func TestVMLifecycleOwnerAdmissionStartsAndTransitionsClosed(t *testing.T) {
 	owner := &Owner{logger: slog.Default()}
@@ -283,13 +336,18 @@ type lifecycleTestManager struct {
 	Manager
 	snapshot func() *hostv1.VM
 	stop     func(context.Context, bool) (*hostv1.VM, error)
+	clear    func()
 }
 
 func (manager *lifecycleTestManager) Snapshot() *hostv1.VM { return manager.snapshot() }
 func (manager *lifecycleTestManager) Stop(ctx context.Context, force bool) (*hostv1.VM, error) {
 	return manager.stop(ctx, force)
 }
-func (*lifecycleTestManager) ClearLifecycleHandlers() {}
+func (manager *lifecycleTestManager) ClearLifecycleHandlers() {
+	if manager.clear != nil {
+		manager.clear()
+	}
+}
 func (*lifecycleTestManager) DialBoot(string) (*grpc.ClientConn, error) {
 	return nil, errors.New("Guest unavailable")
 }

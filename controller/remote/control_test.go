@@ -5,12 +5,17 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"testing"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type scriptedControlStream struct {
@@ -308,5 +313,31 @@ func TestValidateHelloRejectsIdentityAndInventoryDrift(t *testing.T) {
 
 func validHello() *remotev1.HostHello {
 	features := []string{controllerremote.RemoteObservationFeature}
-	return &remotev1.HostHello{ProtocolVersion: controllerremote.ProtocolVersion, RegistrationId: "registration-1", ConnectionEpoch: 19, InventoryWatermark: 7, SupportedFeatures: features, Inventory: []*remotev1.Allocation{{AllocationId: "allocation-1", Revision: 7}}}
+	return &remotev1.HostHello{ProtocolVersion: strconv.Itoa(controllerremote.ProtocolVersion), RegistrationId: "registration-1", ConnectionEpoch: 19, InventoryWatermark: 7, SupportedFeatures: features, Inventory: []*remotev1.Allocation{{AllocationId: "allocation-1", Revision: 7}}}
+}
+
+func TestAcceptControlRejectsUnsupportedProtocolWithRecoveryDetails(t *testing.T) {
+	for _, test := range []struct{ version, side string }{{"3", "too_old"}, {"5", "too_new"}, {"", "too_old"}, {"4.0", "too_old"}} {
+		t.Run(test.version, func(t *testing.T) {
+			hello := validHello()
+			hello.ProtocolVersion = test.version
+			stream := &scriptedControlStream{ctx: context.Background(), received: []*remotev1.ConnectRequest{{Payload: &remotev1.ConnectRequest_Hello{Hello: hello}}}}
+			_, err := controllerremote.AcceptControl(stream, hello.GetRegistrationId())
+			if status.Code(err) != codes.FailedPrecondition {
+				t.Fatalf("protocol refusal = %v", err)
+			}
+			var info *errdetails.ErrorInfo
+			for _, detail := range status.Convert(err).Details() {
+				if value, ok := detail.(*errdetails.ErrorInfo); ok {
+					info = value
+				}
+			}
+			if info.GetDomain() != hostv1.ErrorDomain || info.GetReason() != "REMOTE_PROTOCOL_UNSUPPORTED" || info.GetMetadata()["host_protocol"] != test.version || info.GetMetadata()["host_side"] != test.side || info.GetMetadata()["min_protocol"] != "4" || info.GetMetadata()["max_protocol"] != "4" {
+				t.Fatalf("recovery details = %+v", info)
+			}
+			if len(stream.sent) != 0 {
+				t.Fatal("unsupported Host received a command or ready acknowledgement")
+			}
+		})
+	}
 }

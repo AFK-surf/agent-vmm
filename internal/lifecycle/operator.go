@@ -24,6 +24,7 @@ type operatorFacts struct {
 	registrationRead   string
 	registrationState  string
 	registrationReason string
+	remoteProtocol     *remoteProtocolStatus
 	snapshot           *hostv1.GetSystemHealthSummaryResponse
 }
 
@@ -74,6 +75,9 @@ func readOperatorFactsContext(ctx context.Context, socket string, registrationID
 			facts.registrationState = "draining"
 		case hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED:
 			facts.registrationState = "revoked"
+		}
+		if protocol := remote.GetRegistration().GetConnectorStatus().GetRemoteProtocol(); protocol != nil {
+			facts.remoteProtocol = &remoteProtocolStatus{HostProtocol: protocol.GetHostProtocol(), MinProtocol: protocol.GetMinProtocol(), MaxProtocol: protocol.GetMaxProtocol(), HostSide: protocol.GetHostSide()}
 		}
 		facts.connectorConnected = remote.GetRegistration().GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED
 	}

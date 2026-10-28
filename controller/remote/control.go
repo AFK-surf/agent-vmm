@@ -4,10 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"sync"
 	"time"
 
+	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -17,7 +22,8 @@ var (
 )
 
 const (
-	ProtocolVersion          = "3"
+	ProtocolVersion          = 4
+	MinProtocolVersion       = 4
 	RemoteObservationFeature = "remote-observation-v1"
 	MaxActiveInventoryItems  = 64
 )
@@ -278,7 +284,10 @@ func ValidateHello(hello *remotev1.HostHello, registrationID string) error {
 	if hello == nil || hello.GetRegistrationId() == "" || hello.GetRegistrationId() != registrationID {
 		return errors.New("invalid remote registration identity")
 	}
-	if hello.GetConnectionEpoch() == 0 || hello.GetProtocolVersion() != ProtocolVersion {
+	if err := validateProtocolVersion(hello.GetProtocolVersion()); err != nil {
+		return err
+	}
+	if hello.GetConnectionEpoch() == 0 {
 		return errors.New("remote connection contract is incomplete")
 	}
 	if len(hello.GetInventory()) > MaxActiveInventoryItems {
@@ -326,4 +335,20 @@ func containsAll(values, required []string) bool {
 
 func IsUnknownOutcome(err error) bool {
 	return errors.Is(err, ErrUnknownOutcome)
+}
+
+func validateProtocolVersion(value string) error {
+	version, err := strconv.ParseUint(value, 10, 64)
+	if err == nil && version >= MinProtocolVersion && version <= ProtocolVersion {
+		return nil
+	}
+	side := "too_old"
+	if err == nil && version > ProtocolVersion {
+		side = "too_new"
+	}
+	failure, _ := status.New(codes.FailedPrecondition, "Host protocol is outside the supported range").WithDetails(&errdetails.ErrorInfo{
+		Domain: hostv1.ErrorDomain, Reason: "REMOTE_PROTOCOL_UNSUPPORTED",
+		Metadata: map[string]string{"host_protocol": value, "min_protocol": strconv.Itoa(MinProtocolVersion), "max_protocol": strconv.Itoa(ProtocolVersion), "host_side": side},
+	})
+	return failure.Err()
 }

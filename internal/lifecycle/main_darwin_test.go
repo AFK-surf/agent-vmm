@@ -132,6 +132,7 @@ func TestStatusDoesNotTurnLaunchctlFailureIntoKnownStoppedState(t *testing.T) {
 func TestVersionAndStatusReportSchemaCompatibility(t *testing.T) {
 	t.Parallel()
 	owner := serviceOwner{system: launchdservice.DefaultSystem(), observe: launchctlServiceObservation, drainVM: stopVMForUpdate}
+	writeContractFixture(t, "version.json", versionReport())
 	version, err := json.Marshal(versionReport())
 	schema := store.CurrentSchema()
 	if err != nil || !strings.Contains(string(version), fmt.Sprintf(`"currentSchema":%d`, schema)) {

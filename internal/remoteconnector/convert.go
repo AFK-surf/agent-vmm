@@ -1,6 +1,8 @@
 package remoteconnector
 
 import (
+	"strconv"
+
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
@@ -9,7 +11,7 @@ import (
 func hello(registration *hostv1.RemoteRegistration, instance string, epoch uint64, endpointObservation *trustv1.EndpointObservation, observation *remotev1.RemoteObservationSnapshot) *remotev1.HostHello {
 	pool := registration.GetPool()
 	message := &remotev1.HostHello{
-		ProtocolVersion: ProtocolVersion, ConnectorRelease: ConnectorRelease,
+		ProtocolVersion: strconv.Itoa(ProtocolVersion), ConnectorRelease: ConnectorRelease,
 		RegistrationId: registration.GetId(), ConnectionInstance: instance, PoolRevision: registration.GetPoolPolicyRevision(),
 		ConnectionEpoch: epoch, SupportedFeatures: append([]string(nil), protocolFeatures...),
 		InventoryWatermark:  registration.GetInventoryRevision(),

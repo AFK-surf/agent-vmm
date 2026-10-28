@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"strconv"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -15,6 +16,7 @@ import (
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
 	"github.com/AFK-surf/agent-vmm/internal/dataworker"
+	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/timestamppb"
@@ -40,9 +42,14 @@ func Run(ctx context.Context, config Config) error {
 		if err != nil && config.OnAttemptError != nil {
 			config.OnAttemptError(err)
 		}
-		wait := jitter(backoff.next(connected, time.Since(started)))
+		protocol := remoteProtocolFailure(err)
+		delay := backoff.next(connected, time.Since(started))
+		if protocol != nil {
+			delay, backoff.delay = MaxReconnectDelay, MaxReconnectDelay
+		}
+		wait := jitter(delay)
 		phase, code, message := connectorFailure(err)
-		reportConnectorStatus(ctx, config, phase, "", attempt, time.Now().Add(wait), code, message)
+		reportConnectorStatus(ctx, config, phase, "", attempt, time.Now().Add(wait), code, message, protocol)
 		config.Logger.Warn("controller connection ended", "error", err)
 		timer := time.NewTimer(wait)
 		select {
@@ -84,7 +91,7 @@ func runAttempt(ctx context.Context, config Config, observations *endpointObserv
 			observations.Store(observation)
 		}
 	}
-	reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTING, "", 0, time.Time{}, "", "")
+	reportConnectorStatus(ctx, config, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTING, "", 0, time.Time{}, "", "", nil)
 	return connectAttempt(ctx, config, worker, observations)
 }
 
@@ -240,7 +247,7 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 	tunnels := newTunnelManager(connectionContext, controller.client, local.client, registration.GetId(), instance, epoch, config.Logger)
 	defer tunnels.Close()
 
-	if _, err := reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", tunnels.DomainMetrics()); err != nil {
+	if _, err := reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", tunnels.DomainMetrics(), nil); err != nil {
 		return false, fmt.Errorf("connector status fence failed: %w", err)
 	}
 	if config.OnReady != nil {
@@ -318,17 +325,17 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 	}
 }
 
-func reportConnectorStatus(ctx context.Context, config Config, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string) {
+func reportConnectorStatus(ctx context.Context, config Config, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string, protocol *hostv1.RemoteProtocolStatus) {
 	local, err := newLocalClient(config.RemoteComputeSocket, config.RegistrationID)
 	if err != nil {
 		return
 	}
 	defer local.connection.Close()
-	_, _ = reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, phase, instance, attempt, nextRetry, code, message, nil)
+	_, _ = reportConnectorStatusWithClient(ctx, local.client, config.RegistrationID, phase, instance, attempt, nextRetry, code, message, nil, protocol)
 }
 
-func reportConnectorStatusWithClient(ctx context.Context, client connectorv1.RemoteComputeServiceClient, registrationID string, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string, metrics *hostv1.ControllerDomainMetrics) (*hostv1.RemoteRegistration, error) {
-	statusValue := &hostv1.ConnectorStatus{Phase: phase, ConnectorRelease: ConnectorRelease, ObservedAt: timestamppb.Now(), ReconnectAttempt: attempt, FailureCode: code, FailureMessage: message, DomainMetrics: metrics}
+func reportConnectorStatusWithClient(ctx context.Context, client connectorv1.RemoteComputeServiceClient, registrationID string, phase hostv1.ConnectorPhase, instance string, attempt uint32, nextRetry time.Time, code, message string, metrics *hostv1.ControllerDomainMetrics, protocol *hostv1.RemoteProtocolStatus) (*hostv1.RemoteRegistration, error) {
+	statusValue := &hostv1.ConnectorStatus{Phase: phase, ConnectorRelease: ConnectorRelease, ObservedAt: timestamppb.Now(), ReconnectAttempt: attempt, FailureCode: code, FailureMessage: message, DomainMetrics: metrics, RemoteProtocol: protocol}
 	if !nextRetry.IsZero() {
 		statusValue.NextRetryAt = timestamppb.New(nextRetry)
 	}
@@ -349,7 +356,7 @@ func connectorHeartbeat(ctx context.Context, client connectorv1.RemoteComputeSer
 			return
 		case <-ticker.C:
 			heartbeatContext, heartbeatCancel := context.WithTimeout(ctx, 3*time.Second)
-			registration, err := reportConnectorStatusWithClient(heartbeatContext, client, registrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", metrics())
+			registration, err := reportConnectorStatusWithClient(heartbeatContext, client, registrationID, hostv1.ConnectorPhase_CONNECTOR_PHASE_CONNECTED, instance, 0, time.Time{}, "", "", metrics(), nil)
 			heartbeatCancel()
 			if err != nil {
 				cancel(fmt.Errorf("local connector heartbeat failed: %w", err))
@@ -365,6 +372,8 @@ func connectorHeartbeat(ctx context.Context, client connectorv1.RemoteComputeSer
 
 func connectorFailure(err error) (hostv1.ConnectorPhase, string, string) {
 	switch {
+	case remoteProtocolFailure(err) != nil:
+		return hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT, "REMOTE_PROTOCOL_UNSUPPORTED", "The controller does not support this Host protocol."
 	case errors.Is(err, errConnectorConfiguration):
 		return hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, "CONNECTOR_CONFIG_INVALID", "Connector configuration must be repaired."
 	case errors.Is(err, ErrCredentialUnavailable):
@@ -392,4 +401,21 @@ func jitter(delay time.Duration) time.Duration {
 		return delay
 	}
 	return delay/2 + time.Duration(value[0])*delay/512
+}
+
+func remoteProtocolFailure(err error) *hostv1.RemoteProtocolStatus {
+	if status.Code(err) != codes.FailedPrecondition {
+		return nil
+	}
+	for _, detail := range status.Convert(err).Details() {
+		info, ok := detail.(*errdetails.ErrorInfo)
+		if !ok || info.GetDomain() != hostv1.ErrorDomain || info.GetReason() != "REMOTE_PROTOCOL_UNSUPPORTED" {
+			continue
+		}
+		metadata := info.GetMetadata()
+		minimum, _ := strconv.ParseUint(metadata["min_protocol"], 10, 32)
+		maximum, _ := strconv.ParseUint(metadata["max_protocol"], 10, 32)
+		return &hostv1.RemoteProtocolStatus{HostProtocol: metadata["host_protocol"], MinProtocol: uint32(minimum), MaxProtocol: uint32(maximum), HostSide: metadata["host_side"]}
+	}
+	return nil
 }
