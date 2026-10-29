@@ -904,6 +904,45 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
+        /// Namespace for "SetHostSocket" metadata.
+        public enum SetHostSocket: Sendable {
+            /// Request type for "SetHostSocket".
+            public typealias Input = Agentvmm_Host_V1_SetHostSocketRequest
+            /// Response type for "SetHostSocket".
+            public typealias Output = Agentvmm_Host_V1_SetHostSocketResponse
+            /// Descriptor for "SetHostSocket".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "SetHostSocket",
+                type: .unary
+            )
+        }
+        /// Namespace for "RemoveHostSocket" metadata.
+        public enum RemoveHostSocket: Sendable {
+            /// Request type for "RemoveHostSocket".
+            public typealias Input = Agentvmm_Host_V1_RemoveHostSocketRequest
+            /// Response type for "RemoveHostSocket".
+            public typealias Output = Agentvmm_Host_V1_RemoveHostSocketResponse
+            /// Descriptor for "RemoveHostSocket".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "RemoveHostSocket",
+                type: .unary
+            )
+        }
+        /// Namespace for "ListHostSockets" metadata.
+        public enum ListHostSockets: Sendable {
+            /// Request type for "ListHostSockets".
+            public typealias Input = Agentvmm_Host_V1_ListHostSocketsRequest
+            /// Response type for "ListHostSockets".
+            public typealias Output = Agentvmm_Host_V1_ListHostSocketsResponse
+            /// Descriptor for "ListHostSockets".
+            public static let descriptor = GRPCCore.MethodDescriptor(
+                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
+                method: "ListHostSockets",
+                type: .unary
+            )
+        }
         /// Descriptors for all methods in the "agentvmm.host.v1.OperatorService" service.
         public static let descriptors: [GRPCCore.MethodDescriptor] = [
             CreateMCPToken.descriptor,
@@ -973,7 +1012,10 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             CreateHostShare.descriptor,
             RebindHostShare.descriptor,
             RevokeHostShare.descriptor,
-            ListHostShares.descriptor
+            ListHostShares.descriptor,
+            SetHostSocket.descriptor,
+            RemoveHostSocket.descriptor,
+            ListHostSockets.descriptor
         ]
     }
 }
@@ -2594,6 +2636,78 @@ extension Agentvmm_Host_V1_OperatorService {
             deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListHostSharesResponse>,
             options: GRPCCore.CallOptions,
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSharesResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "SetHostSocket" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+        /// > selected environment's containers, or every environment's, rather than granting Host loopback or
+        /// > LAN access.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_SetHostSocketRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_SetHostSocketRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_SetHostSocketResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func setHostSocket<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SetHostSocketRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_SetHostSocketRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_SetHostSocketResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SetHostSocketResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "RemoveHostSocket" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > RemoveHostSocket removes the socket at one port of the selected environment, or of every
+        /// > environment.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RemoveHostSocketRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RemoveHostSocketRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RemoveHostSocketResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func removeHostSocket<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RemoveHostSocketRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RemoveHostSocketRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoveHostSocketResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoveHostSocketResponse>) async throws -> Result
+        ) async throws -> Result where Result: Sendable
+
+        /// Call the "ListHostSockets" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > ListHostSockets reads operator-approved Host sockets.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSocketsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListHostSocketsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListHostSocketsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        func listHostSockets<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSocketsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListHostSocketsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListHostSocketsResponse>,
+            options: GRPCCore.CallOptions,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSocketsResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
     }
 
@@ -4957,6 +5071,111 @@ extension Agentvmm_Host_V1_OperatorService {
                 onResponse: handleResponse
             )
         }
+
+        /// Call the "SetHostSocket" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+        /// > selected environment's containers, or every environment's, rather than granting Host loopback or
+        /// > LAN access.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_SetHostSocketRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_SetHostSocketRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_SetHostSocketResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func setHostSocket<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SetHostSocketRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_SetHostSocketRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_SetHostSocketResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SetHostSocketResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.SetHostSocket.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "RemoveHostSocket" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > RemoveHostSocket removes the socket at one port of the selected environment, or of every
+        /// > environment.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_RemoveHostSocketRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_RemoveHostSocketRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RemoveHostSocketResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func removeHostSocket<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RemoveHostSocketRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RemoveHostSocketRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RemoveHostSocketResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoveHostSocketResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.RemoveHostSocket.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
+
+        /// Call the "ListHostSockets" method.
+        ///
+        /// > Source IDL Documentation:
+        /// >
+        /// > ListHostSockets reads operator-approved Host sockets.
+        ///
+        /// - Parameters:
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSocketsRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ListHostSocketsRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ListHostSocketsResponse` messages.
+        ///   - options: Options to apply to this RPC.
+        ///   - handleResponse: A closure which handles the response, the result of which is
+        ///       returned to the caller. Returning from the closure will cancel the RPC if it
+        ///       hasn't already finished.
+        /// - Returns: The result of `handleResponse`.
+        public func listHostSockets<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSocketsRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ListHostSocketsRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ListHostSocketsResponse>,
+            options: GRPCCore.CallOptions = .defaults,
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSocketsResponse>) async throws -> Result = { response in
+                try response.message
+            }
+        ) async throws -> Result where Result: Sendable {
+            try await self.client.unary(
+                request: request,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ListHostSockets.descriptor,
+                serializer: serializer,
+                deserializer: deserializer,
+                options: options,
+                onResponse: handleResponse
+            )
+        }
     }
 }
 
@@ -6958,6 +7177,96 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             request: request,
             serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListHostSharesRequest>(),
             deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListHostSharesResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "SetHostSocket" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+    /// > selected environment's containers, or every environment's, rather than granting Host loopback or
+    /// > LAN access.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_SetHostSocketRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func setHostSocket<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_SetHostSocketRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SetHostSocketResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.setHostSocket(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_SetHostSocketRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_SetHostSocketResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RemoveHostSocket" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > RemoveHostSocket removes the socket at one port of the selected environment, or of every
+    /// > environment.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_RemoveHostSocketRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func removeHostSocket<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RemoveHostSocketRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoveHostSocketResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.removeHostSocket(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RemoveHostSocketRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_RemoveHostSocketResponse>(),
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListHostSockets" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > ListHostSockets reads operator-approved Host sockets.
+    ///
+    /// - Parameters:
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ListHostSocketsRequest` message.
+    ///   - options: Options to apply to this RPC.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listHostSockets<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSocketsRequest>,
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSocketsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        try await self.listHostSockets(
+            request: request,
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ListHostSocketsRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ListHostSocketsResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -9233,6 +9542,108 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
             metadata: metadata
         )
         return try await self.listHostShares(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "SetHostSocket" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+    /// > selected environment's containers, or every environment's, rather than granting Host loopback or
+    /// > LAN access.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func setHostSocket<Result>(
+        _ message: Agentvmm_Host_V1_SetHostSocketRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_SetHostSocketResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_SetHostSocketRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.setHostSocket(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "RemoveHostSocket" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > RemoveHostSocket removes the socket at one port of the selected environment, or of every
+    /// > environment.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func removeHostSocket<Result>(
+        _ message: Agentvmm_Host_V1_RemoveHostSocketRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RemoveHostSocketResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RemoveHostSocketRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.removeHostSocket(
+            request: request,
+            options: options,
+            onResponse: handleResponse
+        )
+    }
+
+    /// Call the "ListHostSockets" method.
+    ///
+    /// > Source IDL Documentation:
+    /// >
+    /// > ListHostSockets reads operator-approved Host sockets.
+    ///
+    /// - Parameters:
+    ///   - message: request message to send.
+    ///   - metadata: Additional metadata to send, defaults to empty.
+    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
+    ///   - handleResponse: A closure which handles the response, the result of which is
+    ///       returned to the caller. Returning from the closure will cancel the RPC if it
+    ///       hasn't already finished.
+    /// - Returns: The result of `handleResponse`.
+    public func listHostSockets<Result>(
+        _ message: Agentvmm_Host_V1_ListHostSocketsRequest,
+        metadata: GRPCCore.Metadata = [:],
+        options: GRPCCore.CallOptions = .defaults,
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ListHostSocketsResponse>) async throws -> Result = { response in
+            try response.message
+        }
+    ) async throws -> Result where Result: Sendable {
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ListHostSocketsRequest>(
+            message: message,
+            metadata: metadata
+        )
+        return try await self.listHostSockets(
             request: request,
             options: options,
             onResponse: handleResponse

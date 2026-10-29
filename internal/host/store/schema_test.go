@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"testing"
 	"time"
@@ -93,13 +94,13 @@ func TestForwardMigrationCommitsFactsAndRetriesAfterFailure(t *testing.T) {
 	}
 	db.Close()
 	first := `ALTER TABLE environments ADD COLUMN migration_note TEXT NOT NULL DEFAULT ''; UPDATE environments SET migration_note=display_name, display_name='converted'`
-	_, err = open(path, []string{first, `INSERT INTO missing_table VALUES(1)`})
+	_, err = open(path, migrationsThen(first, `INSERT INTO missing_table VALUES(1)`))
 	var failure *SchemaError
-	if !errors.As(err, &failure) || failure.Code != MigrationFailed || failure.DataSchema != minimumSchema {
+	if !errors.As(err, &failure) || failure.Code != MigrationFailed || failure.DataSchema != CurrentSchema() {
 		t.Fatalf("failure = %v", err)
 	}
 	version, err := ReadSchemaVersion(path)
-	if err != nil || version != minimumSchema {
+	if err != nil || version != CurrentSchema() {
 		t.Fatalf("rollback schema = %d, %v", version, err)
 	}
 	db, err = Open(path)
@@ -112,7 +113,7 @@ func TestForwardMigrationCommitsFactsAndRetriesAfterFailure(t *testing.T) {
 	}
 	db.Close()
 	for range 2 {
-		db, err = open(path, []string{first})
+		db, err = open(path, migrationsThen(first))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -158,7 +159,7 @@ func TestMigrationProcessCrashRollsBack(t *testing.T) {
 			fmt.Println("migration transaction open")
 			select {}
 		})
-		_, err := open(path, []string{`ALTER TABLE environments ADD COLUMN migration_note TEXT; SELECT migration_pause()`})
+		_, err := open(path, migrationsThen(`ALTER TABLE environments ADD COLUMN migration_note TEXT; SELECT migration_pause()`))
 		t.Fatalf("migration returned before kill: %v", err)
 	}
 	path := filepath.Join(t.TempDir(), "host.db")
@@ -197,7 +198,12 @@ func TestMigrationProcessCrashRollsBack(t *testing.T) {
 		t.Fatalf("partial DDL survived crash: %d, %v", columns, err)
 	}
 	version, err := ReadSchemaVersion(path)
-	if err != nil || version != minimumSchema {
+	if err != nil || version != CurrentSchema() {
 		t.Fatalf("crash schema = %d, %v", version, err)
 	}
+}
+
+// migrationsThen is this build's migrations, then more of a later build's.
+func migrationsThen(more ...string) []string {
+	return append(slices.Clone(schemaMigrations), more...)
 }

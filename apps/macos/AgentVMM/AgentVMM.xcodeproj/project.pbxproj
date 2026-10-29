@@ -23,6 +23,7 @@
 		50B38966969D4E84CF17E4EB /* DiagnosticsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 42A779C877C5406FF6046D1E /* DiagnosticsView.swift */; };
 		51FB32AB12A4D5FE5A4A795F /* AgentVMMApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = EE3A35843F21612FE8DAFE3C /* AgentVMMApp.swift */; };
 		543755B0FA9C570ECAEC23DE /* host_share.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4372E6AF6265EF4847446A4B /* host_share.pb.swift */; };
+		551EC5C7D327F1DB24AEDFDE /* host_socket.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4072931869D15DFA4AA4EE86 /* host_socket.pb.swift */; };
 		5F65543BEDAF5A85FE423889 /* runtime.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = A0DE2105CC60C487049F31C3 /* runtime.pb.swift */; };
 		65F42EF6E3608AF2EB550AA4 /* AppModel+AgentAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1C444C2404E94BBFA93CE21 /* AppModel+AgentAccess.swift */; };
 		66F83643D725F5CBE9ABFFC5 /* errors.pb.swift in Sources */ = {isa = PBXBuildFile; fileRef = FACFB549DA956C67D1FEDE81 /* errors.pb.swift */; };
@@ -86,6 +87,7 @@
 		3CDED0CD99B803F947F2366E /* BundledMCPAppliance.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BundledMCPAppliance.swift; sourceTree = "<group>"; };
 		3CE99992EB16CD1F9D59C9CD /* StateLabels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StateLabels.swift; sourceTree = "<group>"; };
 		3EEF82E6B12ADE62188F610F /* mesh.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = mesh.pb.swift; sourceTree = "<group>"; };
+		4072931869D15DFA4AA4EE86 /* host_socket.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = host_socket.pb.swift; sourceTree = "<group>"; };
 		42A779C877C5406FF6046D1E /* DiagnosticsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DiagnosticsView.swift; sourceTree = "<group>"; };
 		4372E6AF6265EF4847446A4B /* host_share.pb.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = host_share.pb.swift; sourceTree = "<group>"; };
 		47173571AF337BCC80DC2398 /* FakeHost.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FakeHost.swift; sourceTree = "<group>"; };
@@ -270,6 +272,7 @@
 				2A3BD639B5DEE6269F188018 /* appliance.pb.swift */,
 				FACFB549DA956C67D1FEDE81 /* errors.pb.swift */,
 				4372E6AF6265EF4847446A4B /* host_share.pb.swift */,
+				4072931869D15DFA4AA4EE86 /* host_socket.pb.swift */,
 				3EEF82E6B12ADE62188F610F /* mesh.pb.swift */,
 				20A154B6A660CC913B39DC8F /* operator.grpc.swift */,
 				D37280606321B10D7AA8C021 /* operator.pb.swift */,
@@ -428,6 +431,7 @@
 				DBD8D0970D9F24C92A8C5585 /* appliance.pb.swift in Sources */,
 				66F83643D725F5CBE9ABFFC5 /* errors.pb.swift in Sources */,
 				543755B0FA9C570ECAEC23DE /* host_share.pb.swift in Sources */,
+				551EC5C7D327F1DB24AEDFDE /* host_socket.pb.swift in Sources */,
 				6F265DFDC162350BCE8C3EE8 /* mesh.pb.swift in Sources */,
 				FB726BF6E57CB7E93B8725C8 /* operator.grpc.swift in Sources */,
 				6D43217B1F9763391B3F9933 /* operator.pb.swift in Sources */,

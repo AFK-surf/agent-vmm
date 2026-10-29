@@ -16,7 +16,7 @@ import (
 )
 
 const (
-	managedUsage             = "usage: agent-vmm inspect|diagnose|logs|operation|repair|update ... | agent-vmm vm start|status|stop ... | agent-vmm cleanup preview|execute ... | agent-vmm appliance install|update|status|recover|stop|start|activate|restart|revoke|remove ..."
+	managedUsage             = "usage: agent-vmm inspect|diagnose|logs|operation|repair|update ... | agent-vmm vm start|status|stop ... | agent-vmm cleanup preview|execute ... | agent-vmm host-socket set|remove|list ... | agent-vmm appliance install|update|status|recover|stop|start|activate|restart|revoke|remove ..."
 	managedEnvelopeVersion   = 1
 	managedObservationBudget = 30 * time.Second
 	managedPollInterval      = 2 * time.Second
@@ -50,6 +50,8 @@ type managedRuntime struct {
 	removePrepared   func(string) error
 	readLogs         func(context.Context, string, string, string, string, int, bool) ([]managedLogRecord, string, bool, error)
 	sleep            func(context.Context, time.Duration) error
+	// hostSockets stands in for the operator connection's client (tests).
+	hostSockets hostv1.OperatorServiceClient
 }
 
 type managedOptions struct {
@@ -80,6 +82,8 @@ type managedOptions struct {
 	artifactSHA256 string
 	artifactSize   uint64
 	targetRelease  string
+	port           uint
+	path           string
 }
 
 type managedStringList []string
@@ -187,6 +191,8 @@ func managedHelp(command string) string {
 		return "usage: agent-vmm logs (--component host|guest [--operation-id ID] | --environment-id ID --container-id ID [--include-container-output]) [--after-cursor CURSOR] [--limit 1..100] [--json]\n"
 	case "operation":
 		return "usage: agent-vmm operation get|follow --owner lifecycle|host --operation-id ID [--json]\n"
+	case "host-socket":
+		return "usage: agent-vmm host-socket set [--environment-id ID] --port PORT --path PATH --request-id ID | agent-vmm host-socket remove [--environment-id ID] --port PORT --request-id ID | agent-vmm host-socket list [--environment-id ID] [--operator-socket PATH] [--json]\nThe containers of the environment (without --environment-id: of every environment) reach the Host Unix socket at PATH over TCP at 100.127.255.1:PORT.\n"
 	case "vm":
 		return "usage: agent-vmm vm status [--operator-socket PATH] [--json] | agent-vmm vm start|stop --request-id ID [--operator-socket PATH] [--force (stop only)] [--json]\nvm start and stop acknowledge an action on the whole VM, including workloads that are not individually listed.\n"
 	case "repair":

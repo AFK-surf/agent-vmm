@@ -10,6 +10,9 @@ Use `--json` for the structured result. Unknown or incomplete arguments return `
 | `agent-vmm cleanup execute` | `--json`, `--operator-socket`, `--environment-id`, `--kind`, `--request-id`, `--plan-revision`, `--confirm-volume`, `--confirm-irreversible` |
 | `agent-vmm cleanup preview` | `--json`, `--operator-socket`, `--environment-id`, `--kind` |
 | `agent-vmm diagnose` | `--operator-socket`, `--json`, `--service-type`, `--service-user`, `--service-app`, `--lifecycle-helper`, `--registration-id`, `--environment-id`, `--workload-id` |
+| `agent-vmm host-socket list` | `--json`, `--operator-socket`, `--environment-id` |
+| `agent-vmm host-socket remove` | `--json`, `--operator-socket`, `--environment-id`, `--port`, `--request-id` |
+| `agent-vmm host-socket set` | `--json`, `--operator-socket`, `--environment-id`, `--port`, `--path`, `--request-id` |
 | `agent-vmm inspect` | `--operator-socket`, `--json`, `--service-type`, `--service-user`, `--service-app`, `--lifecycle-helper`, `--registration-id`, `--environment-id`, `--workload-id` |
 | `agent-vmm logs` | `--json`, `--service-type`, `--service-user`, `--service-app`, `--lifecycle-helper`, `--operator-socket`, `--registration-id`, `--environment-id`, `--container-id`, `--component`, `--operation-id`, `--after-cursor`, `--limit`, `--include-container-output` |
 | `agent-vmm operation follow` | `--operator-socket`, `--json`, `--service-type`, `--service-user`, `--service-app`, `--lifecycle-helper`, `--owner`, `--operation-id`, `--follow` |

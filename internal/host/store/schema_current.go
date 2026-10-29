@@ -313,4 +313,9 @@ const applianceFrontendsSchema = `CREATE TABLE "appliance_frontends" (
 			exposure INTEGER NOT NULL CHECK(exposure IN (1, 2, 3)), max_frame_bytes INTEGER NOT NULL,
 			max_total_bytes INTEGER NOT NULL, deadline_seconds INTEGER NOT NULL, idle_seconds INTEGER NOT NULL,
 			max_concurrent_streams INTEGER NOT NULL,
-			PRIMARY KEY(installation_id, name), CHECK(exposure != 3 OR transport = 2));`
+			PRIMARY KEY(installation_id, name), CHECK(exposure != 3 OR transport = 2));
+CREATE TABLE host_sockets (
+			environment_id TEXT REFERENCES environments(id) ON DELETE CASCADE,
+			port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535 AND port != 53), path TEXT NOT NULL,
+			revision INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX host_sockets_port ON host_sockets(IFNULL(environment_id, ''), port);`

@@ -54,6 +54,19 @@ The Host chooses the actual LAN interface and port for a `LAN_HTTP` frontend.
 Appliance status reports that endpoint. The frontend supplies neither public reachability nor TLS termination.
 The appliance authenticates clients and restricts its application routes.
 
+## Host sockets
+
+An operator can approve one Host Unix socket at one TCP port of the Host virtual address (`100.127.255.1`):
+`agent-vmm host-socket set [--environment-id ID] --port PORT --path PATH --request-id ID`.
+Without an environment ID, the grant applies to every environment of this Host. An environment's own grant at the same port takes its place there.
+The containers connect to `100.127.255.1:PORT`. The Host egress connects each such flow to the socket.
+The grant gives no other Host loopback, LAN, or socket access. Port 53 stays the virtual DNS.
+The approval is the Host owner's, so it also applies to controller-owned environments. A controller policy update does not change it.
+The path must be absolute and clean. The socket can come later: each flow connects to the path as it is then, and a flow to a missing socket is refused.
+Removal (`host-socket remove`) or a new path ends the current flows. The environment's removal removes its own sockets.
+The program behind the socket sees the Host process as its peer, not the container.
+An installer can approve a known local service once, before the service or the environments exist.
+
 ## Listeners and restart
 
 MCP uses fixed loopback HTTP with issued Bearer tokens.

@@ -5,6 +5,7 @@ Generated from protobuf declarations and comments. Run `make proto-docs` to upda
 - [appliance/v1/appliance.proto](appliance-v1-appliance.md)
 - [host/v1/errors.proto](host-v1-errors.md)
 - [host/v1/host_share.proto](host-v1-host_share.md)
+- [host/v1/host_socket.proto](host-v1-host_socket.md)
 - [host/v1/mesh.proto](host-v1-mesh.md)
 - [host/v1/operator.proto](host-v1-operator.md)
 - [host/v1/options.proto](host-v1-options.md)

@@ -2705,6 +2705,41 @@ public nonisolated struct Agentvmm_Host_V1_RevokeHostShareResponse: Sendable {
   fileprivate var _share: Agentvmm_Host_V1_HostShare? = nil
 }
 
+/// SetHostSocketResponse carries results from an operation that approves one Host Unix socket at
+/// one port for the selected environment, or every environment.
+public nonisolated struct Agentvmm_Host_V1_SetHostSocketResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var hostSocket: Agentvmm_Host_V1_HostSocket {
+    get {_hostSocket ?? Agentvmm_Host_V1_HostSocket()}
+    set {_hostSocket = newValue}
+  }
+  /// Returns true if `hostSocket` has been explicitly set.
+  public var hasHostSocket: Bool {self._hostSocket != nil}
+  /// Clears the value of `hostSocket`. Subsequent reads from it will return its default value.
+  public mutating func clearHostSocket() {self._hostSocket = nil}
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _hostSocket: Agentvmm_Host_V1_HostSocket? = nil
+}
+
+/// RemoveHostSocketResponse carries results from an operation that removes the socket at one port
+/// of the selected environment, or of every environment.
+public nonisolated struct Agentvmm_Host_V1_RemoveHostSocketResponse: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+}
+
 /// GetSystemSnapshotResponse carries results from an operation that reads operator inventory
 /// across Host-owned environments and registrations.
 public nonisolated struct Agentvmm_Host_V1_GetSystemSnapshotResponse: @unchecked Sendable {
@@ -7447,6 +7482,59 @@ nonisolated extension Agentvmm_Host_V1_RevokeHostShareResponse: SwiftProtobuf.Me
 
   public static func ==(lhs: Agentvmm_Host_V1_RevokeHostShareResponse, rhs: Agentvmm_Host_V1_RevokeHostShareResponse) -> Bool {
     if lhs._share != rhs._share {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_SetHostSocketResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".SetHostSocketResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}host_socket\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._hostSocket) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._hostSocket {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_SetHostSocketResponse, rhs: Agentvmm_Host_V1_SetHostSocketResponse) -> Bool {
+    if lhs._hostSocket != rhs._hostSocket {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_RemoveHostSocketResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RemoveHostSocketResponse"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap()
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    // Load everything into unknown fields
+    while try decoder.nextFieldNumber() != nil {}
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_RemoveHostSocketResponse, rhs: Agentvmm_Host_V1_RemoveHostSocketResponse) -> Bool {
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

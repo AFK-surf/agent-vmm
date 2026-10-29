@@ -292,6 +292,11 @@ func (subsystem *Subsystem) authorizeEndpoint(bootID string, sourceAddress, dest
 	if virtualDNS && destination == host {
 		return environment, infrastructure, true, sourcePolicy
 	}
+	// The Host virtual address beyond its DNS: only an operator-approved Host socket of the source's environment.
+	if destination == host {
+		_, granted := sourcePolicy.HostSocketPath(port)
+		return environment, infrastructure, tcp && !dnsAnswer && !infrastructure && granted, sourcePolicy
+	}
 	var hosts []netip.Addr
 	addresses, err := net.InterfaceAddrs()
 	if err != nil {

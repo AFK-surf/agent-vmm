@@ -59,6 +59,15 @@ var managedCommands = map[string]managedCommand{
 	"update": {flags: []string{"json", "service-type", "service-user", "lifecycle-helper", "request-id", "target-release-id", "artifact-url", "artifact-sha256", "artifact-size"}, run: func(ctx context.Context, runtime managedRuntime, opts managedOptions, emit func(managedEnvelope) error) ([]managedEnvelope, error) {
 		return singleManaged(runtime.update(ctx, opts))
 	}, failure: "update_failed"},
+	"host-socket set": {flags: []string{"json", "operator-socket", "environment-id", "port", "path", "request-id"}, run: func(ctx context.Context, runtime managedRuntime, opts managedOptions, emit func(managedEnvelope) error) ([]managedEnvelope, error) {
+		return singleManaged(runtime.hostSocket(ctx, "set", opts))
+	}, failure: "host_socket_failed"},
+	"host-socket remove": {flags: []string{"json", "operator-socket", "environment-id", "port", "request-id"}, run: func(ctx context.Context, runtime managedRuntime, opts managedOptions, emit func(managedEnvelope) error) ([]managedEnvelope, error) {
+		return singleManaged(runtime.hostSocket(ctx, "remove", opts))
+	}, failure: "host_socket_failed"},
+	"host-socket list": {flags: []string{"json", "operator-socket", "environment-id"}, run: func(ctx context.Context, runtime managedRuntime, opts managedOptions, emit func(managedEnvelope) error) ([]managedEnvelope, error) {
+		return singleManaged(runtime.hostSocket(ctx, "list", opts))
+	}, failure: "host_socket_failed"},
 	"cleanup preview": {flags: []string{"json", "operator-socket", "environment-id", "kind"}, run: func(ctx context.Context, runtime managedRuntime, opts managedOptions, emit func(managedEnvelope) error) ([]managedEnvelope, error) {
 		return singleManaged(runtime.cleanup(ctx, "preview", opts))
 	}, failure: "cleanup_failed"},
@@ -69,7 +78,7 @@ var managedCommands = map[string]managedCommand{
 
 func isManagedCommand(command string) bool {
 	switch command {
-	case "inspect", "diagnose", "logs", "operation", "repair", "update", "vm", "cleanup":
+	case "inspect", "diagnose", "logs", "operation", "repair", "update", "vm", "cleanup", "host-socket":
 		return true
 	default:
 		return false
@@ -110,6 +119,13 @@ func runManagedCLI(arguments []string, stdout, stderr io.Writer, runtime managed
 	if command == "cleanup" {
 		if len(remaining) == 0 || remaining[0] != "preview" && remaining[0] != "execute" {
 			writeManagedError(stderr, command, "invalid_arguments", "cleanup requires preview or execute")
+			return 2
+		}
+		subcommand, remaining = remaining[0], remaining[1:]
+	}
+	if command == "host-socket" {
+		if len(remaining) == 0 || remaining[0] != "set" && remaining[0] != "remove" && remaining[0] != "list" {
+			writeManagedError(stderr, command, "invalid_arguments", "host-socket requires set, remove, or list")
 			return 2
 		}
 		subcommand, remaining = remaining[0], remaining[1:]
@@ -207,6 +223,10 @@ func parseManagedOptions(command, subcommand string, arguments []string) (manage
 			flags.Uint64Var(&opts.artifactSize, name, 0, "artifact size")
 		case "target-release-id":
 			flags.StringVar(&opts.targetRelease, name, "", "selected release id")
+		case "port":
+			flags.UintVar(&opts.port, name, 0, "port of the Host virtual address")
+		case "path":
+			flags.StringVar(&opts.path, name, "", "absolute Host Unix socket path")
 		}
 	}
 	if err := flags.Parse(arguments); err != nil || flags.NArg() != 0 {
@@ -301,11 +321,19 @@ func parseManagedOptions(command, subcommand string, arguments []string) (manage
 			return managedOptions{}, errors.New("update does not accept --operator-socket or --service-app")
 		}
 	}
-	if opts.lifecycle == "" && command != "vm" && command != "cleanup" {
+	if command == "host-socket" {
+		if subcommand != "list" && (opts.port == 0 || opts.port > 65535 || opts.requestID == "") {
+			return managedOptions{}, errors.New("host-socket " + subcommand + " requires --port and --request-id")
+		}
+		if subcommand == "set" && !filepath.IsAbs(opts.path) {
+			return managedOptions{}, errors.New("host-socket set requires an absolute --path")
+		}
+	}
+	if opts.lifecycle == "" && command != "vm" && command != "cleanup" && command != "host-socket" {
 		executable, _ := os.Executable()
 		opts.lifecycle = defaultLifecycleHelper(executable)
 	}
-	if (command == "vm" || command == "cleanup") && opts.operatorSocket == "" {
+	if (command == "vm" || command == "cleanup" || command == "host-socket") && opts.operatorSocket == "" {
 		home, err := os.UserHomeDir()
 		if err != nil {
 			return managedOptions{}, errors.New("service user home is unavailable")

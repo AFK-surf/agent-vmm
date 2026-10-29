@@ -30,6 +30,15 @@ type Source struct {
 	InstanceID       string
 	GrantRevision    uint64
 	HostTCPEndpoints []netip.AddrPort
+	// HostSockets are the operator-approved Host Unix sockets the source reaches at ports of the
+	// Host virtual address, ordered by port.
+	HostSockets []HostSocket
+}
+
+// HostSocket is one Host Unix socket a source reaches at a port of the Host virtual address.
+type HostSocket struct {
+	Port uint16
+	Path string
 }
 
 type Snapshot struct {
@@ -87,7 +96,7 @@ func (policies *Policies) Clear() {
 
 func (policies *Policies) Resolve(bootID string, address netip.Addr) (Source, bool) {
 	result, found := policies.Lookup(bootID, address)
-	return result, found && (result.Mode == PublicInternet || result.LANEgress || len(result.HostTCPEndpoints) > 0)
+	return result, found && (result.Mode == PublicInternet || result.LANEgress || len(result.HostTCPEndpoints) > 0 || len(result.HostSockets) > 0)
 }
 
 func (policies *Policies) Lookup(bootID string, address netip.Addr) (Source, bool) {
@@ -367,6 +376,7 @@ func (policies *Policies) RevokeEnvironment(environmentID string) {
 			sources[index].Mode = DenyAll
 			sources[index].LANEgress = false
 			sources[index].HostTCPEndpoints = nil
+			sources[index].HostSockets = nil
 		}
 	}
 	policies.state.Store(&policyState{bootID: current.bootID, revision: current.revision, sources: sources, changed: make(chan struct{})})
@@ -375,10 +385,21 @@ func (policies *Policies) RevokeEnvironment(environmentID string) {
 
 func (source Source) Clone() Source {
 	source.HostTCPEndpoints = slices.Clone(source.HostTCPEndpoints)
+	source.HostSockets = slices.Clone(source.HostSockets)
 	return source
 }
+
+// HostSocketPath is the Host Unix socket the source reaches at port of the Host virtual address.
+func (source Source) HostSocketPath(port uint16) (string, bool) {
+	for _, socket := range source.HostSockets {
+		if socket.Port == port {
+			return socket.Path, true
+		}
+	}
+	return "", false
+}
 func (source Source) Equal(other Source) bool {
-	return source.EnvironmentID == other.EnvironmentID && source.NamespaceID == other.NamespaceID && source.Subnet == other.Subnet && source.Mode == other.Mode && source.LANEgress == other.LANEgress && source.InstanceID == other.InstanceID && source.GrantRevision == other.GrantRevision && slices.Equal(source.HostTCPEndpoints, other.HostTCPEndpoints)
+	return source.EnvironmentID == other.EnvironmentID && source.NamespaceID == other.NamespaceID && source.Subnet == other.Subnet && source.Mode == other.Mode && source.LANEgress == other.LANEgress && source.InstanceID == other.InstanceID && source.GrantRevision == other.GrantRevision && slices.Equal(source.HostTCPEndpoints, other.HostTCPEndpoints) && slices.Equal(source.HostSockets, other.HostSockets)
 }
 func cloneSources(sources []Source) []Source {
 	result := make([]Source, len(sources))

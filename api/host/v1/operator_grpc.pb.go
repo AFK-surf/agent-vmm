@@ -87,6 +87,9 @@ const (
 	OperatorService_RebindHostShare_FullMethodName                 = "/agentvmm.host.v1.OperatorService/RebindHostShare"
 	OperatorService_RevokeHostShare_FullMethodName                 = "/agentvmm.host.v1.OperatorService/RevokeHostShare"
 	OperatorService_ListHostShares_FullMethodName                  = "/agentvmm.host.v1.OperatorService/ListHostShares"
+	OperatorService_SetHostSocket_FullMethodName                   = "/agentvmm.host.v1.OperatorService/SetHostSocket"
+	OperatorService_RemoveHostSocket_FullMethodName                = "/agentvmm.host.v1.OperatorService/RemoveHostSocket"
+	OperatorService_ListHostSockets_FullMethodName                 = "/agentvmm.host.v1.OperatorService/ListHostSockets"
 )
 
 // OperatorServiceClient is the client API for OperatorService service.
@@ -266,6 +269,15 @@ type OperatorServiceClient interface {
 	RevokeHostShare(ctx context.Context, in *RevokeHostShareRequest, opts ...grpc.CallOption) (*RevokeHostShareResponse, error)
 	// ListHostShares reads operator-approved directory shares and their current references.
 	ListHostShares(ctx context.Context, in *ListHostSharesRequest, opts ...grpc.CallOption) (*ListHostSharesResponse, error)
+	// SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+	// selected environment's containers, or every environment's, rather than granting Host loopback or
+	// LAN access.
+	SetHostSocket(ctx context.Context, in *SetHostSocketRequest, opts ...grpc.CallOption) (*SetHostSocketResponse, error)
+	// RemoveHostSocket removes the socket at one port of the selected environment, or of every
+	// environment.
+	RemoveHostSocket(ctx context.Context, in *RemoveHostSocketRequest, opts ...grpc.CallOption) (*RemoveHostSocketResponse, error)
+	// ListHostSockets reads operator-approved Host sockets.
+	ListHostSockets(ctx context.Context, in *ListHostSocketsRequest, opts ...grpc.CallOption) (*ListHostSocketsResponse, error)
 }
 
 type operatorServiceClient struct {
@@ -983,6 +995,36 @@ func (c *operatorServiceClient) ListHostShares(ctx context.Context, in *ListHost
 	return out, nil
 }
 
+func (c *operatorServiceClient) SetHostSocket(ctx context.Context, in *SetHostSocketRequest, opts ...grpc.CallOption) (*SetHostSocketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetHostSocketResponse)
+	err := c.cc.Invoke(ctx, OperatorService_SetHostSocket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) RemoveHostSocket(ctx context.Context, in *RemoveHostSocketRequest, opts ...grpc.CallOption) (*RemoveHostSocketResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(RemoveHostSocketResponse)
+	err := c.cc.Invoke(ctx, OperatorService_RemoveHostSocket_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *operatorServiceClient) ListHostSockets(ctx context.Context, in *ListHostSocketsRequest, opts ...grpc.CallOption) (*ListHostSocketsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ListHostSocketsResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ListHostSockets_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // OperatorServiceServer is the server API for OperatorService service.
 // All implementations must embed UnimplementedOperatorServiceServer
 // for forward compatibility.
@@ -1160,6 +1202,15 @@ type OperatorServiceServer interface {
 	RevokeHostShare(context.Context, *RevokeHostShareRequest) (*RevokeHostShareResponse, error)
 	// ListHostShares reads operator-approved directory shares and their current references.
 	ListHostShares(context.Context, *ListHostSharesRequest) (*ListHostSharesResponse, error)
+	// SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+	// selected environment's containers, or every environment's, rather than granting Host loopback or
+	// LAN access.
+	SetHostSocket(context.Context, *SetHostSocketRequest) (*SetHostSocketResponse, error)
+	// RemoveHostSocket removes the socket at one port of the selected environment, or of every
+	// environment.
+	RemoveHostSocket(context.Context, *RemoveHostSocketRequest) (*RemoveHostSocketResponse, error)
+	// ListHostSockets reads operator-approved Host sockets.
+	ListHostSockets(context.Context, *ListHostSocketsRequest) (*ListHostSocketsResponse, error)
 	mustEmbedUnimplementedOperatorServiceServer()
 }
 
@@ -1373,6 +1424,15 @@ func (UnimplementedOperatorServiceServer) RevokeHostShare(context.Context, *Revo
 }
 func (UnimplementedOperatorServiceServer) ListHostShares(context.Context, *ListHostSharesRequest) (*ListHostSharesResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListHostShares not implemented")
+}
+func (UnimplementedOperatorServiceServer) SetHostSocket(context.Context, *SetHostSocketRequest) (*SetHostSocketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetHostSocket not implemented")
+}
+func (UnimplementedOperatorServiceServer) RemoveHostSocket(context.Context, *RemoveHostSocketRequest) (*RemoveHostSocketResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method RemoveHostSocket not implemented")
+}
+func (UnimplementedOperatorServiceServer) ListHostSockets(context.Context, *ListHostSocketsRequest) (*ListHostSocketsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ListHostSockets not implemented")
 }
 func (UnimplementedOperatorServiceServer) mustEmbedUnimplementedOperatorServiceServer() {}
 func (UnimplementedOperatorServiceServer) testEmbeddedByValue()                         {}
@@ -2598,6 +2658,60 @@ func _OperatorService_ListHostShares_Handler(srv interface{}, ctx context.Contex
 	return interceptor(ctx, in, info, handler)
 }
 
+func _OperatorService_SetHostSocket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetHostSocketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).SetHostSocket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_SetHostSocket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).SetHostSocket(ctx, req.(*SetHostSocketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_RemoveHostSocket_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(RemoveHostSocketRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).RemoveHostSocket(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_RemoveHostSocket_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).RemoveHostSocket(ctx, req.(*RemoveHostSocketRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _OperatorService_ListHostSockets_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ListHostSocketsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(OperatorServiceServer).ListHostSockets(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: OperatorService_ListHostSockets_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(OperatorServiceServer).ListHostSockets(ctx, req.(*ListHostSocketsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // OperatorService_ServiceDesc is the grpc.ServiceDesc for OperatorService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -2864,6 +2978,18 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListHostShares",
 			Handler:    _OperatorService_ListHostShares_Handler,
+		},
+		{
+			MethodName: "SetHostSocket",
+			Handler:    _OperatorService_SetHostSocket_Handler,
+		},
+		{
+			MethodName: "RemoveHostSocket",
+			Handler:    _OperatorService_RemoveHostSocket_Handler,
+		},
+		{
+			MethodName: "ListHostSockets",
+			Handler:    _OperatorService_ListHostSockets_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

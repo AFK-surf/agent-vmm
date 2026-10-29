@@ -11,7 +11,14 @@ import (
 
 const minimumSchema = 39
 
-var schemaMigrations = []string{}
+var schemaMigrations = []string{
+	// 40: operator-approved Host Unix sockets an environment's containers reach (host_socket.go).
+	`CREATE TABLE host_sockets (
+			environment_id TEXT REFERENCES environments(id) ON DELETE CASCADE,
+			port INTEGER NOT NULL CHECK(port BETWEEN 1 AND 65535 AND port != 53), path TEXT NOT NULL,
+			revision INTEGER NOT NULL DEFAULT 1, updated_at INTEGER NOT NULL);
+CREATE UNIQUE INDEX host_sockets_port ON host_sockets(IFNULL(environment_id, ''), port);`,
+}
 
 var schemaVersion = minimumSchema + len(schemaMigrations)
 

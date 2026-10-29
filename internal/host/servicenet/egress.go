@@ -8,10 +8,12 @@ import (
 	"fmt"
 	"net"
 	"net/netip"
+	"slices"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/egress"
+	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
 
 func (controller *Owner) StartEgress() error {
@@ -113,6 +115,19 @@ func (controller *Owner) PublishSourcePoliciesLocked(ctx context.Context, exclud
 			return fmt.Errorf("guest namespace %q has no authoritative host owner", namespaceID)
 		}
 	}
+	hostSockets, err := controller.store.ListHostSockets(ctx, "")
+	if err != nil {
+		controller.egress.Policies.Clear()
+		return err
+	}
+	socketsOf := func(environment string) []egress.HostSocket {
+		var result []egress.HostSocket
+		for _, socket := range store.HostSocketsOf(hostSockets, environment) {
+			result = append(result, egress.HostSocket{Port: socket.Port, Path: socket.Path})
+		}
+		slices.SortFunc(result, func(a, b egress.HostSocket) int { return int(a.Port) - int(b.Port) })
+		return result
+	}
 	sources := make([]egress.Source, 0, len(environments))
 	for _, environment := range environments {
 		namespace := namespaces[environment.NamespaceID]
@@ -128,7 +143,7 @@ func (controller *Owner) PublishSourcePoliciesLocked(ctx context.Context, exclud
 		if environment.EgressMode == int32(hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET) {
 			mode = egress.PublicInternet
 		}
-		sources = append(sources, egress.Source{EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, Subnet: subnet, Mode: mode})
+		sources = append(sources, egress.Source{EnvironmentID: environment.ID, NamespaceID: environment.NamespaceID, Subnet: subnet, Mode: mode, HostSockets: socketsOf(environment.ID)})
 	}
 
 	applianceSources, err := controller.sources.EgressSources(ctx, client, vm.GetBootId())

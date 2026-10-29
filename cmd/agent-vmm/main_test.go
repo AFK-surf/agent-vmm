@@ -407,6 +407,12 @@ func TestManagedCommandsRejectUnverifiableScopeCombinations(t *testing.T) {
 		{command: "logs", arguments: []string{"--component", "guest", "--environment-id", "environment-1"}},
 		{command: "operation", subcommand: "get", arguments: []string{"--owner", "host", "--operation-id", "operation-1", "--environment-id", "environment-1"}},
 		{command: "operation", subcommand: "follow", arguments: []string{"--owner", "lifecycle", "--operation-id", "operation-1", "--registration-id", "registration-1"}},
+		{command: "host-socket", subcommand: "set", arguments: []string{"--environment-id", "environment-1", "--port", "7480", "--request-id", "request-1"}},
+		{command: "host-socket", subcommand: "set", arguments: []string{"--environment-id", "environment-1", "--port", "7480", "--path", "relative.sock", "--request-id", "request-1"}},
+		{command: "host-socket", subcommand: "set", arguments: []string{"--environment-id", "environment-1", "--port", "70000", "--path", "/run/o.sock", "--request-id", "request-1"}},
+		{command: "host-socket", subcommand: "remove", arguments: []string{"--environment-id", "environment-1", "--port", "7480"}},
+		{command: "host-socket", subcommand: "set", arguments: []string{"--path", "/run/o.sock", "--request-id", "request-1"}},
+		{command: "host-socket", subcommand: "list", arguments: []string{"--path", "/run/o.sock"}},
 	}
 	for _, test := range tests {
 		if _, err := parseManagedOptions(test.command, test.subcommand, test.arguments); err == nil {

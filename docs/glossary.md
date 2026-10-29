@@ -20,5 +20,6 @@
 | Binding | The MCP client's allocation label. The private Unix socket controls local access. |
 | Frontend | A manifest-declared appliance endpoint, represented by `ControllerFrontend`. |
 | Host share | One operator-approved host directory projected into one environment. |
+| Host socket | One operator-approved Host Unix socket an environment, or every environment, reaches at a port of the Host virtual address. |
 | Service export | Authorization to expose one container port through a Host-owned route. |
 | Service import | Authorization to connect an importer to one approved service export. |

@@ -449,6 +449,27 @@ ListHostShares reads operator-approved directory shares and their current refere
 
 `.agentvmm.host.v1.ListHostSharesRequest` → `.agentvmm.host.v1.ListHostSharesResponse`
 
+### `SetHostSocket`
+
+SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+selected environment's containers, or every environment's, rather than granting Host loopback or
+LAN access.
+
+`.agentvmm.host.v1.SetHostSocketRequest` → `.agentvmm.host.v1.SetHostSocketResponse`
+
+### `RemoveHostSocket`
+
+RemoveHostSocket removes the socket at one port of the selected environment, or of every
+environment.
+
+`.agentvmm.host.v1.RemoveHostSocketRequest` → `.agentvmm.host.v1.RemoveHostSocketResponse`
+
+### `ListHostSockets`
+
+ListHostSockets reads operator-approved Host sockets.
+
+`.agentvmm.host.v1.ListHostSocketsRequest` → `.agentvmm.host.v1.ListHostSocketsResponse`
+
 ## Message `GetDeviceIdentityRequest`
 
 GetDeviceIdentityRequest carries inputs for an operation that reads public device identity and
@@ -1153,6 +1174,18 @@ an existing share under its revision fence.
 
 RevokeHostShareResponse carries results from an operation that revokes one share rather than
 granting general Host filesystem access.
+
+
+## Message `SetHostSocketResponse`
+
+SetHostSocketResponse carries results from an operation that approves one Host Unix socket at
+one port for the selected environment, or every environment.
+
+
+## Message `RemoveHostSocketResponse`
+
+RemoveHostSocketResponse carries results from an operation that removes the socket at one port
+of the selected environment, or of every environment.
 
 
 ## Message `GetSystemSnapshotResponse`

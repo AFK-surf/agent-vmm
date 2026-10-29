@@ -6362,6 +6362,90 @@ func (x *RevokeHostShareResponse) GetShare() *HostShare {
 	return nil
 }
 
+// SetHostSocketResponse carries results from an operation that approves one Host Unix socket at
+// one port for the selected environment, or every environment.
+type SetHostSocketResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	HostSocket    *HostSocket            `protobuf:"bytes,1,opt,name=host_socket,json=hostSocket,proto3" json:"host_socket,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetHostSocketResponse) Reset() {
+	*x = SetHostSocketResponse{}
+	mi := &file_host_v1_operator_proto_msgTypes[116]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetHostSocketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetHostSocketResponse) ProtoMessage() {}
+
+func (x *SetHostSocketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_host_v1_operator_proto_msgTypes[116]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetHostSocketResponse.ProtoReflect.Descriptor instead.
+func (*SetHostSocketResponse) Descriptor() ([]byte, []int) {
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{116}
+}
+
+func (x *SetHostSocketResponse) GetHostSocket() *HostSocket {
+	if x != nil {
+		return x.HostSocket
+	}
+	return nil
+}
+
+// RemoveHostSocketResponse carries results from an operation that removes the socket at one port
+// of the selected environment, or of every environment.
+type RemoveHostSocketResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *RemoveHostSocketResponse) Reset() {
+	*x = RemoveHostSocketResponse{}
+	mi := &file_host_v1_operator_proto_msgTypes[117]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *RemoveHostSocketResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*RemoveHostSocketResponse) ProtoMessage() {}
+
+func (x *RemoveHostSocketResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_host_v1_operator_proto_msgTypes[117]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use RemoveHostSocketResponse.ProtoReflect.Descriptor instead.
+func (*RemoveHostSocketResponse) Descriptor() ([]byte, []int) {
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{117}
+}
+
 // GetSystemSnapshotResponse carries results from an operation that reads operator inventory
 // across Host-owned environments and registrations.
 type GetSystemSnapshotResponse struct {
@@ -6380,7 +6464,7 @@ type GetSystemSnapshotResponse struct {
 
 func (x *GetSystemSnapshotResponse) Reset() {
 	*x = GetSystemSnapshotResponse{}
-	mi := &file_host_v1_operator_proto_msgTypes[116]
+	mi := &file_host_v1_operator_proto_msgTypes[118]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6392,7 +6476,7 @@ func (x *GetSystemSnapshotResponse) String() string {
 func (*GetSystemSnapshotResponse) ProtoMessage() {}
 
 func (x *GetSystemSnapshotResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[116]
+	mi := &file_host_v1_operator_proto_msgTypes[118]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6405,7 +6489,7 @@ func (x *GetSystemSnapshotResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use GetSystemSnapshotResponse.ProtoReflect.Descriptor instead.
 func (*GetSystemSnapshotResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{116}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{118}
 }
 
 func (x *GetSystemSnapshotResponse) GetVm() *VM {
@@ -6475,7 +6559,7 @@ type BeginRemoteRevocationResponse struct {
 
 func (x *BeginRemoteRevocationResponse) Reset() {
 	*x = BeginRemoteRevocationResponse{}
-	mi := &file_host_v1_operator_proto_msgTypes[117]
+	mi := &file_host_v1_operator_proto_msgTypes[119]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6487,7 +6571,7 @@ func (x *BeginRemoteRevocationResponse) String() string {
 func (*BeginRemoteRevocationResponse) ProtoMessage() {}
 
 func (x *BeginRemoteRevocationResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[117]
+	mi := &file_host_v1_operator_proto_msgTypes[119]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6500,7 +6584,7 @@ func (x *BeginRemoteRevocationResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use BeginRemoteRevocationResponse.ProtoReflect.Descriptor instead.
 func (*BeginRemoteRevocationResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{117}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{119}
 }
 
 func (x *BeginRemoteRevocationResponse) GetRegistration() *RemoteRegistration {
@@ -6519,7 +6603,7 @@ type CreateMCPTokenRequest struct {
 
 func (x *CreateMCPTokenRequest) Reset() {
 	*x = CreateMCPTokenRequest{}
-	mi := &file_host_v1_operator_proto_msgTypes[118]
+	mi := &file_host_v1_operator_proto_msgTypes[120]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6531,7 +6615,7 @@ func (x *CreateMCPTokenRequest) String() string {
 func (*CreateMCPTokenRequest) ProtoMessage() {}
 
 func (x *CreateMCPTokenRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[118]
+	mi := &file_host_v1_operator_proto_msgTypes[120]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6544,7 +6628,7 @@ func (x *CreateMCPTokenRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMCPTokenRequest.ProtoReflect.Descriptor instead.
 func (*CreateMCPTokenRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{118}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{120}
 }
 
 // CreateMCPTokenResponse returns the issued bearer token.
@@ -6557,7 +6641,7 @@ type CreateMCPTokenResponse struct {
 
 func (x *CreateMCPTokenResponse) Reset() {
 	*x = CreateMCPTokenResponse{}
-	mi := &file_host_v1_operator_proto_msgTypes[119]
+	mi := &file_host_v1_operator_proto_msgTypes[121]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6569,7 +6653,7 @@ func (x *CreateMCPTokenResponse) String() string {
 func (*CreateMCPTokenResponse) ProtoMessage() {}
 
 func (x *CreateMCPTokenResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[119]
+	mi := &file_host_v1_operator_proto_msgTypes[121]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6582,7 +6666,7 @@ func (x *CreateMCPTokenResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateMCPTokenResponse.ProtoReflect.Descriptor instead.
 func (*CreateMCPTokenResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{119}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{121}
 }
 
 func (x *CreateMCPTokenResponse) GetToken() string {
@@ -6601,7 +6685,7 @@ type RotateMCPTokenKeyRequest struct {
 
 func (x *RotateMCPTokenKeyRequest) Reset() {
 	*x = RotateMCPTokenKeyRequest{}
-	mi := &file_host_v1_operator_proto_msgTypes[120]
+	mi := &file_host_v1_operator_proto_msgTypes[122]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6613,7 +6697,7 @@ func (x *RotateMCPTokenKeyRequest) String() string {
 func (*RotateMCPTokenKeyRequest) ProtoMessage() {}
 
 func (x *RotateMCPTokenKeyRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[120]
+	mi := &file_host_v1_operator_proto_msgTypes[122]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6626,7 +6710,7 @@ func (x *RotateMCPTokenKeyRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateMCPTokenKeyRequest.ProtoReflect.Descriptor instead.
 func (*RotateMCPTokenKeyRequest) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{120}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{122}
 }
 
 // RotateMCPTokenKeyResponse identifies the appliance update that replaces the signing key.
@@ -6639,7 +6723,7 @@ type RotateMCPTokenKeyResponse struct {
 
 func (x *RotateMCPTokenKeyResponse) Reset() {
 	*x = RotateMCPTokenKeyResponse{}
-	mi := &file_host_v1_operator_proto_msgTypes[121]
+	mi := &file_host_v1_operator_proto_msgTypes[123]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -6651,7 +6735,7 @@ func (x *RotateMCPTokenKeyResponse) String() string {
 func (*RotateMCPTokenKeyResponse) ProtoMessage() {}
 
 func (x *RotateMCPTokenKeyResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_host_v1_operator_proto_msgTypes[121]
+	mi := &file_host_v1_operator_proto_msgTypes[123]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -6664,7 +6748,7 @@ func (x *RotateMCPTokenKeyResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use RotateMCPTokenKeyResponse.ProtoReflect.Descriptor instead.
 func (*RotateMCPTokenKeyResponse) Descriptor() ([]byte, []int) {
-	return file_host_v1_operator_proto_rawDescGZIP(), []int{121}
+	return file_host_v1_operator_proto_rawDescGZIP(), []int{123}
 }
 
 func (x *RotateMCPTokenKeyResponse) GetOperationId() string {
@@ -6678,7 +6762,7 @@ var File_host_v1_operator_proto protoreflect.FileDescriptor
 
 const file_host_v1_operator_proto_rawDesc = "" +
 	"\n" +
-	"\x16host/v1/operator.proto\x12\x10agentvmm.host.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18host/v1/host_share.proto\x1a\x12host/v1/mesh.proto\x1a\x19host/v1/remote_pool.proto\x1a\x17host/v1/resources.proto\x1a\x15host/v1/runtime.proto\x1a\x14trust/v1/trust.proto\"\x1a\n" +
+	"\x16host/v1/operator.proto\x12\x10agentvmm.host.v1\x1a\x1egoogle/protobuf/duration.proto\x1a\x1fgoogle/protobuf/timestamp.proto\x1a\x18host/v1/host_share.proto\x1a\x19host/v1/host_socket.proto\x1a\x12host/v1/mesh.proto\x1a\x19host/v1/remote_pool.proto\x1a\x17host/v1/resources.proto\x1a\x15host/v1/runtime.proto\x1a\x14trust/v1/trust.proto\"\x1a\n" +
 	"\x18GetDeviceIdentityRequest\"g\n" +
 	"\x19CreatePersonalMeshRequest\x12\x1d\n" +
 	"\n" +
@@ -7095,7 +7179,11 @@ const file_host_v1_operator_proto_rawDesc = "" +
 	"\x17RebindHostShareResponse\x121\n" +
 	"\x05share\x18\x01 \x01(\v2\x1b.agentvmm.host.v1.HostShareR\x05share\"L\n" +
 	"\x17RevokeHostShareResponse\x121\n" +
-	"\x05share\x18\x01 \x01(\v2\x1b.agentvmm.host.v1.HostShareR\x05share\"\x9c\x04\n" +
+	"\x05share\x18\x01 \x01(\v2\x1b.agentvmm.host.v1.HostShareR\x05share\"V\n" +
+	"\x15SetHostSocketResponse\x12=\n" +
+	"\vhost_socket\x18\x01 \x01(\v2\x1c.agentvmm.host.v1.HostSocketR\n" +
+	"hostSocket\"\x1a\n" +
+	"\x18RemoveHostSocketResponse\"\x9c\x04\n" +
 	"\x19GetSystemSnapshotResponse\x12$\n" +
 	"\x02vm\x18\x01 \x01(\v2\x14.agentvmm.host.v1.VMR\x02vm\x126\n" +
 	"\x06health\x18\x02 \x01(\v2\x1e.agentvmm.host.v1.HealthStatusR\x06health\x12-\n" +
@@ -7112,7 +7200,7 @@ const file_host_v1_operator_proto_rawDesc = "" +
 	"\x05token\x18\x01 \x01(\tR\x05token\"\x1a\n" +
 	"\x18RotateMCPTokenKeyRequest\">\n" +
 	"\x19RotateMCPTokenKeyResponse\x12!\n" +
-	"\foperation_id\x18\x01 \x01(\tR\voperationId2\xed?\n" +
+	"\foperation_id\x18\x01 \x01(\tR\voperationId2\xa7B\n" +
 	"\x0fOperatorService\x12c\n" +
 	"\x0eCreateMCPToken\x12'.agentvmm.host.v1.CreateMCPTokenRequest\x1a(.agentvmm.host.v1.CreateMCPTokenResponse\x12l\n" +
 	"\x11RotateMCPTokenKey\x12*.agentvmm.host.v1.RotateMCPTokenKeyRequest\x1a+.agentvmm.host.v1.RotateMCPTokenKeyResponse\x12N\n" +
@@ -7181,7 +7269,10 @@ const file_host_v1_operator_proto_rawDesc = "" +
 	"\x0fCreateHostShare\x12(.agentvmm.host.v1.CreateHostShareRequest\x1a).agentvmm.host.v1.CreateHostShareResponse\x12f\n" +
 	"\x0fRebindHostShare\x12(.agentvmm.host.v1.RebindHostShareRequest\x1a).agentvmm.host.v1.RebindHostShareResponse\x12f\n" +
 	"\x0fRevokeHostShare\x12(.agentvmm.host.v1.RevokeHostShareRequest\x1a).agentvmm.host.v1.RevokeHostShareResponse\x12h\n" +
-	"\x0eListHostShares\x12'.agentvmm.host.v1.ListHostSharesRequest\x1a(.agentvmm.host.v1.ListHostSharesResponse\"\x03\x90\x02\x01B2Z0github.com/AFK-surf/agent-vmm/api/host/v1;hostv1b\x06proto3"
+	"\x0eListHostShares\x12'.agentvmm.host.v1.ListHostSharesRequest\x1a(.agentvmm.host.v1.ListHostSharesResponse\"\x03\x90\x02\x01\x12`\n" +
+	"\rSetHostSocket\x12&.agentvmm.host.v1.SetHostSocketRequest\x1a'.agentvmm.host.v1.SetHostSocketResponse\x12i\n" +
+	"\x10RemoveHostSocket\x12).agentvmm.host.v1.RemoveHostSocketRequest\x1a*.agentvmm.host.v1.RemoveHostSocketResponse\x12k\n" +
+	"\x0fListHostSockets\x12(.agentvmm.host.v1.ListHostSocketsRequest\x1a).agentvmm.host.v1.ListHostSocketsResponse\"\x03\x90\x02\x01B2Z0github.com/AFK-surf/agent-vmm/api/host/v1;hostv1b\x06proto3"
 
 var (
 	file_host_v1_operator_proto_rawDescOnce sync.Once
@@ -7195,7 +7286,7 @@ func file_host_v1_operator_proto_rawDescGZIP() []byte {
 	return file_host_v1_operator_proto_rawDescData
 }
 
-var file_host_v1_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 122)
+var file_host_v1_operator_proto_msgTypes = make([]protoimpl.MessageInfo, 124)
 var file_host_v1_operator_proto_goTypes = []any{
 	(*GetDeviceIdentityRequest)(nil),                // 0: agentvmm.host.v1.GetDeviceIdentityRequest
 	(*CreatePersonalMeshRequest)(nil),               // 1: agentvmm.host.v1.CreatePersonalMeshRequest
@@ -7313,330 +7404,344 @@ var file_host_v1_operator_proto_goTypes = []any{
 	(*CreateHostShareResponse)(nil),                 // 113: agentvmm.host.v1.CreateHostShareResponse
 	(*RebindHostShareResponse)(nil),                 // 114: agentvmm.host.v1.RebindHostShareResponse
 	(*RevokeHostShareResponse)(nil),                 // 115: agentvmm.host.v1.RevokeHostShareResponse
-	(*GetSystemSnapshotResponse)(nil),               // 116: agentvmm.host.v1.GetSystemSnapshotResponse
-	(*BeginRemoteRevocationResponse)(nil),           // 117: agentvmm.host.v1.BeginRemoteRevocationResponse
-	(*CreateMCPTokenRequest)(nil),                   // 118: agentvmm.host.v1.CreateMCPTokenRequest
-	(*CreateMCPTokenResponse)(nil),                  // 119: agentvmm.host.v1.CreateMCPTokenResponse
-	(*RotateMCPTokenKeyRequest)(nil),                // 120: agentvmm.host.v1.RotateMCPTokenKeyRequest
-	(*RotateMCPTokenKeyResponse)(nil),               // 121: agentvmm.host.v1.RotateMCPTokenKeyResponse
-	(*PersonalMeshResponse)(nil),                    // 122: agentvmm.host.v1.PersonalMeshResponse
-	(ServiceListenerExposure)(0),                    // 123: agentvmm.host.v1.ServiceListenerExposure
-	(*ServiceListener)(nil),                         // 124: agentvmm.host.v1.ServiceListener
-	(v1.MeshPermission)(0),                          // 125: agentvmm.trust.v1.MeshPermission
-	(*PersonalMeshPairingInvitation)(nil),           // 126: agentvmm.host.v1.PersonalMeshPairingInvitation
-	(*VMMutationFence)(nil),                         // 127: agentvmm.host.v1.VMMutationFence
-	(*AgentEnvironment)(nil),                        // 128: agentvmm.host.v1.AgentEnvironment
-	(*timestamppb.Timestamp)(nil),                   // 129: google.protobuf.Timestamp
-	(*AgentIntegration)(nil),                        // 130: agentvmm.host.v1.AgentIntegration
-	(IntegrationScope)(0),                           // 131: agentvmm.host.v1.IntegrationScope
-	(*ResourceLimits)(nil),                          // 132: agentvmm.host.v1.ResourceLimits
-	(*AgentSession)(nil),                            // 133: agentvmm.host.v1.AgentSession
-	(*VM)(nil),                                      // 134: agentvmm.host.v1.VM
-	(*ResourceReference)(nil),                       // 135: agentvmm.host.v1.ResourceReference
-	(*durationpb.Duration)(nil),                     // 136: google.protobuf.Duration
-	(EgressMode)(0),                                 // 137: agentvmm.host.v1.EgressMode
-	(*CleanupPlan)(nil),                             // 138: agentvmm.host.v1.CleanupPlan
-	(LocalDisposalTargetKind)(0),                    // 139: agentvmm.host.v1.LocalDisposalTargetKind
-	(*LocalDisposalPlan)(nil),                       // 140: agentvmm.host.v1.LocalDisposalPlan
-	(*v1.DeviceIdentity)(nil),                       // 141: agentvmm.trust.v1.DeviceIdentity
-	(*Operation)(nil),                               // 142: agentvmm.host.v1.Operation
-	(*HealthStatus)(nil),                            // 143: agentvmm.host.v1.HealthStatus
-	(*Usage)(nil),                                   // 144: agentvmm.host.v1.Usage
-	(*RemoteRegistration)(nil),                      // 145: agentvmm.host.v1.RemoteRegistration
-	(*LayerResources)(nil),                          // 146: agentvmm.host.v1.LayerResources
-	(*Image)(nil),                                   // 147: agentvmm.host.v1.Image
-	(*LogsRequest)(nil),                             // 148: agentvmm.host.v1.LogsRequest
-	(LogStream)(0),                                  // 149: agentvmm.host.v1.LogStream
-	(*Container)(nil),                               // 150: agentvmm.host.v1.Container
-	(ProcessSignal)(0),                              // 151: agentvmm.host.v1.ProcessSignal
-	(*SupportBundleItem)(nil),                       // 152: agentvmm.host.v1.SupportBundleItem
-	(VMState)(0),                                    // 153: agentvmm.host.v1.VMState
-	(*DiskAccounting)(nil),                          // 154: agentvmm.host.v1.DiskAccounting
-	(*LocalEnvironmentSummary)(nil),                 // 155: agentvmm.host.v1.LocalEnvironmentSummary
-	(*LocalRegistrationMetadata)(nil),               // 156: agentvmm.host.v1.LocalRegistrationMetadata
-	(DeviceIdentityState)(0),                        // 157: agentvmm.host.v1.DeviceIdentityState
-	(v1.PairingRole)(0),                             // 158: agentvmm.trust.v1.PairingRole
-	(PersonalMeshPairingState)(0),                   // 159: agentvmm.host.v1.PersonalMeshPairingState
-	(*v1.RegistryOperation)(nil),                    // 160: agentvmm.trust.v1.RegistryOperation
-	(PairingFailure)(0),                             // 161: agentvmm.host.v1.PairingFailure
-	(*HostShare)(nil),                               // 162: agentvmm.host.v1.HostShare
-	(*BeginRemoteEnrollmentRequest)(nil),            // 163: agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	(*ApplyManagedRemoteEnrollmentRequest)(nil),     // 164: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
-	(*CompleteRemoteEnrollmentRequest)(nil),         // 165: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
-	(*RetryRemoteEnrollmentRequest)(nil),            // 166: agentvmm.host.v1.RetryRemoteEnrollmentRequest
-	(*BeginRemoteRevocationRequest)(nil),            // 167: agentvmm.host.v1.BeginRemoteRevocationRequest
-	(*CompleteRemoteRevocationRequest)(nil),         // 168: agentvmm.host.v1.CompleteRemoteRevocationRequest
-	(*UpdateRemotePoolRequest)(nil),                 // 169: agentvmm.host.v1.UpdateRemotePoolRequest
-	(*SetRemoteRegistrationStateRequest)(nil),       // 170: agentvmm.host.v1.SetRemoteRegistrationStateRequest
-	(*GetRemoteRegistrationRequest)(nil),            // 171: agentvmm.host.v1.GetRemoteRegistrationRequest
-	(*CreateHostShareRequest)(nil),                  // 172: agentvmm.host.v1.CreateHostShareRequest
-	(*RebindHostShareRequest)(nil),                  // 173: agentvmm.host.v1.RebindHostShareRequest
-	(*RevokeHostShareRequest)(nil),                  // 174: agentvmm.host.v1.RevokeHostShareRequest
-	(*ListHostSharesRequest)(nil),                   // 175: agentvmm.host.v1.ListHostSharesRequest
-	(*ListHostSharesResponse)(nil),                  // 176: agentvmm.host.v1.ListHostSharesResponse
+	(*SetHostSocketResponse)(nil),                   // 116: agentvmm.host.v1.SetHostSocketResponse
+	(*RemoveHostSocketResponse)(nil),                // 117: agentvmm.host.v1.RemoveHostSocketResponse
+	(*GetSystemSnapshotResponse)(nil),               // 118: agentvmm.host.v1.GetSystemSnapshotResponse
+	(*BeginRemoteRevocationResponse)(nil),           // 119: agentvmm.host.v1.BeginRemoteRevocationResponse
+	(*CreateMCPTokenRequest)(nil),                   // 120: agentvmm.host.v1.CreateMCPTokenRequest
+	(*CreateMCPTokenResponse)(nil),                  // 121: agentvmm.host.v1.CreateMCPTokenResponse
+	(*RotateMCPTokenKeyRequest)(nil),                // 122: agentvmm.host.v1.RotateMCPTokenKeyRequest
+	(*RotateMCPTokenKeyResponse)(nil),               // 123: agentvmm.host.v1.RotateMCPTokenKeyResponse
+	(*PersonalMeshResponse)(nil),                    // 124: agentvmm.host.v1.PersonalMeshResponse
+	(ServiceListenerExposure)(0),                    // 125: agentvmm.host.v1.ServiceListenerExposure
+	(*ServiceListener)(nil),                         // 126: agentvmm.host.v1.ServiceListener
+	(v1.MeshPermission)(0),                          // 127: agentvmm.trust.v1.MeshPermission
+	(*PersonalMeshPairingInvitation)(nil),           // 128: agentvmm.host.v1.PersonalMeshPairingInvitation
+	(*VMMutationFence)(nil),                         // 129: agentvmm.host.v1.VMMutationFence
+	(*AgentEnvironment)(nil),                        // 130: agentvmm.host.v1.AgentEnvironment
+	(*timestamppb.Timestamp)(nil),                   // 131: google.protobuf.Timestamp
+	(*AgentIntegration)(nil),                        // 132: agentvmm.host.v1.AgentIntegration
+	(IntegrationScope)(0),                           // 133: agentvmm.host.v1.IntegrationScope
+	(*ResourceLimits)(nil),                          // 134: agentvmm.host.v1.ResourceLimits
+	(*AgentSession)(nil),                            // 135: agentvmm.host.v1.AgentSession
+	(*VM)(nil),                                      // 136: agentvmm.host.v1.VM
+	(*ResourceReference)(nil),                       // 137: agentvmm.host.v1.ResourceReference
+	(*durationpb.Duration)(nil),                     // 138: google.protobuf.Duration
+	(EgressMode)(0),                                 // 139: agentvmm.host.v1.EgressMode
+	(*CleanupPlan)(nil),                             // 140: agentvmm.host.v1.CleanupPlan
+	(LocalDisposalTargetKind)(0),                    // 141: agentvmm.host.v1.LocalDisposalTargetKind
+	(*LocalDisposalPlan)(nil),                       // 142: agentvmm.host.v1.LocalDisposalPlan
+	(*v1.DeviceIdentity)(nil),                       // 143: agentvmm.trust.v1.DeviceIdentity
+	(*Operation)(nil),                               // 144: agentvmm.host.v1.Operation
+	(*HealthStatus)(nil),                            // 145: agentvmm.host.v1.HealthStatus
+	(*Usage)(nil),                                   // 146: agentvmm.host.v1.Usage
+	(*RemoteRegistration)(nil),                      // 147: agentvmm.host.v1.RemoteRegistration
+	(*LayerResources)(nil),                          // 148: agentvmm.host.v1.LayerResources
+	(*Image)(nil),                                   // 149: agentvmm.host.v1.Image
+	(*LogsRequest)(nil),                             // 150: agentvmm.host.v1.LogsRequest
+	(LogStream)(0),                                  // 151: agentvmm.host.v1.LogStream
+	(*Container)(nil),                               // 152: agentvmm.host.v1.Container
+	(ProcessSignal)(0),                              // 153: agentvmm.host.v1.ProcessSignal
+	(*SupportBundleItem)(nil),                       // 154: agentvmm.host.v1.SupportBundleItem
+	(VMState)(0),                                    // 155: agentvmm.host.v1.VMState
+	(*DiskAccounting)(nil),                          // 156: agentvmm.host.v1.DiskAccounting
+	(*LocalEnvironmentSummary)(nil),                 // 157: agentvmm.host.v1.LocalEnvironmentSummary
+	(*LocalRegistrationMetadata)(nil),               // 158: agentvmm.host.v1.LocalRegistrationMetadata
+	(DeviceIdentityState)(0),                        // 159: agentvmm.host.v1.DeviceIdentityState
+	(v1.PairingRole)(0),                             // 160: agentvmm.trust.v1.PairingRole
+	(PersonalMeshPairingState)(0),                   // 161: agentvmm.host.v1.PersonalMeshPairingState
+	(*v1.RegistryOperation)(nil),                    // 162: agentvmm.trust.v1.RegistryOperation
+	(PairingFailure)(0),                             // 163: agentvmm.host.v1.PairingFailure
+	(*HostShare)(nil),                               // 164: agentvmm.host.v1.HostShare
+	(*HostSocket)(nil),                              // 165: agentvmm.host.v1.HostSocket
+	(*BeginRemoteEnrollmentRequest)(nil),            // 166: agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	(*ApplyManagedRemoteEnrollmentRequest)(nil),     // 167: agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
+	(*CompleteRemoteEnrollmentRequest)(nil),         // 168: agentvmm.host.v1.CompleteRemoteEnrollmentRequest
+	(*RetryRemoteEnrollmentRequest)(nil),            // 169: agentvmm.host.v1.RetryRemoteEnrollmentRequest
+	(*BeginRemoteRevocationRequest)(nil),            // 170: agentvmm.host.v1.BeginRemoteRevocationRequest
+	(*CompleteRemoteRevocationRequest)(nil),         // 171: agentvmm.host.v1.CompleteRemoteRevocationRequest
+	(*UpdateRemotePoolRequest)(nil),                 // 172: agentvmm.host.v1.UpdateRemotePoolRequest
+	(*SetRemoteRegistrationStateRequest)(nil),       // 173: agentvmm.host.v1.SetRemoteRegistrationStateRequest
+	(*GetRemoteRegistrationRequest)(nil),            // 174: agentvmm.host.v1.GetRemoteRegistrationRequest
+	(*CreateHostShareRequest)(nil),                  // 175: agentvmm.host.v1.CreateHostShareRequest
+	(*RebindHostShareRequest)(nil),                  // 176: agentvmm.host.v1.RebindHostShareRequest
+	(*RevokeHostShareRequest)(nil),                  // 177: agentvmm.host.v1.RevokeHostShareRequest
+	(*ListHostSharesRequest)(nil),                   // 178: agentvmm.host.v1.ListHostSharesRequest
+	(*SetHostSocketRequest)(nil),                    // 179: agentvmm.host.v1.SetHostSocketRequest
+	(*RemoveHostSocketRequest)(nil),                 // 180: agentvmm.host.v1.RemoveHostSocketRequest
+	(*ListHostSocketsRequest)(nil),                  // 181: agentvmm.host.v1.ListHostSocketsRequest
+	(*ListHostSharesResponse)(nil),                  // 182: agentvmm.host.v1.ListHostSharesResponse
+	(*ListHostSocketsResponse)(nil),                 // 183: agentvmm.host.v1.ListHostSocketsResponse
 }
 var file_host_v1_operator_proto_depIdxs = []int32{
-	122, // 0: agentvmm.host.v1.ListPersonalMeshesResponse.meshes:type_name -> agentvmm.host.v1.PersonalMeshResponse
-	123, // 1: agentvmm.host.v1.CreateLocalServiceListenerRequest.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
-	124, // 2: agentvmm.host.v1.ListServiceListenersResponse.listeners:type_name -> agentvmm.host.v1.ServiceListener
-	125, // 3: agentvmm.host.v1.BeginPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
-	126, // 4: agentvmm.host.v1.JoinPersonalMeshPairingRequest.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	127, // 5: agentvmm.host.v1.StartVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
-	127, // 6: agentvmm.host.v1.StopVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
-	128, // 7: agentvmm.host.v1.CreateAgentSessionResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	129, // 8: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
-	130, // 9: agentvmm.host.v1.ListAgentIntegrationsResponse.integrations:type_name -> agentvmm.host.v1.AgentIntegration
-	131, // 10: agentvmm.host.v1.PrepareAgentIntegrationRequest.scope:type_name -> agentvmm.host.v1.IntegrationScope
-	132, // 11: agentvmm.host.v1.PrepareAgentIntegrationRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	133, // 12: agentvmm.host.v1.ListAgentSessionsResponse.sessions:type_name -> agentvmm.host.v1.AgentSession
-	128, // 13: agentvmm.host.v1.ListEnvironmentsResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
-	134, // 14: agentvmm.host.v1.GetVMImpactSummaryResponse.vm:type_name -> agentvmm.host.v1.VM
-	129, // 15: agentvmm.host.v1.GetVMImpactSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
-	135, // 16: agentvmm.host.v1.GetVMImpactSummaryResponse.known_workloads:type_name -> agentvmm.host.v1.ResourceReference
-	135, // 17: agentvmm.host.v1.WatchMetricsRequest.scope:type_name -> agentvmm.host.v1.ResourceReference
-	136, // 18: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
-	132, // 19: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
-	137, // 20: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.egress_mode:type_name -> agentvmm.host.v1.EgressMode
-	138, // 21: agentvmm.host.v1.ExecuteCleanupRequest.plan:type_name -> agentvmm.host.v1.CleanupPlan
-	139, // 22: agentvmm.host.v1.PlanLocalDisposalRequest.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
-	140, // 23: agentvmm.host.v1.ExecuteLocalDisposalRequest.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
-	141, // 24: agentvmm.host.v1.SignRegistrationRecoveryResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	142, // 25: agentvmm.host.v1.StartVMResponse.operation:type_name -> agentvmm.host.v1.Operation
-	134, // 26: agentvmm.host.v1.GetVMResponse.vm:type_name -> agentvmm.host.v1.VM
-	142, // 27: agentvmm.host.v1.StopVMResponse.operation:type_name -> agentvmm.host.v1.Operation
-	130, // 28: agentvmm.host.v1.PrepareAgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
-	130, // 29: agentvmm.host.v1.CommitAgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
-	130, // 30: agentvmm.host.v1.BeginAgentIntegrationRemovalResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
-	130, // 31: agentvmm.host.v1.CompleteAgentIntegrationRemovalResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
-	134, // 32: agentvmm.host.v1.GetSystemHealthSummaryResponse.vm:type_name -> agentvmm.host.v1.VM
-	143, // 33: agentvmm.host.v1.GetSystemHealthSummaryResponse.health:type_name -> agentvmm.host.v1.HealthStatus
-	144, // 34: agentvmm.host.v1.GetSystemHealthSummaryResponse.usage:type_name -> agentvmm.host.v1.Usage
-	128, // 35: agentvmm.host.v1.GetSystemHealthSummaryResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
-	129, // 36: agentvmm.host.v1.GetSystemHealthSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
-	145, // 37: agentvmm.host.v1.GetSystemHealthSummaryResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
-	146, // 38: agentvmm.host.v1.GetSystemHealthSummaryResponse.host_resources:type_name -> agentvmm.host.v1.LayerResources
-	146, // 39: agentvmm.host.v1.GetSystemHealthSummaryResponse.guest_resources:type_name -> agentvmm.host.v1.LayerResources
-	128, // 40: agentvmm.host.v1.OperatorServiceGetEnvironmentResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	147, // 41: agentvmm.host.v1.ListEnvironmentImagesResponse.images:type_name -> agentvmm.host.v1.Image
-	135, // 42: agentvmm.host.v1.WatchEventsResponse.resource:type_name -> agentvmm.host.v1.ResourceReference
-	129, // 43: agentvmm.host.v1.WatchEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
-	135, // 44: agentvmm.host.v1.WatchMetricsResponse.scope:type_name -> agentvmm.host.v1.ResourceReference
-	144, // 45: agentvmm.host.v1.WatchMetricsResponse.usage:type_name -> agentvmm.host.v1.Usage
-	148, // 46: agentvmm.host.v1.OperatorServiceLogsRequest.query:type_name -> agentvmm.host.v1.LogsRequest
-	129, // 47: agentvmm.host.v1.OperatorServiceLogsResponse.timestamp:type_name -> google.protobuf.Timestamp
-	149, // 48: agentvmm.host.v1.OperatorServiceLogsResponse.stream:type_name -> agentvmm.host.v1.LogStream
-	150, // 49: agentvmm.host.v1.OperatorServiceStopContainerResponse.container:type_name -> agentvmm.host.v1.Container
-	150, // 50: agentvmm.host.v1.ContinueContainerResponse.container:type_name -> agentvmm.host.v1.Container
-	151, // 51: agentvmm.host.v1.OperatorServiceSignalContainerRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
-	128, // 52: agentvmm.host.v1.UpdateEnvironmentPolicyResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
-	138, // 53: agentvmm.host.v1.PlanResetEnvironmentResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
-	138, // 54: agentvmm.host.v1.PlanDiscardEnvironmentResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
-	142, // 55: agentvmm.host.v1.ExecuteCleanupResponse.operation:type_name -> agentvmm.host.v1.Operation
-	140, // 56: agentvmm.host.v1.PlanLocalDisposalResponse.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
-	142, // 57: agentvmm.host.v1.ExecuteLocalDisposalResponse.operation:type_name -> agentvmm.host.v1.Operation
-	142, // 58: agentvmm.host.v1.GetOperationResponse.operation:type_name -> agentvmm.host.v1.Operation
-	142, // 59: agentvmm.host.v1.RunDiagnosticsResponse.operation:type_name -> agentvmm.host.v1.Operation
-	152, // 60: agentvmm.host.v1.PreviewSupportBundleResponse.items:type_name -> agentvmm.host.v1.SupportBundleItem
-	142, // 61: agentvmm.host.v1.ExportSupportBundleResponse.operation:type_name -> agentvmm.host.v1.Operation
-	145, // 62: agentvmm.host.v1.BeginRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 63: agentvmm.host.v1.ApplyManagedRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 64: agentvmm.host.v1.CompleteRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 65: agentvmm.host.v1.RetryRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 66: agentvmm.host.v1.CompleteRemoteRevocationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 67: agentvmm.host.v1.UpdateRemotePoolResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 68: agentvmm.host.v1.SetRemoteRegistrationStateResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	145, // 69: agentvmm.host.v1.GetRemoteRegistrationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	129, // 70: agentvmm.host.v1.GetLocalDiskSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
-	153, // 71: agentvmm.host.v1.GetLocalDiskSummaryResponse.vm_state:type_name -> agentvmm.host.v1.VMState
-	154, // 72: agentvmm.host.v1.GetLocalDiskSummaryResponse.guest_state_fs:type_name -> agentvmm.host.v1.DiskAccounting
-	155, // 73: agentvmm.host.v1.ListLocalEnvironmentPageResponse.environments:type_name -> agentvmm.host.v1.LocalEnvironmentSummary
-	129, // 74: agentvmm.host.v1.ListLocalEnvironmentPageResponse.collected_at:type_name -> google.protobuf.Timestamp
-	156, // 75: agentvmm.host.v1.ListLocalRegistrationPageResponse.registrations:type_name -> agentvmm.host.v1.LocalRegistrationMetadata
-	141, // 76: agentvmm.host.v1.GetDeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	157, // 77: agentvmm.host.v1.GetDeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
-	122, // 78: agentvmm.host.v1.CreatePersonalMeshResponse.mesh:type_name -> agentvmm.host.v1.PersonalMeshResponse
-	122, // 79: agentvmm.host.v1.RevokePersonalMeshMemberResponse.mesh:type_name -> agentvmm.host.v1.PersonalMeshResponse
-	126, // 80: agentvmm.host.v1.BeginPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	158, // 81: agentvmm.host.v1.BeginPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
-	159, // 82: agentvmm.host.v1.BeginPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
-	160, // 83: agentvmm.host.v1.BeginPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	161, // 84: agentvmm.host.v1.BeginPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
-	126, // 85: agentvmm.host.v1.JoinPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	158, // 86: agentvmm.host.v1.JoinPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
-	159, // 87: agentvmm.host.v1.JoinPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
-	160, // 88: agentvmm.host.v1.JoinPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	161, // 89: agentvmm.host.v1.JoinPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
-	126, // 90: agentvmm.host.v1.GetPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	158, // 91: agentvmm.host.v1.GetPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
-	159, // 92: agentvmm.host.v1.GetPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
-	160, // 93: agentvmm.host.v1.GetPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	161, // 94: agentvmm.host.v1.GetPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
-	126, // 95: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	158, // 96: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
-	159, // 97: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
-	160, // 98: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	161, // 99: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
-	126, // 100: agentvmm.host.v1.RejectPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
-	158, // 101: agentvmm.host.v1.RejectPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
-	159, // 102: agentvmm.host.v1.RejectPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
-	160, // 103: agentvmm.host.v1.RejectPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
-	161, // 104: agentvmm.host.v1.RejectPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
-	141, // 105: agentvmm.host.v1.RepairDeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
-	157, // 106: agentvmm.host.v1.RepairDeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
-	124, // 107: agentvmm.host.v1.CreateLocalServiceListenerResponse.listener:type_name -> agentvmm.host.v1.ServiceListener
-	162, // 108: agentvmm.host.v1.CreateHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
-	162, // 109: agentvmm.host.v1.RebindHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
-	162, // 110: agentvmm.host.v1.RevokeHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
-	134, // 111: agentvmm.host.v1.GetSystemSnapshotResponse.vm:type_name -> agentvmm.host.v1.VM
-	143, // 112: agentvmm.host.v1.GetSystemSnapshotResponse.health:type_name -> agentvmm.host.v1.HealthStatus
-	144, // 113: agentvmm.host.v1.GetSystemSnapshotResponse.usage:type_name -> agentvmm.host.v1.Usage
-	128, // 114: agentvmm.host.v1.GetSystemSnapshotResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
-	129, // 115: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
-	145, // 116: agentvmm.host.v1.GetSystemSnapshotResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
-	146, // 117: agentvmm.host.v1.GetSystemSnapshotResponse.host_resources:type_name -> agentvmm.host.v1.LayerResources
-	146, // 118: agentvmm.host.v1.GetSystemSnapshotResponse.guest_resources:type_name -> agentvmm.host.v1.LayerResources
-	145, // 119: agentvmm.host.v1.BeginRemoteRevocationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
-	118, // 120: agentvmm.host.v1.OperatorService.CreateMCPToken:input_type -> agentvmm.host.v1.CreateMCPTokenRequest
-	120, // 121: agentvmm.host.v1.OperatorService.RotateMCPTokenKey:input_type -> agentvmm.host.v1.RotateMCPTokenKeyRequest
-	15,  // 122: agentvmm.host.v1.OperatorService.StartVM:input_type -> agentvmm.host.v1.StartVMRequest
-	16,  // 123: agentvmm.host.v1.OperatorService.GetVM:input_type -> agentvmm.host.v1.GetVMRequest
-	17,  // 124: agentvmm.host.v1.OperatorService.StopVM:input_type -> agentvmm.host.v1.StopVMRequest
-	18,  // 125: agentvmm.host.v1.OperatorService.CreateAgentSession:input_type -> agentvmm.host.v1.CreateAgentSessionRequest
-	20,  // 126: agentvmm.host.v1.OperatorService.RevokeAgentSession:input_type -> agentvmm.host.v1.RevokeAgentSessionRequest
-	21,  // 127: agentvmm.host.v1.OperatorService.ListAgentIntegrations:input_type -> agentvmm.host.v1.ListAgentIntegrationsRequest
-	23,  // 128: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:input_type -> agentvmm.host.v1.PrepareAgentIntegrationRequest
-	24,  // 129: agentvmm.host.v1.OperatorService.CommitAgentIntegration:input_type -> agentvmm.host.v1.CommitAgentIntegrationRequest
-	25,  // 130: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:input_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
-	26,  // 131: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:input_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
-	27,  // 132: agentvmm.host.v1.OperatorService.ListAgentSessions:input_type -> agentvmm.host.v1.ListAgentSessionsRequest
-	29,  // 133: agentvmm.host.v1.OperatorService.RevokeAgentSessions:input_type -> agentvmm.host.v1.RevokeAgentSessionsRequest
-	34,  // 134: agentvmm.host.v1.OperatorService.GetSystemSnapshot:input_type -> agentvmm.host.v1.GetSystemSnapshotRequest
-	35,  // 135: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:input_type -> agentvmm.host.v1.GetSystemHealthSummaryRequest
-	36,  // 136: agentvmm.host.v1.OperatorService.GetVMImpactSummary:input_type -> agentvmm.host.v1.GetVMImpactSummaryRequest
-	30,  // 137: agentvmm.host.v1.OperatorService.ListEnvironments:input_type -> agentvmm.host.v1.ListEnvironmentsRequest
-	63,  // 138: agentvmm.host.v1.OperatorService.GetEnvironment:input_type -> agentvmm.host.v1.OperatorServiceGetEnvironmentRequest
-	32,  // 139: agentvmm.host.v1.OperatorService.ListEnvironmentImages:input_type -> agentvmm.host.v1.ListEnvironmentImagesRequest
-	33,  // 140: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:input_type -> agentvmm.host.v1.DeleteEnvironmentImageRequest
-	38,  // 141: agentvmm.host.v1.OperatorService.WatchEvents:input_type -> agentvmm.host.v1.WatchEventsRequest
-	39,  // 142: agentvmm.host.v1.OperatorService.WatchMetrics:input_type -> agentvmm.host.v1.WatchMetricsRequest
-	69,  // 143: agentvmm.host.v1.OperatorService.Logs:input_type -> agentvmm.host.v1.OperatorServiceLogsRequest
-	71,  // 144: agentvmm.host.v1.OperatorService.StopContainer:input_type -> agentvmm.host.v1.OperatorServiceStopContainerRequest
-	73,  // 145: agentvmm.host.v1.OperatorService.ContinueContainer:input_type -> agentvmm.host.v1.ContinueContainerRequest
-	75,  // 146: agentvmm.host.v1.OperatorService.SignalContainer:input_type -> agentvmm.host.v1.OperatorServiceSignalContainerRequest
-	77,  // 147: agentvmm.host.v1.OperatorService.DeleteContainer:input_type -> agentvmm.host.v1.OperatorServiceDeleteContainerRequest
-	40,  // 148: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:input_type -> agentvmm.host.v1.UpdateEnvironmentPolicyRequest
-	80,  // 149: agentvmm.host.v1.OperatorService.PlanResetEnvironment:input_type -> agentvmm.host.v1.PlanResetEnvironmentRequest
-	82,  // 150: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.PlanDiscardEnvironmentRequest
-	41,  // 151: agentvmm.host.v1.OperatorService.ExecuteCleanup:input_type -> agentvmm.host.v1.ExecuteCleanupRequest
-	46,  // 152: agentvmm.host.v1.OperatorService.PlanLocalDisposal:input_type -> agentvmm.host.v1.PlanLocalDisposalRequest
-	47,  // 153: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:input_type -> agentvmm.host.v1.ExecuteLocalDisposalRequest
-	42,  // 154: agentvmm.host.v1.OperatorService.GetOperation:input_type -> agentvmm.host.v1.GetOperationRequest
-	43,  // 155: agentvmm.host.v1.OperatorService.RunDiagnostics:input_type -> agentvmm.host.v1.RunDiagnosticsRequest
-	44,  // 156: agentvmm.host.v1.OperatorService.PreviewSupportBundle:input_type -> agentvmm.host.v1.PreviewSupportBundleRequest
-	45,  // 157: agentvmm.host.v1.OperatorService.ExportSupportBundle:input_type -> agentvmm.host.v1.ExportSupportBundleRequest
-	163, // 158: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:input_type -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
-	164, // 159: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:input_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
-	165, // 160: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:input_type -> agentvmm.host.v1.CompleteRemoteEnrollmentRequest
-	166, // 161: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:input_type -> agentvmm.host.v1.RetryRemoteEnrollmentRequest
-	167, // 162: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:input_type -> agentvmm.host.v1.BeginRemoteRevocationRequest
-	168, // 163: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:input_type -> agentvmm.host.v1.CompleteRemoteRevocationRequest
-	169, // 164: agentvmm.host.v1.OperatorService.UpdateRemotePool:input_type -> agentvmm.host.v1.UpdateRemotePoolRequest
-	170, // 165: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:input_type -> agentvmm.host.v1.SetRemoteRegistrationStateRequest
-	171, // 166: agentvmm.host.v1.OperatorService.GetRemoteRegistration:input_type -> agentvmm.host.v1.GetRemoteRegistrationRequest
-	48,  // 167: agentvmm.host.v1.OperatorService.SignRegistrationRecovery:input_type -> agentvmm.host.v1.SignRegistrationRecoveryRequest
-	50,  // 168: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:input_type -> agentvmm.host.v1.GetLocalDiskSummaryRequest
-	51,  // 169: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:input_type -> agentvmm.host.v1.ListLocalEnvironmentPageRequest
-	52,  // 170: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:input_type -> agentvmm.host.v1.ListLocalRegistrationPageRequest
-	0,   // 171: agentvmm.host.v1.OperatorService.GetDeviceIdentity:input_type -> agentvmm.host.v1.GetDeviceIdentityRequest
-	2,   // 172: agentvmm.host.v1.OperatorService.ListPersonalMeshes:input_type -> agentvmm.host.v1.ListPersonalMeshesRequest
-	1,   // 173: agentvmm.host.v1.OperatorService.CreatePersonalMesh:input_type -> agentvmm.host.v1.CreatePersonalMeshRequest
-	8,   // 174: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:input_type -> agentvmm.host.v1.RevokePersonalMeshMemberRequest
-	9,   // 175: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:input_type -> agentvmm.host.v1.BeginPersonalMeshPairingRequest
-	10,  // 176: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:input_type -> agentvmm.host.v1.JoinPersonalMeshPairingRequest
-	11,  // 177: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:input_type -> agentvmm.host.v1.GetPersonalMeshPairingRequest
-	12,  // 178: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:input_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingRequest
-	13,  // 179: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:input_type -> agentvmm.host.v1.RejectPersonalMeshPairingRequest
-	14,  // 180: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:input_type -> agentvmm.host.v1.RepairDeviceIdentityRequest
-	4,   // 181: agentvmm.host.v1.OperatorService.CreateLocalServiceListener:input_type -> agentvmm.host.v1.CreateLocalServiceListenerRequest
-	5,   // 182: agentvmm.host.v1.OperatorService.ListServiceListeners:input_type -> agentvmm.host.v1.ListServiceListenersRequest
-	7,   // 183: agentvmm.host.v1.OperatorService.RevokeServiceListener:input_type -> agentvmm.host.v1.RevokeServiceListenerRequest
-	172, // 184: agentvmm.host.v1.OperatorService.CreateHostShare:input_type -> agentvmm.host.v1.CreateHostShareRequest
-	173, // 185: agentvmm.host.v1.OperatorService.RebindHostShare:input_type -> agentvmm.host.v1.RebindHostShareRequest
-	174, // 186: agentvmm.host.v1.OperatorService.RevokeHostShare:input_type -> agentvmm.host.v1.RevokeHostShareRequest
-	175, // 187: agentvmm.host.v1.OperatorService.ListHostShares:input_type -> agentvmm.host.v1.ListHostSharesRequest
-	119, // 188: agentvmm.host.v1.OperatorService.CreateMCPToken:output_type -> agentvmm.host.v1.CreateMCPTokenResponse
-	121, // 189: agentvmm.host.v1.OperatorService.RotateMCPTokenKey:output_type -> agentvmm.host.v1.RotateMCPTokenKeyResponse
-	53,  // 190: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.StartVMResponse
-	54,  // 191: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.GetVMResponse
-	55,  // 192: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.StopVMResponse
-	19,  // 193: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
-	56,  // 194: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> agentvmm.host.v1.RevokeAgentSessionResponse
-	22,  // 195: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
-	57,  // 196: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.PrepareAgentIntegrationResponse
-	58,  // 197: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.CommitAgentIntegrationResponse
-	59,  // 198: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalResponse
-	60,  // 199: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalResponse
-	28,  // 200: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
-	61,  // 201: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> agentvmm.host.v1.RevokeAgentSessionsResponse
-	116, // 202: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
-	62,  // 203: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:output_type -> agentvmm.host.v1.GetSystemHealthSummaryResponse
-	37,  // 204: agentvmm.host.v1.OperatorService.GetVMImpactSummary:output_type -> agentvmm.host.v1.GetVMImpactSummaryResponse
-	31,  // 205: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
-	64,  // 206: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.OperatorServiceGetEnvironmentResponse
-	65,  // 207: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListEnvironmentImagesResponse
-	66,  // 208: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> agentvmm.host.v1.DeleteEnvironmentImageResponse
-	67,  // 209: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.WatchEventsResponse
-	68,  // 210: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.WatchMetricsResponse
-	70,  // 211: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.OperatorServiceLogsResponse
-	72,  // 212: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.OperatorServiceStopContainerResponse
-	74,  // 213: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContinueContainerResponse
-	76,  // 214: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> agentvmm.host.v1.OperatorServiceSignalContainerResponse
-	78,  // 215: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> agentvmm.host.v1.OperatorServiceDeleteContainerResponse
-	79,  // 216: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.UpdateEnvironmentPolicyResponse
-	81,  // 217: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.PlanResetEnvironmentResponse
-	83,  // 218: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.PlanDiscardEnvironmentResponse
-	84,  // 219: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.ExecuteCleanupResponse
-	85,  // 220: agentvmm.host.v1.OperatorService.PlanLocalDisposal:output_type -> agentvmm.host.v1.PlanLocalDisposalResponse
-	86,  // 221: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:output_type -> agentvmm.host.v1.ExecuteLocalDisposalResponse
-	87,  // 222: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.GetOperationResponse
-	88,  // 223: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.RunDiagnosticsResponse
-	89,  // 224: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.PreviewSupportBundleResponse
-	90,  // 225: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.ExportSupportBundleResponse
-	91,  // 226: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.BeginRemoteEnrollmentResponse
-	92,  // 227: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentResponse
-	93,  // 228: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.CompleteRemoteEnrollmentResponse
-	94,  // 229: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RetryRemoteEnrollmentResponse
-	117, // 230: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.BeginRemoteRevocationResponse
-	95,  // 231: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.CompleteRemoteRevocationResponse
-	96,  // 232: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.UpdateRemotePoolResponse
-	97,  // 233: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.SetRemoteRegistrationStateResponse
-	98,  // 234: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.GetRemoteRegistrationResponse
-	49,  // 235: agentvmm.host.v1.OperatorService.SignRegistrationRecovery:output_type -> agentvmm.host.v1.SignRegistrationRecoveryResponse
-	99,  // 236: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:output_type -> agentvmm.host.v1.GetLocalDiskSummaryResponse
-	100, // 237: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:output_type -> agentvmm.host.v1.ListLocalEnvironmentPageResponse
-	101, // 238: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:output_type -> agentvmm.host.v1.ListLocalRegistrationPageResponse
-	102, // 239: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.GetDeviceIdentityResponse
-	3,   // 240: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
-	103, // 241: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.CreatePersonalMeshResponse
-	104, // 242: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.RevokePersonalMeshMemberResponse
-	105, // 243: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.BeginPersonalMeshPairingResponse
-	106, // 244: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.JoinPersonalMeshPairingResponse
-	107, // 245: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.GetPersonalMeshPairingResponse
-	108, // 246: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingResponse
-	109, // 247: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.RejectPersonalMeshPairingResponse
-	110, // 248: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.RepairDeviceIdentityResponse
-	111, // 249: agentvmm.host.v1.OperatorService.CreateLocalServiceListener:output_type -> agentvmm.host.v1.CreateLocalServiceListenerResponse
-	6,   // 250: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
-	112, // 251: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> agentvmm.host.v1.RevokeServiceListenerResponse
-	113, // 252: agentvmm.host.v1.OperatorService.CreateHostShare:output_type -> agentvmm.host.v1.CreateHostShareResponse
-	114, // 253: agentvmm.host.v1.OperatorService.RebindHostShare:output_type -> agentvmm.host.v1.RebindHostShareResponse
-	115, // 254: agentvmm.host.v1.OperatorService.RevokeHostShare:output_type -> agentvmm.host.v1.RevokeHostShareResponse
-	176, // 255: agentvmm.host.v1.OperatorService.ListHostShares:output_type -> agentvmm.host.v1.ListHostSharesResponse
-	188, // [188:256] is the sub-list for method output_type
-	120, // [120:188] is the sub-list for method input_type
-	120, // [120:120] is the sub-list for extension type_name
-	120, // [120:120] is the sub-list for extension extendee
-	0,   // [0:120] is the sub-list for field type_name
+	124, // 0: agentvmm.host.v1.ListPersonalMeshesResponse.meshes:type_name -> agentvmm.host.v1.PersonalMeshResponse
+	125, // 1: agentvmm.host.v1.CreateLocalServiceListenerRequest.exposure:type_name -> agentvmm.host.v1.ServiceListenerExposure
+	126, // 2: agentvmm.host.v1.ListServiceListenersResponse.listeners:type_name -> agentvmm.host.v1.ServiceListener
+	127, // 3: agentvmm.host.v1.BeginPersonalMeshPairingRequest.permissions:type_name -> agentvmm.trust.v1.MeshPermission
+	128, // 4: agentvmm.host.v1.JoinPersonalMeshPairingRequest.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	129, // 5: agentvmm.host.v1.StartVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
+	129, // 6: agentvmm.host.v1.StopVMRequest.fence:type_name -> agentvmm.host.v1.VMMutationFence
+	130, // 7: agentvmm.host.v1.CreateAgentSessionResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
+	131, // 8: agentvmm.host.v1.CreateAgentSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
+	132, // 9: agentvmm.host.v1.ListAgentIntegrationsResponse.integrations:type_name -> agentvmm.host.v1.AgentIntegration
+	133, // 10: agentvmm.host.v1.PrepareAgentIntegrationRequest.scope:type_name -> agentvmm.host.v1.IntegrationScope
+	134, // 11: agentvmm.host.v1.PrepareAgentIntegrationRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	135, // 12: agentvmm.host.v1.ListAgentSessionsResponse.sessions:type_name -> agentvmm.host.v1.AgentSession
+	130, // 13: agentvmm.host.v1.ListEnvironmentsResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
+	136, // 14: agentvmm.host.v1.GetVMImpactSummaryResponse.vm:type_name -> agentvmm.host.v1.VM
+	131, // 15: agentvmm.host.v1.GetVMImpactSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
+	137, // 16: agentvmm.host.v1.GetVMImpactSummaryResponse.known_workloads:type_name -> agentvmm.host.v1.ResourceReference
+	137, // 17: agentvmm.host.v1.WatchMetricsRequest.scope:type_name -> agentvmm.host.v1.ResourceReference
+	138, // 18: agentvmm.host.v1.WatchMetricsRequest.interval:type_name -> google.protobuf.Duration
+	134, // 19: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.limits:type_name -> agentvmm.host.v1.ResourceLimits
+	139, // 20: agentvmm.host.v1.UpdateEnvironmentPolicyRequest.egress_mode:type_name -> agentvmm.host.v1.EgressMode
+	140, // 21: agentvmm.host.v1.ExecuteCleanupRequest.plan:type_name -> agentvmm.host.v1.CleanupPlan
+	141, // 22: agentvmm.host.v1.PlanLocalDisposalRequest.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
+	142, // 23: agentvmm.host.v1.ExecuteLocalDisposalRequest.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
+	143, // 24: agentvmm.host.v1.SignRegistrationRecoveryResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	144, // 25: agentvmm.host.v1.StartVMResponse.operation:type_name -> agentvmm.host.v1.Operation
+	136, // 26: agentvmm.host.v1.GetVMResponse.vm:type_name -> agentvmm.host.v1.VM
+	144, // 27: agentvmm.host.v1.StopVMResponse.operation:type_name -> agentvmm.host.v1.Operation
+	132, // 28: agentvmm.host.v1.PrepareAgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
+	132, // 29: agentvmm.host.v1.CommitAgentIntegrationResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
+	132, // 30: agentvmm.host.v1.BeginAgentIntegrationRemovalResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
+	132, // 31: agentvmm.host.v1.CompleteAgentIntegrationRemovalResponse.integration:type_name -> agentvmm.host.v1.AgentIntegration
+	136, // 32: agentvmm.host.v1.GetSystemHealthSummaryResponse.vm:type_name -> agentvmm.host.v1.VM
+	145, // 33: agentvmm.host.v1.GetSystemHealthSummaryResponse.health:type_name -> agentvmm.host.v1.HealthStatus
+	146, // 34: agentvmm.host.v1.GetSystemHealthSummaryResponse.usage:type_name -> agentvmm.host.v1.Usage
+	130, // 35: agentvmm.host.v1.GetSystemHealthSummaryResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
+	131, // 36: agentvmm.host.v1.GetSystemHealthSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
+	147, // 37: agentvmm.host.v1.GetSystemHealthSummaryResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
+	148, // 38: agentvmm.host.v1.GetSystemHealthSummaryResponse.host_resources:type_name -> agentvmm.host.v1.LayerResources
+	148, // 39: agentvmm.host.v1.GetSystemHealthSummaryResponse.guest_resources:type_name -> agentvmm.host.v1.LayerResources
+	130, // 40: agentvmm.host.v1.OperatorServiceGetEnvironmentResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
+	149, // 41: agentvmm.host.v1.ListEnvironmentImagesResponse.images:type_name -> agentvmm.host.v1.Image
+	137, // 42: agentvmm.host.v1.WatchEventsResponse.resource:type_name -> agentvmm.host.v1.ResourceReference
+	131, // 43: agentvmm.host.v1.WatchEventsResponse.timestamp:type_name -> google.protobuf.Timestamp
+	137, // 44: agentvmm.host.v1.WatchMetricsResponse.scope:type_name -> agentvmm.host.v1.ResourceReference
+	146, // 45: agentvmm.host.v1.WatchMetricsResponse.usage:type_name -> agentvmm.host.v1.Usage
+	150, // 46: agentvmm.host.v1.OperatorServiceLogsRequest.query:type_name -> agentvmm.host.v1.LogsRequest
+	131, // 47: agentvmm.host.v1.OperatorServiceLogsResponse.timestamp:type_name -> google.protobuf.Timestamp
+	151, // 48: agentvmm.host.v1.OperatorServiceLogsResponse.stream:type_name -> agentvmm.host.v1.LogStream
+	152, // 49: agentvmm.host.v1.OperatorServiceStopContainerResponse.container:type_name -> agentvmm.host.v1.Container
+	152, // 50: agentvmm.host.v1.ContinueContainerResponse.container:type_name -> agentvmm.host.v1.Container
+	153, // 51: agentvmm.host.v1.OperatorServiceSignalContainerRequest.signal:type_name -> agentvmm.host.v1.ProcessSignal
+	130, // 52: agentvmm.host.v1.UpdateEnvironmentPolicyResponse.environment:type_name -> agentvmm.host.v1.AgentEnvironment
+	140, // 53: agentvmm.host.v1.PlanResetEnvironmentResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
+	140, // 54: agentvmm.host.v1.PlanDiscardEnvironmentResponse.plan:type_name -> agentvmm.host.v1.CleanupPlan
+	144, // 55: agentvmm.host.v1.ExecuteCleanupResponse.operation:type_name -> agentvmm.host.v1.Operation
+	142, // 56: agentvmm.host.v1.PlanLocalDisposalResponse.plan:type_name -> agentvmm.host.v1.LocalDisposalPlan
+	144, // 57: agentvmm.host.v1.ExecuteLocalDisposalResponse.operation:type_name -> agentvmm.host.v1.Operation
+	144, // 58: agentvmm.host.v1.GetOperationResponse.operation:type_name -> agentvmm.host.v1.Operation
+	144, // 59: agentvmm.host.v1.RunDiagnosticsResponse.operation:type_name -> agentvmm.host.v1.Operation
+	154, // 60: agentvmm.host.v1.PreviewSupportBundleResponse.items:type_name -> agentvmm.host.v1.SupportBundleItem
+	144, // 61: agentvmm.host.v1.ExportSupportBundleResponse.operation:type_name -> agentvmm.host.v1.Operation
+	147, // 62: agentvmm.host.v1.BeginRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 63: agentvmm.host.v1.ApplyManagedRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 64: agentvmm.host.v1.CompleteRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 65: agentvmm.host.v1.RetryRemoteEnrollmentResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 66: agentvmm.host.v1.CompleteRemoteRevocationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 67: agentvmm.host.v1.UpdateRemotePoolResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 68: agentvmm.host.v1.SetRemoteRegistrationStateResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	147, // 69: agentvmm.host.v1.GetRemoteRegistrationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	131, // 70: agentvmm.host.v1.GetLocalDiskSummaryResponse.collected_at:type_name -> google.protobuf.Timestamp
+	155, // 71: agentvmm.host.v1.GetLocalDiskSummaryResponse.vm_state:type_name -> agentvmm.host.v1.VMState
+	156, // 72: agentvmm.host.v1.GetLocalDiskSummaryResponse.guest_state_fs:type_name -> agentvmm.host.v1.DiskAccounting
+	157, // 73: agentvmm.host.v1.ListLocalEnvironmentPageResponse.environments:type_name -> agentvmm.host.v1.LocalEnvironmentSummary
+	131, // 74: agentvmm.host.v1.ListLocalEnvironmentPageResponse.collected_at:type_name -> google.protobuf.Timestamp
+	158, // 75: agentvmm.host.v1.ListLocalRegistrationPageResponse.registrations:type_name -> agentvmm.host.v1.LocalRegistrationMetadata
+	143, // 76: agentvmm.host.v1.GetDeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	159, // 77: agentvmm.host.v1.GetDeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
+	124, // 78: agentvmm.host.v1.CreatePersonalMeshResponse.mesh:type_name -> agentvmm.host.v1.PersonalMeshResponse
+	124, // 79: agentvmm.host.v1.RevokePersonalMeshMemberResponse.mesh:type_name -> agentvmm.host.v1.PersonalMeshResponse
+	128, // 80: agentvmm.host.v1.BeginPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	160, // 81: agentvmm.host.v1.BeginPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
+	161, // 82: agentvmm.host.v1.BeginPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
+	162, // 83: agentvmm.host.v1.BeginPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	163, // 84: agentvmm.host.v1.BeginPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
+	128, // 85: agentvmm.host.v1.JoinPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	160, // 86: agentvmm.host.v1.JoinPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
+	161, // 87: agentvmm.host.v1.JoinPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
+	162, // 88: agentvmm.host.v1.JoinPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	163, // 89: agentvmm.host.v1.JoinPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
+	128, // 90: agentvmm.host.v1.GetPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	160, // 91: agentvmm.host.v1.GetPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
+	161, // 92: agentvmm.host.v1.GetPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
+	162, // 93: agentvmm.host.v1.GetPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	163, // 94: agentvmm.host.v1.GetPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
+	128, // 95: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	160, // 96: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
+	161, // 97: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
+	162, // 98: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	163, // 99: agentvmm.host.v1.ConfirmPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
+	128, // 100: agentvmm.host.v1.RejectPersonalMeshPairingResponse.invitation:type_name -> agentvmm.host.v1.PersonalMeshPairingInvitation
+	160, // 101: agentvmm.host.v1.RejectPersonalMeshPairingResponse.role:type_name -> agentvmm.trust.v1.PairingRole
+	161, // 102: agentvmm.host.v1.RejectPersonalMeshPairingResponse.state:type_name -> agentvmm.host.v1.PersonalMeshPairingState
+	162, // 103: agentvmm.host.v1.RejectPersonalMeshPairingResponse.pending_operation:type_name -> agentvmm.trust.v1.RegistryOperation
+	163, // 104: agentvmm.host.v1.RejectPersonalMeshPairingResponse.last_failure:type_name -> agentvmm.host.v1.PairingFailure
+	143, // 105: agentvmm.host.v1.RepairDeviceIdentityResponse.identity:type_name -> agentvmm.trust.v1.DeviceIdentity
+	159, // 106: agentvmm.host.v1.RepairDeviceIdentityResponse.state:type_name -> agentvmm.host.v1.DeviceIdentityState
+	126, // 107: agentvmm.host.v1.CreateLocalServiceListenerResponse.listener:type_name -> agentvmm.host.v1.ServiceListener
+	164, // 108: agentvmm.host.v1.CreateHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
+	164, // 109: agentvmm.host.v1.RebindHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
+	164, // 110: agentvmm.host.v1.RevokeHostShareResponse.share:type_name -> agentvmm.host.v1.HostShare
+	165, // 111: agentvmm.host.v1.SetHostSocketResponse.host_socket:type_name -> agentvmm.host.v1.HostSocket
+	136, // 112: agentvmm.host.v1.GetSystemSnapshotResponse.vm:type_name -> agentvmm.host.v1.VM
+	145, // 113: agentvmm.host.v1.GetSystemSnapshotResponse.health:type_name -> agentvmm.host.v1.HealthStatus
+	146, // 114: agentvmm.host.v1.GetSystemSnapshotResponse.usage:type_name -> agentvmm.host.v1.Usage
+	130, // 115: agentvmm.host.v1.GetSystemSnapshotResponse.environments:type_name -> agentvmm.host.v1.AgentEnvironment
+	131, // 116: agentvmm.host.v1.GetSystemSnapshotResponse.collected_at:type_name -> google.protobuf.Timestamp
+	147, // 117: agentvmm.host.v1.GetSystemSnapshotResponse.remote_registrations:type_name -> agentvmm.host.v1.RemoteRegistration
+	148, // 118: agentvmm.host.v1.GetSystemSnapshotResponse.host_resources:type_name -> agentvmm.host.v1.LayerResources
+	148, // 119: agentvmm.host.v1.GetSystemSnapshotResponse.guest_resources:type_name -> agentvmm.host.v1.LayerResources
+	147, // 120: agentvmm.host.v1.BeginRemoteRevocationResponse.registration:type_name -> agentvmm.host.v1.RemoteRegistration
+	120, // 121: agentvmm.host.v1.OperatorService.CreateMCPToken:input_type -> agentvmm.host.v1.CreateMCPTokenRequest
+	122, // 122: agentvmm.host.v1.OperatorService.RotateMCPTokenKey:input_type -> agentvmm.host.v1.RotateMCPTokenKeyRequest
+	15,  // 123: agentvmm.host.v1.OperatorService.StartVM:input_type -> agentvmm.host.v1.StartVMRequest
+	16,  // 124: agentvmm.host.v1.OperatorService.GetVM:input_type -> agentvmm.host.v1.GetVMRequest
+	17,  // 125: agentvmm.host.v1.OperatorService.StopVM:input_type -> agentvmm.host.v1.StopVMRequest
+	18,  // 126: agentvmm.host.v1.OperatorService.CreateAgentSession:input_type -> agentvmm.host.v1.CreateAgentSessionRequest
+	20,  // 127: agentvmm.host.v1.OperatorService.RevokeAgentSession:input_type -> agentvmm.host.v1.RevokeAgentSessionRequest
+	21,  // 128: agentvmm.host.v1.OperatorService.ListAgentIntegrations:input_type -> agentvmm.host.v1.ListAgentIntegrationsRequest
+	23,  // 129: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:input_type -> agentvmm.host.v1.PrepareAgentIntegrationRequest
+	24,  // 130: agentvmm.host.v1.OperatorService.CommitAgentIntegration:input_type -> agentvmm.host.v1.CommitAgentIntegrationRequest
+	25,  // 131: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:input_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalRequest
+	26,  // 132: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:input_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalRequest
+	27,  // 133: agentvmm.host.v1.OperatorService.ListAgentSessions:input_type -> agentvmm.host.v1.ListAgentSessionsRequest
+	29,  // 134: agentvmm.host.v1.OperatorService.RevokeAgentSessions:input_type -> agentvmm.host.v1.RevokeAgentSessionsRequest
+	34,  // 135: agentvmm.host.v1.OperatorService.GetSystemSnapshot:input_type -> agentvmm.host.v1.GetSystemSnapshotRequest
+	35,  // 136: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:input_type -> agentvmm.host.v1.GetSystemHealthSummaryRequest
+	36,  // 137: agentvmm.host.v1.OperatorService.GetVMImpactSummary:input_type -> agentvmm.host.v1.GetVMImpactSummaryRequest
+	30,  // 138: agentvmm.host.v1.OperatorService.ListEnvironments:input_type -> agentvmm.host.v1.ListEnvironmentsRequest
+	63,  // 139: agentvmm.host.v1.OperatorService.GetEnvironment:input_type -> agentvmm.host.v1.OperatorServiceGetEnvironmentRequest
+	32,  // 140: agentvmm.host.v1.OperatorService.ListEnvironmentImages:input_type -> agentvmm.host.v1.ListEnvironmentImagesRequest
+	33,  // 141: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:input_type -> agentvmm.host.v1.DeleteEnvironmentImageRequest
+	38,  // 142: agentvmm.host.v1.OperatorService.WatchEvents:input_type -> agentvmm.host.v1.WatchEventsRequest
+	39,  // 143: agentvmm.host.v1.OperatorService.WatchMetrics:input_type -> agentvmm.host.v1.WatchMetricsRequest
+	69,  // 144: agentvmm.host.v1.OperatorService.Logs:input_type -> agentvmm.host.v1.OperatorServiceLogsRequest
+	71,  // 145: agentvmm.host.v1.OperatorService.StopContainer:input_type -> agentvmm.host.v1.OperatorServiceStopContainerRequest
+	73,  // 146: agentvmm.host.v1.OperatorService.ContinueContainer:input_type -> agentvmm.host.v1.ContinueContainerRequest
+	75,  // 147: agentvmm.host.v1.OperatorService.SignalContainer:input_type -> agentvmm.host.v1.OperatorServiceSignalContainerRequest
+	77,  // 148: agentvmm.host.v1.OperatorService.DeleteContainer:input_type -> agentvmm.host.v1.OperatorServiceDeleteContainerRequest
+	40,  // 149: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:input_type -> agentvmm.host.v1.UpdateEnvironmentPolicyRequest
+	80,  // 150: agentvmm.host.v1.OperatorService.PlanResetEnvironment:input_type -> agentvmm.host.v1.PlanResetEnvironmentRequest
+	82,  // 151: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:input_type -> agentvmm.host.v1.PlanDiscardEnvironmentRequest
+	41,  // 152: agentvmm.host.v1.OperatorService.ExecuteCleanup:input_type -> agentvmm.host.v1.ExecuteCleanupRequest
+	46,  // 153: agentvmm.host.v1.OperatorService.PlanLocalDisposal:input_type -> agentvmm.host.v1.PlanLocalDisposalRequest
+	47,  // 154: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:input_type -> agentvmm.host.v1.ExecuteLocalDisposalRequest
+	42,  // 155: agentvmm.host.v1.OperatorService.GetOperation:input_type -> agentvmm.host.v1.GetOperationRequest
+	43,  // 156: agentvmm.host.v1.OperatorService.RunDiagnostics:input_type -> agentvmm.host.v1.RunDiagnosticsRequest
+	44,  // 157: agentvmm.host.v1.OperatorService.PreviewSupportBundle:input_type -> agentvmm.host.v1.PreviewSupportBundleRequest
+	45,  // 158: agentvmm.host.v1.OperatorService.ExportSupportBundle:input_type -> agentvmm.host.v1.ExportSupportBundleRequest
+	166, // 159: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:input_type -> agentvmm.host.v1.BeginRemoteEnrollmentRequest
+	167, // 160: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:input_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest
+	168, // 161: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:input_type -> agentvmm.host.v1.CompleteRemoteEnrollmentRequest
+	169, // 162: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:input_type -> agentvmm.host.v1.RetryRemoteEnrollmentRequest
+	170, // 163: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:input_type -> agentvmm.host.v1.BeginRemoteRevocationRequest
+	171, // 164: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:input_type -> agentvmm.host.v1.CompleteRemoteRevocationRequest
+	172, // 165: agentvmm.host.v1.OperatorService.UpdateRemotePool:input_type -> agentvmm.host.v1.UpdateRemotePoolRequest
+	173, // 166: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:input_type -> agentvmm.host.v1.SetRemoteRegistrationStateRequest
+	174, // 167: agentvmm.host.v1.OperatorService.GetRemoteRegistration:input_type -> agentvmm.host.v1.GetRemoteRegistrationRequest
+	48,  // 168: agentvmm.host.v1.OperatorService.SignRegistrationRecovery:input_type -> agentvmm.host.v1.SignRegistrationRecoveryRequest
+	50,  // 169: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:input_type -> agentvmm.host.v1.GetLocalDiskSummaryRequest
+	51,  // 170: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:input_type -> agentvmm.host.v1.ListLocalEnvironmentPageRequest
+	52,  // 171: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:input_type -> agentvmm.host.v1.ListLocalRegistrationPageRequest
+	0,   // 172: agentvmm.host.v1.OperatorService.GetDeviceIdentity:input_type -> agentvmm.host.v1.GetDeviceIdentityRequest
+	2,   // 173: agentvmm.host.v1.OperatorService.ListPersonalMeshes:input_type -> agentvmm.host.v1.ListPersonalMeshesRequest
+	1,   // 174: agentvmm.host.v1.OperatorService.CreatePersonalMesh:input_type -> agentvmm.host.v1.CreatePersonalMeshRequest
+	8,   // 175: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:input_type -> agentvmm.host.v1.RevokePersonalMeshMemberRequest
+	9,   // 176: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:input_type -> agentvmm.host.v1.BeginPersonalMeshPairingRequest
+	10,  // 177: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:input_type -> agentvmm.host.v1.JoinPersonalMeshPairingRequest
+	11,  // 178: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:input_type -> agentvmm.host.v1.GetPersonalMeshPairingRequest
+	12,  // 179: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:input_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingRequest
+	13,  // 180: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:input_type -> agentvmm.host.v1.RejectPersonalMeshPairingRequest
+	14,  // 181: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:input_type -> agentvmm.host.v1.RepairDeviceIdentityRequest
+	4,   // 182: agentvmm.host.v1.OperatorService.CreateLocalServiceListener:input_type -> agentvmm.host.v1.CreateLocalServiceListenerRequest
+	5,   // 183: agentvmm.host.v1.OperatorService.ListServiceListeners:input_type -> agentvmm.host.v1.ListServiceListenersRequest
+	7,   // 184: agentvmm.host.v1.OperatorService.RevokeServiceListener:input_type -> agentvmm.host.v1.RevokeServiceListenerRequest
+	175, // 185: agentvmm.host.v1.OperatorService.CreateHostShare:input_type -> agentvmm.host.v1.CreateHostShareRequest
+	176, // 186: agentvmm.host.v1.OperatorService.RebindHostShare:input_type -> agentvmm.host.v1.RebindHostShareRequest
+	177, // 187: agentvmm.host.v1.OperatorService.RevokeHostShare:input_type -> agentvmm.host.v1.RevokeHostShareRequest
+	178, // 188: agentvmm.host.v1.OperatorService.ListHostShares:input_type -> agentvmm.host.v1.ListHostSharesRequest
+	179, // 189: agentvmm.host.v1.OperatorService.SetHostSocket:input_type -> agentvmm.host.v1.SetHostSocketRequest
+	180, // 190: agentvmm.host.v1.OperatorService.RemoveHostSocket:input_type -> agentvmm.host.v1.RemoveHostSocketRequest
+	181, // 191: agentvmm.host.v1.OperatorService.ListHostSockets:input_type -> agentvmm.host.v1.ListHostSocketsRequest
+	121, // 192: agentvmm.host.v1.OperatorService.CreateMCPToken:output_type -> agentvmm.host.v1.CreateMCPTokenResponse
+	123, // 193: agentvmm.host.v1.OperatorService.RotateMCPTokenKey:output_type -> agentvmm.host.v1.RotateMCPTokenKeyResponse
+	53,  // 194: agentvmm.host.v1.OperatorService.StartVM:output_type -> agentvmm.host.v1.StartVMResponse
+	54,  // 195: agentvmm.host.v1.OperatorService.GetVM:output_type -> agentvmm.host.v1.GetVMResponse
+	55,  // 196: agentvmm.host.v1.OperatorService.StopVM:output_type -> agentvmm.host.v1.StopVMResponse
+	19,  // 197: agentvmm.host.v1.OperatorService.CreateAgentSession:output_type -> agentvmm.host.v1.CreateAgentSessionResponse
+	56,  // 198: agentvmm.host.v1.OperatorService.RevokeAgentSession:output_type -> agentvmm.host.v1.RevokeAgentSessionResponse
+	22,  // 199: agentvmm.host.v1.OperatorService.ListAgentIntegrations:output_type -> agentvmm.host.v1.ListAgentIntegrationsResponse
+	57,  // 200: agentvmm.host.v1.OperatorService.PrepareAgentIntegration:output_type -> agentvmm.host.v1.PrepareAgentIntegrationResponse
+	58,  // 201: agentvmm.host.v1.OperatorService.CommitAgentIntegration:output_type -> agentvmm.host.v1.CommitAgentIntegrationResponse
+	59,  // 202: agentvmm.host.v1.OperatorService.BeginAgentIntegrationRemoval:output_type -> agentvmm.host.v1.BeginAgentIntegrationRemovalResponse
+	60,  // 203: agentvmm.host.v1.OperatorService.CompleteAgentIntegrationRemoval:output_type -> agentvmm.host.v1.CompleteAgentIntegrationRemovalResponse
+	28,  // 204: agentvmm.host.v1.OperatorService.ListAgentSessions:output_type -> agentvmm.host.v1.ListAgentSessionsResponse
+	61,  // 205: agentvmm.host.v1.OperatorService.RevokeAgentSessions:output_type -> agentvmm.host.v1.RevokeAgentSessionsResponse
+	118, // 206: agentvmm.host.v1.OperatorService.GetSystemSnapshot:output_type -> agentvmm.host.v1.GetSystemSnapshotResponse
+	62,  // 207: agentvmm.host.v1.OperatorService.GetSystemHealthSummary:output_type -> agentvmm.host.v1.GetSystemHealthSummaryResponse
+	37,  // 208: agentvmm.host.v1.OperatorService.GetVMImpactSummary:output_type -> agentvmm.host.v1.GetVMImpactSummaryResponse
+	31,  // 209: agentvmm.host.v1.OperatorService.ListEnvironments:output_type -> agentvmm.host.v1.ListEnvironmentsResponse
+	64,  // 210: agentvmm.host.v1.OperatorService.GetEnvironment:output_type -> agentvmm.host.v1.OperatorServiceGetEnvironmentResponse
+	65,  // 211: agentvmm.host.v1.OperatorService.ListEnvironmentImages:output_type -> agentvmm.host.v1.ListEnvironmentImagesResponse
+	66,  // 212: agentvmm.host.v1.OperatorService.DeleteEnvironmentImage:output_type -> agentvmm.host.v1.DeleteEnvironmentImageResponse
+	67,  // 213: agentvmm.host.v1.OperatorService.WatchEvents:output_type -> agentvmm.host.v1.WatchEventsResponse
+	68,  // 214: agentvmm.host.v1.OperatorService.WatchMetrics:output_type -> agentvmm.host.v1.WatchMetricsResponse
+	70,  // 215: agentvmm.host.v1.OperatorService.Logs:output_type -> agentvmm.host.v1.OperatorServiceLogsResponse
+	72,  // 216: agentvmm.host.v1.OperatorService.StopContainer:output_type -> agentvmm.host.v1.OperatorServiceStopContainerResponse
+	74,  // 217: agentvmm.host.v1.OperatorService.ContinueContainer:output_type -> agentvmm.host.v1.ContinueContainerResponse
+	76,  // 218: agentvmm.host.v1.OperatorService.SignalContainer:output_type -> agentvmm.host.v1.OperatorServiceSignalContainerResponse
+	78,  // 219: agentvmm.host.v1.OperatorService.DeleteContainer:output_type -> agentvmm.host.v1.OperatorServiceDeleteContainerResponse
+	79,  // 220: agentvmm.host.v1.OperatorService.UpdateEnvironmentPolicy:output_type -> agentvmm.host.v1.UpdateEnvironmentPolicyResponse
+	81,  // 221: agentvmm.host.v1.OperatorService.PlanResetEnvironment:output_type -> agentvmm.host.v1.PlanResetEnvironmentResponse
+	83,  // 222: agentvmm.host.v1.OperatorService.PlanDiscardEnvironment:output_type -> agentvmm.host.v1.PlanDiscardEnvironmentResponse
+	84,  // 223: agentvmm.host.v1.OperatorService.ExecuteCleanup:output_type -> agentvmm.host.v1.ExecuteCleanupResponse
+	85,  // 224: agentvmm.host.v1.OperatorService.PlanLocalDisposal:output_type -> agentvmm.host.v1.PlanLocalDisposalResponse
+	86,  // 225: agentvmm.host.v1.OperatorService.ExecuteLocalDisposal:output_type -> agentvmm.host.v1.ExecuteLocalDisposalResponse
+	87,  // 226: agentvmm.host.v1.OperatorService.GetOperation:output_type -> agentvmm.host.v1.GetOperationResponse
+	88,  // 227: agentvmm.host.v1.OperatorService.RunDiagnostics:output_type -> agentvmm.host.v1.RunDiagnosticsResponse
+	89,  // 228: agentvmm.host.v1.OperatorService.PreviewSupportBundle:output_type -> agentvmm.host.v1.PreviewSupportBundleResponse
+	90,  // 229: agentvmm.host.v1.OperatorService.ExportSupportBundle:output_type -> agentvmm.host.v1.ExportSupportBundleResponse
+	91,  // 230: agentvmm.host.v1.OperatorService.BeginRemoteEnrollment:output_type -> agentvmm.host.v1.BeginRemoteEnrollmentResponse
+	92,  // 231: agentvmm.host.v1.OperatorService.ApplyManagedRemoteEnrollment:output_type -> agentvmm.host.v1.ApplyManagedRemoteEnrollmentResponse
+	93,  // 232: agentvmm.host.v1.OperatorService.CompleteRemoteEnrollment:output_type -> agentvmm.host.v1.CompleteRemoteEnrollmentResponse
+	94,  // 233: agentvmm.host.v1.OperatorService.RetryRemoteEnrollment:output_type -> agentvmm.host.v1.RetryRemoteEnrollmentResponse
+	119, // 234: agentvmm.host.v1.OperatorService.BeginRemoteRevocation:output_type -> agentvmm.host.v1.BeginRemoteRevocationResponse
+	95,  // 235: agentvmm.host.v1.OperatorService.CompleteRemoteRevocation:output_type -> agentvmm.host.v1.CompleteRemoteRevocationResponse
+	96,  // 236: agentvmm.host.v1.OperatorService.UpdateRemotePool:output_type -> agentvmm.host.v1.UpdateRemotePoolResponse
+	97,  // 237: agentvmm.host.v1.OperatorService.SetRemoteRegistrationState:output_type -> agentvmm.host.v1.SetRemoteRegistrationStateResponse
+	98,  // 238: agentvmm.host.v1.OperatorService.GetRemoteRegistration:output_type -> agentvmm.host.v1.GetRemoteRegistrationResponse
+	49,  // 239: agentvmm.host.v1.OperatorService.SignRegistrationRecovery:output_type -> agentvmm.host.v1.SignRegistrationRecoveryResponse
+	99,  // 240: agentvmm.host.v1.OperatorService.GetLocalDiskSummary:output_type -> agentvmm.host.v1.GetLocalDiskSummaryResponse
+	100, // 241: agentvmm.host.v1.OperatorService.ListLocalEnvironmentPage:output_type -> agentvmm.host.v1.ListLocalEnvironmentPageResponse
+	101, // 242: agentvmm.host.v1.OperatorService.ListLocalRegistrationPage:output_type -> agentvmm.host.v1.ListLocalRegistrationPageResponse
+	102, // 243: agentvmm.host.v1.OperatorService.GetDeviceIdentity:output_type -> agentvmm.host.v1.GetDeviceIdentityResponse
+	3,   // 244: agentvmm.host.v1.OperatorService.ListPersonalMeshes:output_type -> agentvmm.host.v1.ListPersonalMeshesResponse
+	103, // 245: agentvmm.host.v1.OperatorService.CreatePersonalMesh:output_type -> agentvmm.host.v1.CreatePersonalMeshResponse
+	104, // 246: agentvmm.host.v1.OperatorService.RevokePersonalMeshMember:output_type -> agentvmm.host.v1.RevokePersonalMeshMemberResponse
+	105, // 247: agentvmm.host.v1.OperatorService.BeginPersonalMeshPairing:output_type -> agentvmm.host.v1.BeginPersonalMeshPairingResponse
+	106, // 248: agentvmm.host.v1.OperatorService.JoinPersonalMeshPairing:output_type -> agentvmm.host.v1.JoinPersonalMeshPairingResponse
+	107, // 249: agentvmm.host.v1.OperatorService.GetPersonalMeshPairing:output_type -> agentvmm.host.v1.GetPersonalMeshPairingResponse
+	108, // 250: agentvmm.host.v1.OperatorService.ConfirmPersonalMeshPairing:output_type -> agentvmm.host.v1.ConfirmPersonalMeshPairingResponse
+	109, // 251: agentvmm.host.v1.OperatorService.RejectPersonalMeshPairing:output_type -> agentvmm.host.v1.RejectPersonalMeshPairingResponse
+	110, // 252: agentvmm.host.v1.OperatorService.RepairDeviceIdentity:output_type -> agentvmm.host.v1.RepairDeviceIdentityResponse
+	111, // 253: agentvmm.host.v1.OperatorService.CreateLocalServiceListener:output_type -> agentvmm.host.v1.CreateLocalServiceListenerResponse
+	6,   // 254: agentvmm.host.v1.OperatorService.ListServiceListeners:output_type -> agentvmm.host.v1.ListServiceListenersResponse
+	112, // 255: agentvmm.host.v1.OperatorService.RevokeServiceListener:output_type -> agentvmm.host.v1.RevokeServiceListenerResponse
+	113, // 256: agentvmm.host.v1.OperatorService.CreateHostShare:output_type -> agentvmm.host.v1.CreateHostShareResponse
+	114, // 257: agentvmm.host.v1.OperatorService.RebindHostShare:output_type -> agentvmm.host.v1.RebindHostShareResponse
+	115, // 258: agentvmm.host.v1.OperatorService.RevokeHostShare:output_type -> agentvmm.host.v1.RevokeHostShareResponse
+	182, // 259: agentvmm.host.v1.OperatorService.ListHostShares:output_type -> agentvmm.host.v1.ListHostSharesResponse
+	116, // 260: agentvmm.host.v1.OperatorService.SetHostSocket:output_type -> agentvmm.host.v1.SetHostSocketResponse
+	117, // 261: agentvmm.host.v1.OperatorService.RemoveHostSocket:output_type -> agentvmm.host.v1.RemoveHostSocketResponse
+	183, // 262: agentvmm.host.v1.OperatorService.ListHostSockets:output_type -> agentvmm.host.v1.ListHostSocketsResponse
+	192, // [192:263] is the sub-list for method output_type
+	121, // [121:192] is the sub-list for method input_type
+	121, // [121:121] is the sub-list for extension type_name
+	121, // [121:121] is the sub-list for extension extendee
+	0,   // [0:121] is the sub-list for field type_name
 }
 
 func init() { file_host_v1_operator_proto_init() }
@@ -7645,6 +7750,7 @@ func file_host_v1_operator_proto_init() {
 		return
 	}
 	file_host_v1_host_share_proto_init()
+	file_host_v1_host_socket_proto_init()
 	file_host_v1_mesh_proto_init()
 	file_host_v1_remote_pool_proto_init()
 	file_host_v1_resources_proto_init()
@@ -7662,7 +7768,7 @@ func file_host_v1_operator_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_host_v1_operator_proto_rawDesc), len(file_host_v1_operator_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   122,
+			NumMessages:   124,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

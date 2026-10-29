@@ -3,6 +3,7 @@ package egress
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -94,7 +95,7 @@ func (subsystem *Subsystem) handleTCP(ctx context.Context, request *tcp.Forwarde
 				request.Complete(true)
 				return
 			}
-			host, err = subsystem.dialer.DialContext(flowCtx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(id.LocalPort)))
+			host, err = subsystem.dialAuthorized(flowCtx, currentSource, destination, id.LocalPort)
 		}
 		if err != nil {
 			subsystem.metrics.dialFailures.Add(1)
@@ -225,4 +226,17 @@ func copyWithActivity(destination, source net.Conn, activity *idlePair) (uint64,
 			return copied, err
 		}
 	}
+}
+
+// dialAuthorized connects an authorized flow on the Host: to the source's Host socket at a port of the
+// Host virtual address, else to its destination.
+func (subsystem *Subsystem) dialAuthorized(ctx context.Context, source Source, destination netip.Addr, port uint16) (net.Conn, error) {
+	if destination.String() == egresslink.HostAddress {
+		path, granted := source.HostSocketPath(port)
+		if !granted {
+			return nil, errors.New("no Host socket at this port")
+		}
+		return subsystem.dialer.DialContext(ctx, "unix", path)
+	}
+	return subsystem.dialer.DialContext(ctx, "tcp4", net.JoinHostPort(destination.String(), fmt.Sprint(port)))
 }

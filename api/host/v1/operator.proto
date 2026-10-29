@@ -5,6 +5,7 @@ package agentvmm.host.v1;
 import "google/protobuf/duration.proto";
 import "google/protobuf/timestamp.proto";
 import "host/v1/host_share.proto";
+import "host/v1/host_socket.proto";
 import "host/v1/mesh.proto";
 import "host/v1/remote_pool.proto";
 import "host/v1/resources.proto";
@@ -234,6 +235,17 @@ service OperatorService {
   rpc RevokeHostShare(RevokeHostShareRequest) returns (RevokeHostShareResponse);
   // ListHostShares reads operator-approved directory shares and their current references.
   rpc ListHostShares(ListHostSharesRequest) returns (ListHostSharesResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
+  // SetHostSocket approves one Host Unix socket at one port of the Host virtual address for the
+  // selected environment's containers, or every environment's, rather than granting Host loopback or
+  // LAN access.
+  rpc SetHostSocket(SetHostSocketRequest) returns (SetHostSocketResponse);
+  // RemoveHostSocket removes the socket at one port of the selected environment, or of every
+  // environment.
+  rpc RemoveHostSocket(RemoveHostSocketRequest) returns (RemoveHostSocketResponse);
+  // ListHostSockets reads operator-approved Host sockets.
+  rpc ListHostSockets(ListHostSocketsRequest) returns (ListHostSocketsResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
 }
@@ -1052,6 +1064,16 @@ message RebindHostShareResponse {
 message RevokeHostShareResponse {
   HostShare share = 1;
 }
+
+// SetHostSocketResponse carries results from an operation that approves one Host Unix socket at
+// one port for the selected environment, or every environment.
+message SetHostSocketResponse {
+  HostSocket host_socket = 1;
+}
+
+// RemoveHostSocketResponse carries results from an operation that removes the socket at one port
+// of the selected environment, or of every environment.
+message RemoveHostSocketResponse {}
 
 // GetSystemSnapshotResponse carries results from an operation that reads operator inventory
 // across Host-owned environments and registrations.
