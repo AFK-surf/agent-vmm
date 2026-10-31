@@ -2,6 +2,8 @@ FROM golang:1.26-alpine AS tools
 RUN apk add --no-cache bzip2 coreutils cpio curl file findutils git grep jq squashfs-tools tar xz
 
 FROM moby/buildkit:rootless AS buildkit
+USER root
+RUN apk upgrade --no-cache
 
 FROM tools AS dependencies
 WORKDIR /kernel-extract

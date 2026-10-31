@@ -2,7 +2,7 @@ module github.com/AFK-surf/agent-vmm
 
 go 1.26.3
 
-toolchain go1.26.4
+toolchain go1.26.10
 
 require (
 	github.com/Code-Hex/vz/v3 v3.8.0

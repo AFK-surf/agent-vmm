@@ -2,7 +2,7 @@
 
 ## Toolchain
 
-Use the Go toolchain from `go.mod` (`go1.26.4`).
+Use the Go toolchain from `go.mod`.
 Install `buf`, Rust and Cargo, `jq`, and Docker Buildx.
 For macOS development, install Xcode and `xcodegen`.
 Install the Swift protobuf and gRPC generators before you generate Swift code.
