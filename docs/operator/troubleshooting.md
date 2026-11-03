@@ -5,6 +5,11 @@ Use `agent-vmm diagnose --json`, bounded logs, and the original operation receip
 A last successful stage shows progress. It does not identify the next failure's cause.
 Unknown observations do not authorize state deletion.
 
+macOS streams runtime OCI downloads through the fixed system `/usr/bin/curl`. Linux uses the Go HTTPS client.
+Both paths check every resolved IPv4 address and pin one accepted address for the request.
+They reject proxies and redirects and verify TLS 1.2 or later through the platform trust store.
+The Guest commits a new image only after download completion and the existing size, hash, manifest, and namespace checks.
+
 ## Symptoms
 
 | Symptom | Check | Action |

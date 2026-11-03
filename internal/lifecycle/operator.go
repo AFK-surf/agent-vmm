@@ -39,7 +39,7 @@ func parseStatusArgs(args []string) (string, error) {
 }
 
 func parseLifecycleOperationArgs(args []string) (string, error) {
-	if len(args) == 2 && args[0] == "--operation-id" && operationIDPattern.MatchString(args[1]) {
+	if len(args) == 2 && (args[0] == "--operation-id" || args[0] == "--request-id") && operationIDPattern.MatchString(args[1]) {
 		return args[1], nil
 	}
 	return "", errors.New("operation requires --operation-id ID")

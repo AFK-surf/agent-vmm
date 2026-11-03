@@ -108,7 +108,31 @@ func maintenanceStatus(value paths, id string) (*maintenanceReceipt, error) {
 		return nil, err
 	}
 	if receipt.Version == 0 && receipt.Action == "" {
-		return nil, nil
+		operation, err := loadLifecycleReceipt(directory, id)
+		if err != nil {
+			return nil, err
+		}
+		receipt.Version = 1
+		receipt.Action = operation.Kind
+		receipt.Kind = operation.Kind
+		receipt.OperationID = operation.OperationID
+		receipt.RequestID = operation.RequestID
+		receipt.TargetRegistrationID = operation.TargetRegistrationID
+		receipt.TargetReleaseID = operation.TargetReleaseID
+		receipt.Stage = operation.Stage
+		receipt.Outcome = operation.Outcome
+		receipt.Attempt = operation.Attempt
+		receipt.Retryable = operation.Retryable
+		receipt.FailureCode = operation.FailureCode
+		receipt.FailureMessage = operation.FailureMessage
+		receipt.StartedAt = operation.StartedAt
+		receipt.UpdatedAt = operation.UpdatedAt
+		if next := state.SupersededRequests[id]; next != "" {
+			receipt.Outcome = "superseded"
+			receipt.Retryable = false
+			receipt.SupersededByRequestID = next
+		}
+		return &receipt, nil
 	}
 	if receipt.Version != 1 || receipt.RequestID != id {
 		return nil, errors.New("Host maintenance receipt has an unsupported identity or version")

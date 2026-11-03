@@ -19,7 +19,6 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	RemoteControllerService_Enroll_FullMethodName       = "/agentvmm.remote.v1.RemoteControllerService/Enroll"
 	RemoteControllerService_Connect_FullMethodName      = "/agentvmm.remote.v1.RemoteControllerService/Connect"
 	RemoteControllerService_ServeSession_FullMethodName = "/agentvmm.remote.v1.RemoteControllerService/ServeSession"
 )
@@ -31,9 +30,6 @@ const (
 // RemoteControllerService is the provider-neutral controller endpoint for registration, command
 // delivery, and runtime tunnels.
 type RemoteControllerServiceClient interface {
-	// Enroll exchanges one registration's enrollment token for its bearer credential and managed
-	// trust bundle.
-	Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error)
 	// Connect exchanges current inventory, command authority, ordered commands, and terminal
 	// delivery evidence.
 	Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectRequest, ConnectResponse], error)
@@ -48,16 +44,6 @@ type remoteControllerServiceClient struct {
 
 func NewRemoteControllerServiceClient(cc grpc.ClientConnInterface) RemoteControllerServiceClient {
 	return &remoteControllerServiceClient{cc}
-}
-
-func (c *remoteControllerServiceClient) Enroll(ctx context.Context, in *EnrollRequest, opts ...grpc.CallOption) (*EnrollResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(EnrollResponse)
-	err := c.cc.Invoke(ctx, RemoteControllerService_Enroll_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 func (c *remoteControllerServiceClient) Connect(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[ConnectRequest, ConnectResponse], error) {
@@ -93,9 +79,6 @@ type RemoteControllerService_ServeSessionClient = grpc.BidiStreamingClient[Serve
 // RemoteControllerService is the provider-neutral controller endpoint for registration, command
 // delivery, and runtime tunnels.
 type RemoteControllerServiceServer interface {
-	// Enroll exchanges one registration's enrollment token for its bearer credential and managed
-	// trust bundle.
-	Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error)
 	// Connect exchanges current inventory, command authority, ordered commands, and terminal
 	// delivery evidence.
 	Connect(grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]) error
@@ -112,9 +95,6 @@ type RemoteControllerServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedRemoteControllerServiceServer struct{}
 
-func (UnimplementedRemoteControllerServiceServer) Enroll(context.Context, *EnrollRequest) (*EnrollResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method Enroll not implemented")
-}
 func (UnimplementedRemoteControllerServiceServer) Connect(grpc.BidiStreamingServer[ConnectRequest, ConnectResponse]) error {
 	return status.Error(codes.Unimplemented, "method Connect not implemented")
 }
@@ -143,24 +123,6 @@ func RegisterRemoteControllerServiceServer(s grpc.ServiceRegistrar, srv RemoteCo
 	s.RegisterService(&RemoteControllerService_ServiceDesc, srv)
 }
 
-func _RemoteControllerService_Enroll_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(EnrollRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(RemoteControllerServiceServer).Enroll(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: RemoteControllerService_Enroll_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(RemoteControllerServiceServer).Enroll(ctx, req.(*EnrollRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
 func _RemoteControllerService_Connect_Handler(srv interface{}, stream grpc.ServerStream) error {
 	return srv.(RemoteControllerServiceServer).Connect(&grpc.GenericServerStream[ConnectRequest, ConnectResponse]{ServerStream: stream})
 }
@@ -181,12 +143,7 @@ type RemoteControllerService_ServeSessionServer = grpc.BidiStreamingServer[Serve
 var RemoteControllerService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "agentvmm.remote.v1.RemoteControllerService",
 	HandlerType: (*RemoteControllerServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "Enroll",
-			Handler:    _RemoteControllerService_Enroll_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
 			StreamName:    "Connect",

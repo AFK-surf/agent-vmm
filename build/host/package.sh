@@ -180,9 +180,9 @@ fi
 
 
 if [ -n "${NOTARYTOOL_PROFILE:-}" ]; then
-  ditto -c -k --keepParent "$product" "$output/Agent-VMM.zip"
+  ditto -c -k --norsrc --noextattr --keepParent "$product" "$output/Agent-VMM.zip"
   xcrun notarytool submit "$output/Agent-VMM.zip" --keychain-profile "$NOTARYTOOL_PROFILE" --wait
   xcrun stapler staple "$product"
 fi
 
-ditto -c -k --keepParent "$product" "$output/Agent-VMM-Host.zip"
+ditto -c -k --norsrc --noextattr --keepParent "$product" "$output/Agent-VMM-Host.zip"

@@ -57,9 +57,11 @@ PlanLocalDisposal freezes the target revision and affected count.
 ExecuteLocalDisposal requires fresh trusted operator confirmation.
 Agent sessions and remote connectors cannot use these methods.
 The Host saves its receipt and replay fence before Guest effects.
+A later confirmed intent for that exact permanent scope returns the original operation and request ID. It does not accept another deletion.
+Retained registration metadata changes do not block reading or continuing that receipt. A new target still requires its current plan revision.
 An unavailable Guest leaves accepted cleanup pending. Host restart resumes that original operation.
 The durable fence rejects old enrollment and admission commands after resource rows disappear.
-A disposed target reports `LOCAL_DISPOSED`.
+New admission and recovery against a disposed target report `LOCAL_DISPOSED`.
 
 Disposal preserves other registrations, shared OCI content, and PersonalMesh identity.
 Controller cleanup still requires the owning controller's authorization.

@@ -35,21 +35,21 @@ func (manager *Manager) SignRegistrationRecovery(ctx context.Context, raw []byte
 	return proto.Clone(record.Identity).(*trustv1.DeviceIdentity), signature, nil
 }
 
-const Purpose = "agent-vmm/registration-recovery/1"
+const Purpose = "agent-vmm/credential-replace/1"
 const TTL = 120 * time.Second
 
 type Challenge struct {
-	Purpose           string `json:"purpose"`
-	Audience          string `json:"audience"`
-	Subject           string `json:"subject"`
-	SessionID         string `json:"session_id"`
-	ControllerBinding string `json:"controller_binding"`
-	EnvironmentID     string `json:"environment_id"`
-	OperationID       string `json:"operation_id"`
-	RegistrationID    string `json:"registration_id"`
-	Nonce             string `json:"nonce"`
-	Revision          uint64 `json:"revision"`
-	ExpiresAt         int64  `json:"expires_at"`
+	Purpose                 string `json:"purpose"`
+	Audience                string `json:"audience"`
+	Subject                 string `json:"subject"`
+	SessionID               string `json:"session_id"`
+	ControllerBinding       string `json:"controller_binding"`
+	EnvironmentID           string `json:"environment_id"`
+	CandidateCredentialHash string `json:"candidate_credential_hash"`
+	RegistrationID          string `json:"registration_id"`
+	Nonce                   string `json:"nonce"`
+	Revision                uint64 `json:"revision"`
+	ExpiresAt               int64  `json:"expires_at"`
 }
 
 func Parse(raw []byte, now time.Time) (Challenge, []byte, error) {
@@ -68,7 +68,7 @@ func Parse(raw []byte, now time.Time) (Challenge, []byte, error) {
 	if challenge.Purpose != Purpose || challenge.Revision == 0 || challenge.ExpiresAt <= now.Unix() || challenge.ExpiresAt > now.Add(TTL).Unix() {
 		return challenge, nil, errors.New("invalid recovery purpose, revision, or expiry")
 	}
-	values := []string{challenge.Audience, challenge.Subject, challenge.SessionID, challenge.ControllerBinding, challenge.EnvironmentID, challenge.OperationID, challenge.RegistrationID, challenge.Nonce}
+	values := []string{challenge.Audience, challenge.Subject, challenge.SessionID, challenge.ControllerBinding, challenge.EnvironmentID, challenge.RegistrationID, challenge.CandidateCredentialHash, challenge.Nonce}
 	wire := strings.Builder{}
 	wire.WriteString(Purpose + "\n")
 	for index, value := range values {
@@ -80,6 +80,10 @@ func Parse(raw []byte, now time.Time) (Challenge, []byte, error) {
 			return challenge, nil, errors.New("invalid recovery binding")
 		}
 		wire.WriteString(base64.RawURLEncoding.EncodeToString([]byte(value)) + "\n")
+	}
+	candidateHash, err := base64.StdEncoding.DecodeString(challenge.CandidateCredentialHash)
+	if err != nil || len(candidateHash) != 32 {
+		return challenge, nil, errors.New("invalid candidate credential hash")
 	}
 	nonce, err := base64.RawURLEncoding.DecodeString(challenge.Nonce)
 	if err != nil || len(nonce) != 32 {

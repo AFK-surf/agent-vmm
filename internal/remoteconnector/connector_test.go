@@ -6,7 +6,6 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
@@ -29,7 +28,6 @@ import (
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
-	"github.com/AFK-surf/agent-vmm/pkg/signing"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -38,7 +36,6 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 type memoryCredentials struct {
@@ -148,26 +145,6 @@ type fakeController struct {
 	rejectError error
 }
 
-func (server *fakeController) Enroll(_ context.Context, request *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	if string(request.GetEnrollmentToken()) != "one-time" || request.GetProtocolVersion() != strconv.Itoa(ProtocolVersion) || request.GetDeviceIdentity().GetDeviceId() == "" {
-		return nil, status.Error(codes.Unauthenticated, "rejected")
-	}
-	if server.key == nil {
-		server.key, _ = ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	}
-	now := time.Now()
-	authority := &trustv1.AuthorityDescriptor{AuthorityId: "managed-test", AuthorityClass: trustv1.AuthorityClass_AUTHORITY_CLASS_MANAGED_CONTROLLER, KeyId: "managed-key", Revision: 1}
-	anchor := &trustv1.TrustAnchor{Authority: authority, Revision: 1, NotBefore: timestamppb.New(now.Add(-time.Minute)), NotAfter: timestamppb.New(now.Add(time.Hour)),
-		VerificationKeys:       []*trustv1.VerificationKey{{KeyId: "managed-key", PublicKey: elliptic.MarshalCompressed(elliptic.P256(), server.key.X, server.key.Y), SignatureSuite: trustv1.SignatureSuite_SIGNATURE_SUITE_P256_SHA256}},
-		AllowedCapabilityKinds: []trustv1.CapabilityKind{trustv1.CapabilityKind_CAPABILITY_KIND_SERVICE_ROUTE}}
-	claims := sha256.Sum256([]byte(request.GetRegistrationId()))
-	credential := &trustv1.MembershipCredential{Authority: authority, SubjectDeviceId: request.GetDeviceIdentity().GetDeviceId(), SubjectRootKeyRevision: request.GetDeviceIdentity().GetRootKeyRevision(), SubjectRootPublicKey: request.GetDeviceIdentity().GetRootPublicKey(), OpaqueClaimsDigest: claims[:], PolicyRevision: 1, ExpiresAt: timestamppb.New(now.Add(30 * time.Minute))}
-	input, _ := signing.CanonicalInput(credential)
-	digest := sha256.Sum256(input)
-	credential.Signature, _ = ecdsa.SignASN1(rand.Reader, server.key, digest[:])
-	return &remotev1.EnrollResponse{RegistrationId: request.GetRegistrationId(), ControllerDisplayName: "test", Credential: []byte("credential-one"), TrustAnchor: anchor, MembershipCredential: credential}, nil
-}
-
 type fakeEnrollmentTrust struct {
 	connectorv1.UnimplementedTrustServiceServer
 	identity  *trustv1.DeviceIdentity
@@ -242,48 +219,18 @@ func (server *fakeController) Connect(stream grpc.BidiStreamingServer[remotev1.C
 	return status.Error(codes.Unavailable, "controller disconnected")
 }
 
-func TestEnrollKeepsManagedTrustFailureReason(t *testing.T) {
-	local := &fakeLocal{registration: testRegistration()}
-	socket := startLocalServer(t, local)
-	endpoint, roots := startTLSServer(t, "localhost", &fakeController{t: t})
-	store := &memoryCredentials{value: []byte("previous")}
-	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: socket, Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
-	trust := configureEnrollmentTrust(t, &config)
-	trust.reject = "managed trust bundle is invalid: managed trust stage=anchor_time reason=not_yet_valid excess_ms=360000"
-	_, err := Enroll(context.Background(), config, []byte("one-time"))
-	if err == nil || !strings.Contains(err.Error(), "reason=not_yet_valid") {
-		t.Fatalf("enrollment error lost the trust failure reason: %v", err)
-	}
-	retained, err := store.Load(context.Background(), "registration-a")
-	if err != nil || string(retained) != "previous" {
-		t.Fatalf("retained credential=%q error=%v", retained, err)
-	}
-}
-
-func TestEnrollAndControlTranscript(t *testing.T) {
+func TestClaimedCredentialControlTranscript(t *testing.T) {
 	local := &fakeLocal{registration: testRegistration()}
 	socket := startLocalServer(t, local)
 	controller := &fakeController{t: t}
 	endpoint, roots := startTLSServer(t, "localhost", controller)
-	store := &memoryCredentials{}
+	store := &memoryCredentials{value: []byte("credential-one")}
 	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: socket, Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
 	ready := make(chan struct{})
 	admission := make(chan struct{})
 	config.OnReady = func() { close(ready) }
 	config.CommandAdmission = admission
-	trust := configureEnrollmentTrust(t, &config)
-	token := []byte("one-time")
-	if _, err := Enroll(context.Background(), config, token); err != nil {
-		t.Fatal(err)
-	}
-	if !trust.installed {
-		t.Fatal("managed trust bundle was not installed")
-	}
-	for _, value := range token {
-		if value != 0 {
-			t.Fatal("enrollment token was not cleared")
-		}
-	}
+	configureEnrollmentTrust(t, &config)
 	connected := make(chan error, 1)
 	go func() { connected <- runOneAttempt(context.Background(), config) }()
 	select {
@@ -320,7 +267,7 @@ func TestEnrollAndControlTranscript(t *testing.T) {
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if len(store.replacements) != 1 || string(store.value) != "credential-one" || store.deleted {
+	if len(store.replacements) != 0 || string(store.value) != "credential-one" || store.deleted {
 		t.Fatal("connection changed the credential")
 	}
 
@@ -418,7 +365,7 @@ func TestTLSHostnameMismatch(t *testing.T) {
 	endpoint, roots := startTLSServer(t, "different.test", controller)
 	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: "/tmp/not-used.sock", Transport: ExternalTransport{Endpoint: endpoint, Credentials: &memoryCredentials{}, Roots: roots}}
 	configureEnrollmentTrust(t, &config)
-	if _, err := Enroll(context.Background(), config, []byte("one-time")); err == nil {
+	if err := runOneAttempt(context.Background(), config); err == nil {
 		t.Fatal("TLS hostname mismatch succeeded")
 	}
 }

@@ -22,6 +22,11 @@ Use inspectContainer task reconciliation. A missing task means stopped, not raw 
 
 ## Build and install
 
+Distribution ZIPs omit resource forks and extended attributes.
+Default `ditto` archives can emit AppleDouble `._` entries for those attributes.
+JavaScript extractors create ordinary files from those entries, which fail the bundle's strict code signature check.
+Keep the signed file bytes and Unix modes in the archive.
+
 Guest assembly pipes cpio into xz. Without cpio, the pipeline can produce a valid empty initramfs.
 Keep cpio in the Dockerfile tools stage. An empty initramfs leaves the VM in `STARTING`.
 
@@ -43,6 +48,10 @@ Tests that open the Host WAL database directly need one connection and a busy ti
 Otherwise forced-stop recovery can surface `SQLITE_BUSY` from an unrelated RPC.
 
 ## Image import
+
+A macOS network interception path can accept the system TLS client while Go handshakes fail before HTTP.
+Runtime archive downloads use the system curl adapter on macOS. Changing HTTP versions does not repair this TLS failure.
+Keep address admission, the pinned destination, and Guest content checks across that adapter.
 
 Host-to-Guest import sends archive chunks synchronously.
 Keep MaxImportArchiveChunkBytes, currently 3 MiB, below the Guest's 4 MiB gRPC receive limit.

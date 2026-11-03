@@ -128,8 +128,8 @@ func parseInstallArgs(action string, args []string) (bool, string, bool, string,
 		switch args[index] {
 		case "--disable-personal-mesh-pairing":
 			disablePairing = true
-		case "--operation-stdin":
-			if action != "install" {
+		case "--operation-stdin", "--descriptor-stdin":
+			if action != "install" && action != "registration-claim" {
 				fatal("--operation-stdin is only valid for install")
 			}
 			operationStdin = true
@@ -159,13 +159,6 @@ func parseInstallArgs(action string, args []string) (bool, string, bool, string,
 		fatal("--registration-id is invalid")
 	}
 	return disablePairing, requestID, operationStdin, resumeOperationID, registrationID
-}
-
-func parseInstallOperationAckArgs(args []string) (string, error) {
-	if len(args) != 2 || args[0] != "--operation-id" || !operationIDPattern.MatchString(args[1]) {
-		return "", errors.New("install-operation-ack requires a valid --operation-id")
-	}
-	return args[1], nil
 }
 
 func requestIDArg(args []string) string {

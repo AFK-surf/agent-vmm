@@ -57,10 +57,7 @@ const (
 	OperatorService_RunDiagnostics_FullMethodName                  = "/agentvmm.host.v1.OperatorService/RunDiagnostics"
 	OperatorService_PreviewSupportBundle_FullMethodName            = "/agentvmm.host.v1.OperatorService/PreviewSupportBundle"
 	OperatorService_ExportSupportBundle_FullMethodName             = "/agentvmm.host.v1.OperatorService/ExportSupportBundle"
-	OperatorService_BeginRemoteEnrollment_FullMethodName           = "/agentvmm.host.v1.OperatorService/BeginRemoteEnrollment"
-	OperatorService_ApplyManagedRemoteEnrollment_FullMethodName    = "/agentvmm.host.v1.OperatorService/ApplyManagedRemoteEnrollment"
-	OperatorService_CompleteRemoteEnrollment_FullMethodName        = "/agentvmm.host.v1.OperatorService/CompleteRemoteEnrollment"
-	OperatorService_RetryRemoteEnrollment_FullMethodName           = "/agentvmm.host.v1.OperatorService/RetryRemoteEnrollment"
+	OperatorService_ApplyRemoteRegistration_FullMethodName         = "/agentvmm.host.v1.OperatorService/ApplyRemoteRegistration"
 	OperatorService_BeginRemoteRevocation_FullMethodName           = "/agentvmm.host.v1.OperatorService/BeginRemoteRevocation"
 	OperatorService_CompleteRemoteRevocation_FullMethodName        = "/agentvmm.host.v1.OperatorService/CompleteRemoteRevocation"
 	OperatorService_UpdateRemotePool_FullMethodName                = "/agentvmm.host.v1.OperatorService/UpdateRemotePool"
@@ -194,16 +191,8 @@ type OperatorServiceClient interface {
 	PreviewSupportBundle(ctx context.Context, in *PreviewSupportBundleRequest, opts ...grpc.CallOption) (*PreviewSupportBundleResponse, error)
 	// ExportSupportBundle exports only the operator-approved diagnostic scope.
 	ExportSupportBundle(ctx context.Context, in *ExportSupportBundleRequest, opts ...grpc.CallOption) (*ExportSupportBundleResponse, error)
-	// BeginRemoteEnrollment records one controller registration and its approved scope before
-	// credential enrollment.
-	BeginRemoteEnrollment(ctx context.Context, in *BeginRemoteEnrollmentRequest, opts ...grpc.CallOption) (*BeginRemoteEnrollmentResponse, error)
-	// ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-	// local enrollment owner.
-	ApplyManagedRemoteEnrollment(ctx context.Context, in *ApplyManagedRemoteEnrollmentRequest, opts ...grpc.CallOption) (*ApplyManagedRemoteEnrollmentResponse, error)
-	// CompleteRemoteEnrollment commits credential completion for the current registration revision.
-	CompleteRemoteEnrollment(ctx context.Context, in *CompleteRemoteEnrollmentRequest, opts ...grpc.CallOption) (*CompleteRemoteEnrollmentResponse, error)
-	// RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-	RetryRemoteEnrollment(ctx context.Context, in *RetryRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RetryRemoteEnrollmentResponse, error)
+	// ApplyRemoteRegistration saves a claimed registration and starts its control connection.
+	ApplyRemoteRegistration(ctx context.Context, in *ApplyRemoteRegistrationRequest, opts ...grpc.CallOption) (*ApplyRemoteRegistrationResponse, error)
 	// BeginRemoteRevocation records revocation intent before stopping the registration's owned
 	// workload authority.
 	BeginRemoteRevocation(ctx context.Context, in *BeginRemoteRevocationRequest, opts ...grpc.CallOption) (*BeginRemoteRevocationResponse, error)
@@ -695,40 +684,10 @@ func (c *operatorServiceClient) ExportSupportBundle(ctx context.Context, in *Exp
 	return out, nil
 }
 
-func (c *operatorServiceClient) BeginRemoteEnrollment(ctx context.Context, in *BeginRemoteEnrollmentRequest, opts ...grpc.CallOption) (*BeginRemoteEnrollmentResponse, error) {
+func (c *operatorServiceClient) ApplyRemoteRegistration(ctx context.Context, in *ApplyRemoteRegistrationRequest, opts ...grpc.CallOption) (*ApplyRemoteRegistrationResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(BeginRemoteEnrollmentResponse)
-	err := c.cc.Invoke(ctx, OperatorService_BeginRemoteEnrollment_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *operatorServiceClient) ApplyManagedRemoteEnrollment(ctx context.Context, in *ApplyManagedRemoteEnrollmentRequest, opts ...grpc.CallOption) (*ApplyManagedRemoteEnrollmentResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(ApplyManagedRemoteEnrollmentResponse)
-	err := c.cc.Invoke(ctx, OperatorService_ApplyManagedRemoteEnrollment_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *operatorServiceClient) CompleteRemoteEnrollment(ctx context.Context, in *CompleteRemoteEnrollmentRequest, opts ...grpc.CallOption) (*CompleteRemoteEnrollmentResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(CompleteRemoteEnrollmentResponse)
-	err := c.cc.Invoke(ctx, OperatorService_CompleteRemoteEnrollment_FullMethodName, in, out, cOpts...)
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
-}
-
-func (c *operatorServiceClient) RetryRemoteEnrollment(ctx context.Context, in *RetryRemoteEnrollmentRequest, opts ...grpc.CallOption) (*RetryRemoteEnrollmentResponse, error) {
-	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RetryRemoteEnrollmentResponse)
-	err := c.cc.Invoke(ctx, OperatorService_RetryRemoteEnrollment_FullMethodName, in, out, cOpts...)
+	out := new(ApplyRemoteRegistrationResponse)
+	err := c.cc.Invoke(ctx, OperatorService_ApplyRemoteRegistration_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -1127,16 +1086,8 @@ type OperatorServiceServer interface {
 	PreviewSupportBundle(context.Context, *PreviewSupportBundleRequest) (*PreviewSupportBundleResponse, error)
 	// ExportSupportBundle exports only the operator-approved diagnostic scope.
 	ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*ExportSupportBundleResponse, error)
-	// BeginRemoteEnrollment records one controller registration and its approved scope before
-	// credential enrollment.
-	BeginRemoteEnrollment(context.Context, *BeginRemoteEnrollmentRequest) (*BeginRemoteEnrollmentResponse, error)
-	// ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-	// local enrollment owner.
-	ApplyManagedRemoteEnrollment(context.Context, *ApplyManagedRemoteEnrollmentRequest) (*ApplyManagedRemoteEnrollmentResponse, error)
-	// CompleteRemoteEnrollment commits credential completion for the current registration revision.
-	CompleteRemoteEnrollment(context.Context, *CompleteRemoteEnrollmentRequest) (*CompleteRemoteEnrollmentResponse, error)
-	// RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-	RetryRemoteEnrollment(context.Context, *RetryRemoteEnrollmentRequest) (*RetryRemoteEnrollmentResponse, error)
+	// ApplyRemoteRegistration saves a claimed registration and starts its control connection.
+	ApplyRemoteRegistration(context.Context, *ApplyRemoteRegistrationRequest) (*ApplyRemoteRegistrationResponse, error)
 	// BeginRemoteRevocation records revocation intent before stopping the registration's owned
 	// workload authority.
 	BeginRemoteRevocation(context.Context, *BeginRemoteRevocationRequest) (*BeginRemoteRevocationResponse, error)
@@ -1335,17 +1286,8 @@ func (UnimplementedOperatorServiceServer) PreviewSupportBundle(context.Context, 
 func (UnimplementedOperatorServiceServer) ExportSupportBundle(context.Context, *ExportSupportBundleRequest) (*ExportSupportBundleResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ExportSupportBundle not implemented")
 }
-func (UnimplementedOperatorServiceServer) BeginRemoteEnrollment(context.Context, *BeginRemoteEnrollmentRequest) (*BeginRemoteEnrollmentResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method BeginRemoteEnrollment not implemented")
-}
-func (UnimplementedOperatorServiceServer) ApplyManagedRemoteEnrollment(context.Context, *ApplyManagedRemoteEnrollmentRequest) (*ApplyManagedRemoteEnrollmentResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method ApplyManagedRemoteEnrollment not implemented")
-}
-func (UnimplementedOperatorServiceServer) CompleteRemoteEnrollment(context.Context, *CompleteRemoteEnrollmentRequest) (*CompleteRemoteEnrollmentResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method CompleteRemoteEnrollment not implemented")
-}
-func (UnimplementedOperatorServiceServer) RetryRemoteEnrollment(context.Context, *RetryRemoteEnrollmentRequest) (*RetryRemoteEnrollmentResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method RetryRemoteEnrollment not implemented")
+func (UnimplementedOperatorServiceServer) ApplyRemoteRegistration(context.Context, *ApplyRemoteRegistrationRequest) (*ApplyRemoteRegistrationResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method ApplyRemoteRegistration not implemented")
 }
 func (UnimplementedOperatorServiceServer) BeginRemoteRevocation(context.Context, *BeginRemoteRevocationRequest) (*BeginRemoteRevocationResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method BeginRemoteRevocation not implemented")
@@ -2118,74 +2060,20 @@ func _OperatorService_ExportSupportBundle_Handler(srv interface{}, ctx context.C
 	return interceptor(ctx, in, info, handler)
 }
 
-func _OperatorService_BeginRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(BeginRemoteEnrollmentRequest)
+func _OperatorService_ApplyRemoteRegistration_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ApplyRemoteRegistrationRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(OperatorServiceServer).BeginRemoteEnrollment(ctx, in)
+		return srv.(OperatorServiceServer).ApplyRemoteRegistration(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: OperatorService_BeginRemoteEnrollment_FullMethodName,
+		FullMethod: OperatorService_ApplyRemoteRegistration_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).BeginRemoteEnrollment(ctx, req.(*BeginRemoteEnrollmentRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _OperatorService_ApplyManagedRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ApplyManagedRemoteEnrollmentRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(OperatorServiceServer).ApplyManagedRemoteEnrollment(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: OperatorService_ApplyManagedRemoteEnrollment_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).ApplyManagedRemoteEnrollment(ctx, req.(*ApplyManagedRemoteEnrollmentRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _OperatorService_CompleteRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(CompleteRemoteEnrollmentRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(OperatorServiceServer).CompleteRemoteEnrollment(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: OperatorService_CompleteRemoteEnrollment_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).CompleteRemoteEnrollment(ctx, req.(*CompleteRemoteEnrollmentRequest))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _OperatorService_RetryRemoteEnrollment_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RetryRemoteEnrollmentRequest)
-	if err := dec(in); err != nil {
-		return nil, err
-	}
-	if interceptor == nil {
-		return srv.(OperatorServiceServer).RetryRemoteEnrollment(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: OperatorService_RetryRemoteEnrollment_FullMethodName,
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(OperatorServiceServer).RetryRemoteEnrollment(ctx, req.(*RetryRemoteEnrollmentRequest))
+		return srv.(OperatorServiceServer).ApplyRemoteRegistration(ctx, req.(*ApplyRemoteRegistrationRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -2860,20 +2748,8 @@ var OperatorService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _OperatorService_ExportSupportBundle_Handler,
 		},
 		{
-			MethodName: "BeginRemoteEnrollment",
-			Handler:    _OperatorService_BeginRemoteEnrollment_Handler,
-		},
-		{
-			MethodName: "ApplyManagedRemoteEnrollment",
-			Handler:    _OperatorService_ApplyManagedRemoteEnrollment_Handler,
-		},
-		{
-			MethodName: "CompleteRemoteEnrollment",
-			Handler:    _OperatorService_CompleteRemoteEnrollment_Handler,
-		},
-		{
-			MethodName: "RetryRemoteEnrollment",
-			Handler:    _OperatorService_RetryRemoteEnrollment_Handler,
+			MethodName: "ApplyRemoteRegistration",
+			Handler:    _OperatorService_ApplyRemoteRegistration_Handler,
 		},
 		{
 			MethodName: "BeginRemoteRevocation",

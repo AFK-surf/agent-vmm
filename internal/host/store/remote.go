@@ -20,7 +20,6 @@ type RemoteRegistration struct {
 	Endpoint                string
 	DisplayName             string
 	TrustBundle             []byte
-	ScopeDigest             string
 	SourcePolicyRevision    uint64
 	PerEnvPIDs              uint32
 	PerEnvDiskBytes         uint64
@@ -127,14 +126,14 @@ func (store *Store) CreateRemoteRegistration(ctx context.Context, registration R
 	}
 	now := time.Now().UnixNano()
 	_, err := store.db.ExecContext(ctx, `INSERT INTO remote_registrations(
-		id, endpoint, display_name, trust_bundle, scope_digest, source_policy_revision,
+		id, endpoint, display_name, trust_bundle, source_policy_revision,
 		per_env_pids, per_env_disk_bytes,
 		max_egress_mode, stop_grace_seconds,
 		state, connection_state, enrollment_state, connector_phase, connector_observed_at,
 		enrollment_request_id, owner_kind, installation_id, inventory_revision, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)`,
 		registration.ID, registration.Endpoint, registration.DisplayName,
-		registration.TrustBundle, registration.ScopeDigest, registration.SourcePolicyRevision,
+		registration.TrustBundle, registration.SourcePolicyRevision,
 		registration.PerEnvPIDs, registration.PerEnvDiskBytes,
 		registration.MaxEgressMode, registration.StopGraceSeconds, registration.State, registration.ConnectionState, registration.EnrollmentState,
 		registration.ConnectorPhase, now, registration.EnrollmentRequestID, registration.OwnerKind,
@@ -153,7 +152,7 @@ func (store *Store) RemoteRegistrationByEnrollmentRequest(ctx context.Context, r
 	return scanRemoteRegistration(store.db.QueryRowContext(ctx, remoteRegistrationSelect+" WHERE enrollment_request_id = ?", requestID))
 }
 
-const remoteRegistrationSelect = `SELECT id, endpoint, display_name, trust_bundle, scope_digest, source_policy_revision,
+const remoteRegistrationSelect = `SELECT id, endpoint, display_name, trust_bundle, source_policy_revision,
 	per_env_pids, per_env_disk_bytes,
 	max_egress_mode, stop_grace_seconds,
 	revision, state, connection_state, connection_instance, enrollment_state, enrollment_error_code,
@@ -165,7 +164,7 @@ func scanRemoteRegistration(row rowScanner) (RemoteRegistration, error) {
 	var registration RemoteRegistration
 	var connectorObserved, lastConnected, disconnected, nextRetry, created, updated int64
 	err := row.Scan(&registration.ID, &registration.Endpoint, &registration.DisplayName,
-		&registration.TrustBundle, &registration.ScopeDigest, &registration.SourcePolicyRevision,
+		&registration.TrustBundle, &registration.SourcePolicyRevision,
 		&registration.PerEnvPIDs, &registration.PerEnvDiskBytes,
 		&registration.MaxEgressMode, &registration.StopGraceSeconds, &registration.Revision, &registration.State, &registration.ConnectionState,
 		&registration.ConnectionInstance, &registration.EnrollmentState, &registration.EnrollmentErrorCode,

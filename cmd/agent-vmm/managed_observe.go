@@ -380,7 +380,7 @@ func (buffer *managedOutputBuffer) snapshot() []byte {
 }
 
 func runManagedHelperInput(ctx context.Context, path string, arguments []string, input []byte) ([]byte, []byte, error) {
-	detached := len(arguments) > 0 && (arguments[0] == "repair" || arguments[0] == "update" || arguments[0] == "install" || arguments[0] == "install-managed" || arguments[0] == "maintenance")
+	detached := len(arguments) > 0 && (arguments[0] == "repair" || arguments[0] == "host-repair" || arguments[0] == "update" || arguments[0] == "host-update" || arguments[0] == "host-maintain" || arguments[0] == "install" || arguments[0] == "install-managed" || arguments[0] == "maintenance")
 	var command *exec.Cmd
 	if detached {
 		if err := ctx.Err(); err != nil {

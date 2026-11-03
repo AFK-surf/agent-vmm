@@ -1,11 +1,13 @@
 package lifecycle
 
 import (
+	"encoding/json"
 	"errors"
-	"github.com/AFK-surf/agent-vmm/internal/bundle"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
 func publicationFixture(t *testing.T) (paths, string, publicationActions) {
@@ -68,8 +70,29 @@ func TestPublicationChecksPolicyInsideOwnerLock(t *testing.T) {
 			}
 			unlock()
 			a.copy = func(string, string) error { t.Fatal("blocked publication copied"); return nil }
-			if _, err = publishHost(p, s, a); err == nil {
+			result, err := publishHost(p, s, a)
+			if err == nil {
 				t.Fatal("publication ignored owner policy")
+			}
+			raw, encodeErr := json.Marshal(result)
+			if encodeErr != nil {
+				t.Fatal(encodeErr)
+			}
+			var response struct {
+				Error struct {
+					Code   string `json:"code"`
+					Reason string `json:"reason"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(raw, &response); err != nil {
+				t.Fatal(err)
+			}
+			if state.Uninstalled {
+				if !errors.Is(err, errHostUninstalled) || response.Error.Code != "host_uninstalled" || response.Error.Reason != "owner_uninstalled" {
+					t.Fatalf("uninstall refusal lost owner reason: %s %v", raw, err)
+				}
+			} else if response.Error.Code != "" || errors.Is(err, errHostUninstalled) {
+				t.Fatalf("another refusal offered reinstall: %s %v", raw, err)
 			}
 			if _, err = os.Stat(p.app); !errors.Is(err, os.ErrNotExist) {
 				t.Fatal("blocked target exists", err)
@@ -138,5 +161,30 @@ func TestSharedHostFlagKeepsArbitraryTargetRestricted(t *testing.T) {
 	}
 	if _, _, err = extractServiceRequest([]string{"--shared-host", "--service-app", "/elsewhere/Agent VMM Host.app"}); err == nil {
 		t.Fatal("accepted arbitrary target with shared target")
+	}
+}
+
+func TestBlockedOriginalRequestDoesNotOfferSharedHostReinstall(t *testing.T) {
+	p, _, _ := publicationFixture(t)
+	directory, release, err := lockMaintenance(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state := maintenanceState{Version: 1, Uninstalled: true, BlockedInstalls: map[string]bool{"old-request": true}}
+	if err := writeOwnerState(directory, state); err != nil {
+		t.Fatal(err)
+	}
+	release()
+	if unlock, err := acquireMaintenanceMutation(p, "install-managed", "old-request"); err == nil {
+		unlock()
+		t.Fatal("old request bypassed its fence")
+	} else if errors.Is(err, errHostUninstalled) {
+		t.Fatal("old request was offered a shared reinstall instead of retaining its fence")
+	}
+	if unlock, err := acquireMaintenanceMutation(p, "publish-host", ""); err == nil {
+		unlock()
+		t.Fatal("publication bypassed uninstall")
+	} else if !errors.Is(err, errHostUninstalled) {
+		t.Fatalf("global uninstall reason lost: %v", err)
 	}
 }

@@ -23,17 +23,6 @@ func runLifecycleOperation(value paths, kind, requestID string, action func() er
 	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", "", 0, false, action)
 }
 
-// Managed install retries must retain the server operation id as their request
-// identity. The durable plan and its acknowledgement capability fence replay;
-// unrelated lifecycle operations continue to require a new request id after a
-// recorded failure.
-func runManagedLifecycleOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
-	if kind != "install-managed" || requestID == "" {
-		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown", SecretDisposition: secretDispositionRetain}, errors.New("managed install retry requires its stable request identity")
-	}
-	return runLifecycleOperationWithFailedRetry(value, kind, requestID, "", "", "", 0, true, action)
-}
-
 func runRegistrationStateOperation(value paths, kind, requestID string, action func() error) (lifecycleOperation, error) {
 	if !strings.HasPrefix(kind, "registration-") || requestID == "" {
 		return lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}, errors.New("registration state retry requires its stable request identity")
@@ -82,14 +71,10 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 	release, err := acquireOperationLockOwned(value, owner)
 	if err != nil {
 		operation := lifecycleOperation{RequestID: requestID, Kind: kind, Outcome: "unknown"}
-		if kind == "install-managed" {
-			operation.SecretDisposition = secretDispositionRetain
-			if errors.Is(err, errMaintenanceOwnerBusy) {
-				operation.OperationID = requestID
-				operation.FailureCode = "owner_busy"
-				operation.FailureMessage = err.Error()
-				operation.Retryable = true
-			}
+		if errors.Is(err, errMaintenanceOwnerBusy) {
+			operation.FailureCode = "owner_busy"
+			operation.FailureMessage = err.Error()
+			operation.Retryable = true
 		}
 		return operation, err
 	}
@@ -106,18 +91,105 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		directory.Close()
 		return lifecycleOperation{}, err
 	}
+
 	if state.ActiveRequest != "" && state.ActiveRequest != requestID {
 		previous, readErr := loadLifecycleReceipt(directory, state.ActiveRequest)
-		directory.Close()
 		if readErr != nil {
+			directory.Close()
 			return lifecycleOperation{}, readErr
 		}
-		return *previous, ownerBusyError{requestID: state.ActiveRequest}
+		if lifecycleExclusive(*previous) {
+			directory.Close()
+			return *previous, ownerBusyError{requestID: state.ActiveRequest}
+		}
+		// The OS lock proves the old executor exited. Remote waiting is target-local.
+		state.ActiveRequest = ""
+		if err := writeOwnerJSON(directory, "state.json", state, owner); err != nil {
+			directory.Close()
+			return lifecycleOperation{}, err
+		}
 	}
-	if state.Uninstalled || kind == "install-managed" && state.BlockedInstalls[requestID] {
+	if next := state.SupersededRequests[requestID]; next != "" {
+		previous, err := loadLifecycleReceipt(directory, requestID)
 		directory.Close()
-		return lifecycleOperation{}, errors.New("the local owner removed this Host installation; start a new authorized setup")
+		if err != nil {
+			return lifecycleOperation{}, err
+		}
+		previous.Outcome = "superseded"
+		previous.Retryable = false
+		previous.SupersededByRequestID = next
+		return *previous, errors.New("request was superseded by " + next)
 	}
+	if state.Uninstalled || state.BlockedInstalls[requestID] || targetRegistrationID != "" && state.RemovedRegistrations[targetRegistrationID] && kind != "registration-remove" {
+		directory.Close()
+		return lifecycleOperation{}, errors.New("the local owner removed this registration or Host installation")
+	}
+	if kind == "registration-recover" && targetRegistrationID != "" {
+		priorID := state.RegistrationRequests[targetRegistrationID]
+		if priorID != "" && priorID != requestID {
+			prior, err := loadLifecycleReceipt(directory, priorID)
+			if err != nil {
+				directory.Close()
+				return lifecycleOperation{}, err
+			}
+			if (prior.Kind == "registration-claim" || prior.Kind == "registration-recover") && prior.Outcome != "succeeded" && prior.Outcome != "superseded" {
+				prior.SupersededByRequestID = requestID
+				prior.Retryable = false
+				if err := writeOwnerJSON(directory, maintenanceReceiptName(priorID), prior, owner); err != nil {
+					directory.Close()
+					return lifecycleOperation{}, err
+				}
+				state.SupersededRequests[priorID] = requestID
+				if err := writeOwnerJSON(directory, "state.json", state, owner); err != nil {
+					directory.Close()
+					return lifecycleOperation{}, err
+				}
+			}
+		}
+	}
+	if targetRegistrationID != "" && (kind == "registration-remove" || kind == "registration-drain" || strings.Contains(kind, "DRAINING")) {
+		previousID := state.RegistrationRequests[targetRegistrationID]
+		if previousID == "" && state.LatestRequest != "" {
+			prior, err := loadLifecycleReceipt(directory, state.LatestRequest)
+			if err == nil && prior.Kind == "install-managed" {
+				var legacy struct {
+					Material struct {
+						RegistrationID string `json:"registration_id"`
+					} `json:"material"`
+				}
+				data, err := readInstallOperationState(value, prior.RequestID, "plan.json", registrationPlanMaxBytes)
+				if err == nil && json.Unmarshal(data, &legacy) == nil && legacy.Material.RegistrationID == targetRegistrationID {
+					previousID = prior.RequestID
+				}
+			}
+		}
+		if previousID != "" && previousID != requestID {
+			prior, err := loadLifecycleReceipt(directory, previousID)
+			if err != nil {
+				directory.Close()
+				return lifecycleOperation{}, err
+			}
+			if strings.HasPrefix(prior.Kind, "registration-") || prior.Kind == "install-managed" {
+				prior.Outcome = "superseded"
+				prior.Retryable = false
+				prior.SupersededByRequestID = requestID
+				if err := writeOwnerJSON(directory, maintenanceReceiptName(previousID), prior, owner); err != nil {
+					directory.Close()
+					return lifecycleOperation{}, err
+				}
+				state.SupersededRequests[previousID] = requestID
+				state.BlockedInstalls[previousID] = true
+			}
+		}
+		if kind == "registration-remove" {
+			state.RemovedRegistrations[targetRegistrationID] = true
+		}
+		if err := writeOwnerJSON(directory, "state.json", state, owner); err != nil {
+			directory.Close()
+			return lifecycleOperation{}, err
+		}
+	}
+
 	previous, readErr := loadLifecycleReceipt(directory, requestID)
 	directory.Close()
 	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
@@ -126,13 +198,26 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 	var operation lifecycleOperation
 	previousFailureStage := ""
 	if previous != nil {
+		if value.correlationRequestID != "" && previous.CorrelationRequestID != "" && previous.CorrelationRequestID != value.correlationRequestID {
+			return *previous, errors.New("legacy request already accepted another correlation")
+		}
+		if previous.Outcome == "superseded" || previous.SupersededByRequestID != "" {
+			return *previous, errors.New("request was superseded by " + previous.SupersededByRequestID)
+		}
+		if kind == "registration-recover" && previous.Kind == "install-managed" && previous.TargetRegistrationID == "" {
+			original, err := originalRegistrationRequestID(value, targetRegistrationID, "", kind)
+			if err != nil {
+				return *previous, err
+			}
+			if original != requestID {
+				return *previous, errors.New("legacy request belongs to another registration")
+			}
+			previous.Kind = kind
+			previous.TargetRegistrationID = targetRegistrationID
+		}
 		if previous.Kind != kind || previous.TargetRegistrationID != targetRegistrationID || previous.TargetReleaseID != targetReleaseID ||
 			previous.TargetArtifactSHA256 != targetArtifactSHA256 || previous.TargetArtifactSize != targetArtifactSize {
 			return *previous, errors.New("operation request identity was reused for a different target")
-		}
-		if kind == "install-managed" && (previous.Kind != kind || previous.OperationID != requestID) {
-			previous.SecretDisposition = secretDispositionRetain
-			return *previous, errors.New("managed install operation identity does not match its durable request")
 		}
 		if previous.Outcome == "succeeded" {
 			return *previous, nil
@@ -141,33 +226,27 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			if !retryFailed || previous.Kind != kind {
 				return *previous, errors.New("operation already failed; use a new request id after reviewing status")
 			}
-			if !previous.Retryable && !(kind == "registration-revoke" && strings.Contains(previous.FailureMessage, "registration revision conflict")) {
+			if !previous.Retryable && kind != "registration-recover" && kind != "registration-claim" && previous.FailureCode != "retry_limit_reached" && previous.FailureCode != "update_retry_limit_reached" && !((kind == "registration-revoke" || kind == "registration-remove") && strings.Contains(previous.FailureMessage, "registration revision conflict")) {
 				return *previous, errors.New("operation failure requires operator action")
 			}
 		}
 		if retryFailed && previous.Kind == kind {
 			previousFailureStage = previous.FailureStage
-			if previous.Attempt >= boundedOperationMaxAttempts {
-				previous.Outcome, previous.Retryable = "failed", false
-				previous.SecretDisposition = secretDispositionDestroyTerminal
-				previous.FailureCode = "retry_limit_reached"
-				previous.FailureMessage = "Operation reached its retry limit. Review the failed stage before taking explicit action."
-				previous.UpdatedAt = time.Now().UnixMilli()
-				if err := persistOperationOwned(value, *previous, owner); err != nil {
-					previous.Outcome = "unknown"
-					previous.SecretDisposition = secretDispositionRetain
-					return *previous, err
-				}
-				return *previous, fmt.Errorf("%s operation retry limit reached", kind)
-			}
+
 			operation = *previous
+			newCorrelation := value.correlationRequestID != "" && operation.CorrelationRequestID == ""
+			if newCorrelation {
+				operation.CorrelationRequestID = value.correlationRequestID
+			}
 			operation.Outcome = "pending"
 			operation.Attempt++
 			operation.FailureStage, operation.FailureCode, operation.FailureMessage = "", "", ""
 			operation.Retryable = false
-			operation.SecretDisposition = secretDispositionRetain
 			operation.UpdatedAt = time.Now().UnixMilli()
 			if err := persistOperationOwned(value, operation, owner); err != nil {
+				if newCorrelation {
+					return lifecycleOperation{RequestID: value.correlationRequestID, Kind: kind, TargetRegistrationID: targetRegistrationID, Outcome: "unknown", FailureCode: "owner_journal_unavailable", Retryable: true}, err
+				}
 				return operation, err
 			}
 
@@ -178,7 +257,6 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 				previous.UpdatedAt = time.Now().UnixMilli()
 				if err := persistOperationOwned(value, *previous, owner); err != nil {
 					previous.Outcome = "unknown"
-					previous.SecretDisposition = secretDispositionRetain
 					return *previous, err
 				}
 				return *previous, nil
@@ -191,9 +269,6 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 	} else {
 		now := time.Now().UnixMilli()
 		operationID := newOperationID("op")
-		if kind == "install-managed" {
-			operationID = requestID
-		}
 		operation = lifecycleOperation{
 			OperationID: operationID, RequestID: requestID, Kind: kind,
 			TargetRegistrationID: targetRegistrationID,
@@ -202,9 +277,6 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			TargetArtifactSize:   targetArtifactSize,
 			Outcome:              "pending",
 			Attempt:              1, StartedAt: now, UpdatedAt: now,
-		}
-		if kind == "install-managed" {
-			operation.SecretDisposition = secretDispositionRetain
 		}
 		if err := persistOperationOwned(value, operation, owner); err != nil {
 			return operation, err
@@ -232,32 +304,17 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 			// Once an update has entered the stopped/replacement path, the exact
 			// request and selected release are the only safe forward-repair key.
 			// Expected administrator handoffs advance through distinct stages.
-			// Each stage receives its own bounded retry budget.
+			// The same request can continue each committed cutover stage.
 			if operation.Stage != previousFailureStage {
 				operation.Attempt = 1
 			}
 			operation.FailureCode = "update_forward_repair_required"
 			operation.Retryable = true
 		}
-		if kind == "update" && operation.Retryable && operation.Attempt >= boundedOperationMaxAttempts {
-			operation.Retryable = false
-			operation.FailureCode = "update_retry_limit_reached"
-			operation.FailureMessage = "The update reached its retry limit. Review the failed stage before taking explicit action."
-		}
-		if kind == "install-managed" {
-			operation.SecretDisposition = managedInstallSecretDisposition(err)
-			// A durable non-retryable result is the local half of the
-			// action-required transition. It must be reported once and then
-			// acknowledged by the Server before the retained plan is removed.
-			// Persist failure below revokes this disposition and keeps the plan.
-			if !operation.Retryable {
-				operation.SecretDisposition = secretDispositionDestroyTerminal
-			}
-		}
+
 		operation.UpdatedAt = time.Now().UnixMilli()
 		if persistErr := persistOperationOwned(value, operation, owner); persistErr != nil {
 			operation.Outcome = "unknown"
-			operation.SecretDisposition = secretDispositionRetain
 			return operation, errors.Join(err, persistErr)
 		}
 		return operation, err
@@ -267,19 +324,24 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		operation.Cutover = current.Cutover
 	}
 	operation.Outcome = "succeeded"
-	if kind == "install-managed" {
-		operation.SecretDisposition = secretDispositionDestroyCompleted
-	}
 	operation.UpdatedAt = time.Now().UnixMilli()
 	if err := persistOperationOwned(value, operation, owner); err != nil {
 		operation.Outcome = "unknown"
-		operation.SecretDisposition = secretDispositionRetain
 		return operation, err
 	}
 	return operation, nil
 }
 
 func lifecycleFailure(kind string, err error) (string, string, string, bool) {
+	var httpError registrationHTTPError
+	if errors.As(err, &httpError) {
+		code := httpError.code
+		if code == "" {
+			code = "registration_http_error"
+		}
+		return kind, code, httpError.Error(), httpError.status == 408 || httpError.status == 429 || httpError.status >= 500
+	}
+
 	if reason, ok := hostv1.ErrorReasonOf(err); ok && reason == hostv1.ErrorReason_ERROR_REASON_LOCAL_DISPOSED {
 		return kind, "local_disposed", "The local operator deleted this registration. Start a new authorized setup to connect again.", false
 	}
@@ -294,14 +356,14 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 			stage = strings.TrimSpace(strings.TrimPrefix(message, "lifecycle ")[:end])
 		}
 	}
-	retryClass := kind == "install-managed" || kind == "repair" || kind == "update" || strings.HasPrefix(kind, "registration-")
+	retryClass := kind == "install" || kind == "install-managed" || kind == "repair" || kind == "update" || strings.HasPrefix(kind, "registration-")
 	if !retryClass {
 		return stage, "operation_failed", message, false
 	}
-	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, ErrCoordinatorNotReady) {
+	if errors.Is(err, context.DeadlineExceeded) {
 		return stage, "transient_timeout", message, true
 	}
-	if kind == "registration-revoke" && registrationRevisionConflict(err) {
+	if (kind == "registration-revoke" || kind == "registration-remove") && registrationRevisionConflict(err) {
 		return stage, "registration_revision_changed", "The registration changed. Continue removal of the same registration.", true
 	}
 	switch status.Code(err) {
@@ -315,8 +377,7 @@ func lifecycleFailure(kind string, err error) (string, string, string, bool) {
 			return stage, "upstream_unavailable", message, true
 		}
 	}
-	if strings.Contains(message, "operation handoff exchange failed") ||
-		strings.Contains(message, "operation handoff acknowledgement failed") {
+	if strings.Contains(message, "registration claim request failed") {
 		return stage, "upstream_unavailable", message, true
 	}
 	if kind == "install-managed" {
@@ -408,40 +469,11 @@ func writeOperation(operation lifecycleOperation) error {
 	return json.NewEncoder(os.Stdout).Encode(operation)
 }
 
-// finalizeManagedInstallOperation never infers secret ownership from an error
-// or Retryable. Successful completion may clean up locally. A terminal failure
-// retains the plan until the provisioner has persisted its report and received
-// the Server acknowledgement for this operation.
-func finalizeManagedInstallOperation(value paths, operationID string, operation lifecycleOperation, operationErr error) (lifecycleOperation, error) {
-	retain := func(err error) (lifecycleOperation, error) {
-		operation.SecretDisposition = secretDispositionRetain
-		return operation, errors.Join(operationErr, err)
+func lifecycleExclusive(operation lifecycleOperation) bool {
+	switch operation.Kind {
+	case "update", "repair", "remove", "drain", "reinstall", "uninstall":
+		return true
+	default:
+		return false
 	}
-	if operation.SecretDisposition == secretDispositionDestroyCompleted {
-		completed, err := completedInstallExists(value, operationID)
-		if err != nil {
-			return retain(fmt.Errorf("verify managed install completion receipt: %w", err))
-		}
-		if !completed {
-			return retain(errors.New("managed install completion receipt is not durable; retaining install plan"))
-		}
-	} else if operation.SecretDisposition == secretDispositionDestroyTerminal {
-		recorded, err := readLifecycleOperationByID(value, operationID)
-		if err != nil {
-			return retain(fmt.Errorf("verify managed install terminal result: %w", err))
-		}
-		if recorded == nil || recorded.OperationID != operationID || recorded.RequestID != operationID || recorded.Kind != "install-managed" ||
-			recorded.Outcome != "failed" || recorded.SecretDisposition != secretDispositionDestroyTerminal {
-			return retain(errors.New("managed install terminal result is not durable; retaining install plan"))
-		}
-		return operation, operationErr
-	} else if operation.SecretDisposition == secretDispositionRetain || operationID == "" {
-		return operation, operationErr
-	} else {
-		return retain(errors.New("managed install secret disposition is unavailable; retaining install plan"))
-	}
-	if err := cleanupInstallPlan(value, operationID); err != nil {
-		return retain(fmt.Errorf("cleanup managed install plan: %w", err))
-	}
-	return operation, operationErr
 }

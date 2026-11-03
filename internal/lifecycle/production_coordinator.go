@@ -4,17 +4,17 @@ package lifecycle
 
 import (
 	"context"
-	"path/filepath"
-
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 )
 
-const lifecycleOperationHandoffMaxBytes = 8 << 20
+const registrationPlanMaxBytes = 8 << 20
 
 type productionLifecycleAdapter struct {
 	value      paths
-	descriptor *operationHandoffDescriptor
-	material   *operationHandoffPlan
+	requestID  string
+	plan       *registrationClaimPlan
+	recovery   *registrationRecoveryDescriptor
+	descriptor *registrationClaimDescriptor
+	material   *registrationConfiguration
 }
 
 func newProductionLifecycleAdapter(value paths) LifecycleAdapter {
@@ -24,36 +24,25 @@ func newProductionLifecycleAdapter(value paths) LifecycleAdapter {
 func lifecycleAdapterFor(adapter *productionLifecycleAdapter) LifecycleAdapter {
 	return newHelperLifecycleAdapter(adapter.value, lifecycleAdapterHooks{
 		Register: adapter.register,
-		Observe:  adapter.observe,
 	})
 }
 
 func (adapter *productionLifecycleAdapter) register(ctx context.Context, request LifecycleRequest) error {
-	if err := adapter.ensureInstallPlan(ctx); err != nil {
+	adapter.requestID = request.RequestID
+	if err := adapter.ensureRegistrationPlan(ctx); err != nil {
 		return err
 	}
-	return adapter.applyManagedEnrollment(ctx, request)
+	return adapter.applyRegistration(ctx, request)
 }
 
-func (adapter *productionLifecycleAdapter) observe(ctx context.Context, request LifecycleRequest) (LifecycleFacts, error) {
-	if adapter.material == nil {
-		return LifecycleFacts{}, errManagedInstallPlanUnavailable
-	}
-	connection, err := operatorConnection(ctx, filepath.Join(adapter.value.applicationData, "operator.sock"))
+func runRegistrationLifecycle(adapter LifecycleAdapter, kind string, request LifecycleRequest) error {
+	coordinator, err := NewLifecycleCoordinator(adapter, LifecycleCoordinatorConfig{})
 	if err != nil {
-		return LifecycleFacts{}, err
+		return err
 	}
-	defer connection.Close()
-	client := hostv1.NewOperatorServiceClient(connection)
-	snapshot, err := client.GetSystemHealthSummary(ctx, &hostv1.GetSystemHealthSummaryRequest{})
-	if err != nil {
-		return LifecycleFacts{}, err
+	action := LifecycleInstall
+	if kind == "registration-recover" {
+		action = LifecycleRegister
 	}
-	remote, err := client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: adapter.material.RegistrationID})
-	if err != nil {
-		return LifecycleFacts{}, err
-	}
-	healthy := snapshot.GetVm().GetState() == hostv1.VMState_VM_STATE_RUNNING && snapshot.GetHealth().GetState() == hostv1.HealthState_HEALTH_STATE_HEALTHY
-	registration := remote.GetRegistration()
-	return LifecycleFacts{HostHealthy: healthy, RemoteAttached: healthy && registration.GetEnrollmentState() == hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY && registration.GetConnectionState() == hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_CONNECTED}, nil
+	return coordinator.Run(context.Background(), action, request)
 }

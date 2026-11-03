@@ -29,14 +29,18 @@ type routeController struct {
 	fail  bool
 }
 
-func (s *routeController) Enroll(ctx context.Context, _ *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
+func (s *routeController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
+	ctx := stream.Context()
 	s.calls.Add(1)
 	md, _ := metadata.FromIncomingContext(ctx)
 	s.valid.Store(len(md.Get("authorization")) == 1 && len(md.Get(":authority")) == 1 && strings.HasPrefix(md.Get(":authority")[0], "gateway.test"))
 	if s.fail {
-		return nil, status.Error(codes.Unavailable, "application unavailable")
+		return status.Error(codes.Unavailable, "application unavailable")
 	}
-	return &remotev1.EnrollResponse{}, nil
+	if _, err := stream.Recv(); err != nil {
+		return err
+	}
+	return stream.Send(&remotev1.ConnectResponse{})
 }
 
 // Use actual TCP, TLS, HTTP/2, and gRPC. Only OS route discovery is injected.
@@ -106,7 +110,7 @@ func TestGatewayRouteHandshakeRecovery(t *testing.T) {
 			defer conn.Close()
 			ctx, cancel := context.WithTimeout(context.Background(), gatewayDialBudget)
 			defer cancel()
-			_, err = remotev1.NewRemoteControllerServiceClient(conn).Enroll(ctx, &remotev1.EnrollRequest{})
+			err = probeRouteConnection(ctx, conn)
 			if first == "application unavailable" {
 				if status.Code(err) != codes.Unavailable {
 					t.Fatalf("got %v", err)
@@ -127,7 +131,7 @@ func TestGatewayRouteHandshakeRecovery(t *testing.T) {
 			if first != "application unavailable" {
 				// A successful connection must outlive the attempt timeout.
 				time.Sleep(transport.attemptBudget + 10*time.Millisecond)
-				_, err = remotev1.NewRemoteControllerServiceClient(conn).Enroll(ctx, &remotev1.EnrollRequest{})
+				err = probeRouteConnection(ctx, conn)
 				if err != nil || attempts.Load() != want {
 					t.Fatalf("connection did not survive attempt deadline: %v", err)
 				}
@@ -300,7 +304,7 @@ func TestGatewayHTTP2TimeoutClosesVerifiedSocket(t *testing.T) {
 	defer conn.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	_, err = remotev1.NewRemoteControllerServiceClient(conn).Enroll(ctx, &remotev1.EnrollRequest{})
+	err = probeRouteConnection(ctx, conn)
 	if err == nil {
 		t.Fatal("HTTP/2 handshake unexpectedly succeeded")
 	}
@@ -353,4 +357,17 @@ func TestGatewayConfiguredEndpoint(t *testing.T) {
 		t.Fatalf("ALPN=%q", verified.State.NegotiatedProtocol)
 	}
 	t.Logf("verified gateway TLS; peer=%s, ALPN=%s", conn.RemoteAddr(), verified.State.NegotiatedProtocol)
+}
+
+func probeRouteConnection(ctx context.Context, conn *grpc.ClientConn) error {
+	stream, err := remotev1.NewRemoteControllerServiceClient(conn).Connect(ctx)
+	if err != nil {
+		return err
+	}
+	defer stream.CloseSend()
+	if err := stream.Send(&remotev1.ConnectRequest{}); err != nil {
+		return err
+	}
+	_, err = stream.Recv()
+	return err
 }

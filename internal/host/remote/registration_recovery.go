@@ -4,6 +4,8 @@ package remote
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -30,10 +32,10 @@ func (server *Owner) SignRegistrationRecovery(ctx context.Context, request *host
 		return nil, err
 	}
 	registration, err := server.store.GetRemoteRegistration(ctx, challenge.RegistrationID)
-	if err != nil {
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, cleanup.ReadError(err)
 	}
-	if registration.OwnerKind != store.RemoteRegistrationExternal || registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {
+	if err == nil && (registration.OwnerKind != store.RemoteRegistrationExternal || registration.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED)) {
 		return nil, status.Error(codes.FailedPrecondition, "the original local registration is not recoverable")
 	}
 	identity, signature, err := server.trust.SignRegistrationRecovery(ctx, request.GetChallengeJson())

@@ -31,28 +31,9 @@ RemoteRegistration combines durable controller authority, admission policy, and 
 connector observations.
 
 
-## Message `BeginRemoteEnrollmentRequest`
+## Message `RemoteRegistrationConnection`
 
-BeginRemoteEnrollmentRequest carries inputs for an operation that records one controller
-registration and its approved scope before credential enrollment.
-
-
-## Message `ApplyManagedRemoteEnrollmentRequest`
-
-ApplyManagedRemoteEnrollmentRequest carries inputs for an operation that applies a managed
-registration and one-time token within the local enrollment owner.
-
-
-## Message `CompleteRemoteEnrollmentRequest`
-
-CompleteRemoteEnrollmentRequest carries inputs for an operation that commits credential
-completion for the current registration revision.
-
-
-## Message `RetryRemoteEnrollmentRequest`
-
-RetryRemoteEnrollmentRequest carries inputs for an operation that retries the existing
-incomplete registration under its current revision.
+RemoteRegistrationConnection carries public connection and local pool configuration.
 
 
 ## Message `BeginRemoteRevocationRequest`
@@ -95,6 +76,11 @@ state.
 
 LocalRegistrationMetadata reports bounded local registration facts without contacting its
 controller.
+
+
+## Message `ApplyRemoteRegistrationRequest`
+
+ApplyRemoteRegistrationRequest saves an already claimed credential and public connection configuration.
 
 
 ## Enum `RemoteRegistrationState`

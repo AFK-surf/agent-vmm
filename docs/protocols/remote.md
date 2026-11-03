@@ -26,13 +26,20 @@ A successful connection or a later status without this refusal clears it.
 The Host keeps this diagnostic in memory. After Host restart, it remains absent until another refusal arrives.
 An older Host does not acquire these diagnostic fields through a server update.
 
-## Registration and enrollment
+## Registration claim
 
-Enrollment binds one registration, one device identity, and a one-time token.
-The controller consumes the token with its durable membership credential commit.
-The connector stores the returned bearer credential under that registration's selected secret backend.
-The Host verifies the managed trust bundle before it admits the registration.
-A failed verification removes the new bearer credential through that backend.
+The product creates a pending Registration after it verifies the current product owner.
+The Host saves one random candidate credential, its identity, the service origin, and the exact request before claim.
+A TLS claim atomically binds that Host and candidate to the Registration.
+The response contains public Gateway, TLS, and pool configuration. It contains no new secret.
+`ApplyRemoteRegistration` saves the candidate in the selected secret backend and starts the control connection.
+Product connection setup does not install managed route trust.
+Independent appliance and route authorities keep their signature and expiry checks.
+
+An identical candidate and Host can observe the committed claim after ticket expiry.
+Explicit revocation and current credential admission still apply.
+Observation does not enable a stopped Registration or change policy and connection epochs.
+The native source request projection preserves the original receipt during one-time local plan conversion.
 
 Ready selects enabled features from the supported set.
 A remote-compute connection cannot observe local environments or another registration.
@@ -126,19 +133,20 @@ An arbitrary NotFound or transport error is not an absence receipt.
 
 ## Registration recovery
 
-`SignRegistrationRecovery` signs only the fixed purpose `agent-vmm/registration-recovery/1`.
+`SignRegistrationRecovery` signs only the fixed purpose `agent-vmm/credential-replace/1`.
 The controller supplies a single-use challenge that expires within 120 seconds.
 The Host signs the SHA-256 of this UTF-8 wire, in order:
 
 1. The purpose and a newline.
-2. `audience`, `subject`, `session_id`, `controller_binding`, `environment_id`, `operation_id`, `registration_id`, and `nonce`.
+2. `audience`, `subject`, `session_id`, `controller_binding`, `environment_id`, `registration_id`, `candidate_credential_hash`, and `nonce`.
 3. Decimal `revision` and decimal Unix-second `expires_at`.
 
 Each value in step 2 uses unpadded base64url and ends with a newline.
 Both decimal fields also end with a newline.
 The nonce decodes to 32 bytes. Revision is nonzero.
 `controller_binding` is opaque to the Host.
-The controller checks the original subject, scope, revision, and challenge consumption.
-Recovery changes the delivery target while preserving registration, allocations, and files.
-Local disposal disables proof for the disposed target.
+The candidate hash uses standard base64 of SHA-256 over the candidate credential bytes.
+The controller checks current product permission, the original root, revision, and challenge consumption.
+Recovery replaces the credential while preserving the Registration, allocations, and files.
+An absent local row can use the original root. Explicit revocation and local disposal disable proof for that target.
 The [wire fixture](../../internal/host/trust/testdata/registration_recovery_wire.json) records this exact encoding.

@@ -11,13 +11,13 @@ import (
 	"time"
 )
 
-func validOperationHandoffURL(value *url.URL) bool {
+func validRegistrationClaimURL(value *url.URL) bool {
 	return value != nil && value.Host != "" && value.User == nil && value.RawQuery == "" && value.Fragment == "" &&
-		value.Path == operationHandoffExchangePath &&
-		(value.Scheme == "https" || value.Scheme == "http" && isHandoffLoopbackHost(value.Hostname()))
+		value.Path == registrationClaimPath &&
+		(value.Scheme == "https" || value.Scheme == "http" && isRegistrationLoopbackHost(value.Hostname()))
 }
 
-func isHandoffLoopbackHost(host string) bool {
+func isRegistrationLoopbackHost(host string) bool {
 	switch strings.ToLower(host) {
 	case "localhost", "127.0.0.1", "::1":
 		return true
@@ -26,10 +26,10 @@ func isHandoffLoopbackHost(host string) bool {
 	}
 }
 
-func newInstallHTTPClient() *http.Client {
+func newRegistrationHTTPClient() *http.Client {
 	transport := http.DefaultTransport.(*http.Transport).Clone()
 	transport.Proxy = func(request *http.Request) (*url.URL, error) {
-		if request.URL.Scheme == "http" && isHandoffLoopbackHost(request.URL.Hostname()) {
+		if request.URL.Scheme == "http" && isRegistrationLoopbackHost(request.URL.Hostname()) {
 			return nil, nil
 		}
 		return http.ProxyFromEnvironment(request)

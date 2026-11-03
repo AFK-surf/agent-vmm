@@ -213,11 +213,11 @@ func serviceRouteRuntime(t *testing.T, harness *hostHarness, prefix string) (*pr
 	endpoint, roots, stopController := startRemoteController(t, controller)
 	t.Cleanup(stopController)
 	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(2 * time.Second)}
-	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: prefix, RegistrationId: prefix, Endpoint: endpoint, DisplayName: prefix, Pool: pool})
+	_, err := harness.client.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: prefix, RegistrationId: prefix, Endpoint: endpoint, DisplayName: prefix, Pool: pool}, Credential: []byte("credential")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: prefix + "-complete", RegistrationId: prefix, ExpectedRevision: registered.GetRegistration().GetRevision()}); err != nil {
+	if _, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: prefix}); err != nil {
 		t.Fatal(err)
 	}
 	controller.registrationID = prefix

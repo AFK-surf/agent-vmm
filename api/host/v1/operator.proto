@@ -144,16 +144,8 @@ service OperatorService {
   }
   // ExportSupportBundle exports only the operator-approved diagnostic scope.
   rpc ExportSupportBundle(ExportSupportBundleRequest) returns (ExportSupportBundleResponse);
-  // BeginRemoteEnrollment records one controller registration and its approved scope before
-  // credential enrollment.
-  rpc BeginRemoteEnrollment(BeginRemoteEnrollmentRequest) returns (BeginRemoteEnrollmentResponse);
-  // ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-  // local enrollment owner.
-  rpc ApplyManagedRemoteEnrollment(ApplyManagedRemoteEnrollmentRequest) returns (ApplyManagedRemoteEnrollmentResponse);
-  // CompleteRemoteEnrollment commits credential completion for the current registration revision.
-  rpc CompleteRemoteEnrollment(CompleteRemoteEnrollmentRequest) returns (CompleteRemoteEnrollmentResponse);
-  // RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-  rpc RetryRemoteEnrollment(RetryRemoteEnrollmentRequest) returns (RetryRemoteEnrollmentResponse);
+  // ApplyRemoteRegistration saves a claimed registration and starts its control connection.
+  rpc ApplyRemoteRegistration(ApplyRemoteRegistrationRequest) returns (ApplyRemoteRegistrationResponse);
   // BeginRemoteRevocation records revocation intent before stopping the registration's owned
   // workload authority.
   rpc BeginRemoteRevocation(BeginRemoteRevocationRequest) returns (BeginRemoteRevocationResponse);
@@ -876,30 +868,6 @@ message ExportSupportBundleResponse {
   Operation operation = 1;
 }
 
-// BeginRemoteEnrollmentResponse carries results from an operation that records one controller
-// registration and its approved scope before credential enrollment.
-message BeginRemoteEnrollmentResponse {
-  RemoteRegistration registration = 1;
-}
-
-// ApplyManagedRemoteEnrollmentResponse carries results from an operation that applies a managed
-// registration and one-time token within the local enrollment owner.
-message ApplyManagedRemoteEnrollmentResponse {
-  RemoteRegistration registration = 1;
-}
-
-// CompleteRemoteEnrollmentResponse carries results from an operation that commits credential
-// completion for the current registration revision.
-message CompleteRemoteEnrollmentResponse {
-  RemoteRegistration registration = 1;
-}
-
-// RetryRemoteEnrollmentResponse carries results from an operation that retries the existing
-// incomplete registration under its current revision.
-message RetryRemoteEnrollmentResponse {
-  RemoteRegistration registration = 1;
-}
-
 // CompleteRemoteRevocationResponse carries results from an operation that completes the selected
 // registration's durable revocation.
 message CompleteRemoteRevocationResponse {
@@ -1108,4 +1076,9 @@ message RotateMCPTokenKeyRequest {}
 // RotateMCPTokenKeyResponse identifies the appliance update that replaces the signing key.
 message RotateMCPTokenKeyResponse {
   string operation_id = 1;
+}
+
+// ApplyRemoteRegistrationResponse returns the current local registration.
+message ApplyRemoteRegistrationResponse {
+  RemoteRegistration registration = 1;
 }

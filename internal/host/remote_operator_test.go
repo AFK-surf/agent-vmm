@@ -3,10 +3,8 @@
 package host
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"fmt"
 	"path/filepath"
 	"testing"
@@ -22,32 +20,31 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 )
 
-func TestRepeatedManagedEnrollmentUpdatesPolicyAndRejectsIdentityChange(t *testing.T) {
+func TestRepeatedClaimedRegistrationUpdatesPolicyAndRejectsIdentityChange(t *testing.T) {
 	database, err := openTestStore(filepath.Join(t.TempDir(), "host.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer database.Close()
 	ctx := context.Background()
-	scope := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	stored, err := database.CreateRemoteRegistration(ctx, store.RemoteRegistration{ID: "managed", Endpoint: "gateway.example.test:7443", DisplayName: "Old name",
-		TrustBundle: []byte("trust"), ScopeDigest: scope, SourcePolicyRevision: 7, PerEnvPIDs: 128, PerEnvDiskBytes: 2 << 30,
-		MaxEgressMode: 1, StopGraceSeconds: 1, State: 1, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, EnrollmentRequestID: "install-1"})
+		TrustBundle: []byte("trust"), SourcePolicyRevision: 7, PerEnvPIDs: 128, PerEnvDiskBytes: 2 << 30,
+		MaxEgressMode: 1, StopGraceSeconds: 1, State: 2, ConnectionState: 1, EnrollmentState: 2, ConnectorPhase: 1, EnrollmentRequestID: "install-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	server := &operatorServer{controller: withTestRemoteCapacity(newTestController(&Controller{store: database}), store.Environment{PIDs: 1024, DiskBytes: 8 << 30})}
 	pids, disk := uint32(256), uint64(4<<30)
-	request := func(requestID string, revision uint64, mutate func(*hostv1.BeginRemoteEnrollmentRequest)) error {
-		managed := &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: stored.ID, Endpoint: stored.Endpoint, DisplayName: "New name",
-			TrustBundle: []byte("trust"), ScopeDigest: scope, SourcePolicyRevision: revision,
+	request := func(requestID string, revision uint64, mutate func(*hostv1.RemoteRegistrationConnection)) error {
+		managed := &hostv1.RemoteRegistrationConnection{RequestId: requestID, RegistrationId: stored.ID, Endpoint: stored.Endpoint, DisplayName: "New name",
+			TrustBundle: []byte("trust"), SourcePolicyRevision: revision,
 			Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: &pids, DiskBytes: &disk},
 				MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(30 * time.Second)}}
 		if mutate != nil {
 			mutate(managed)
 		}
 		_, err := auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) {
-			return server.ApplyManagedRemoteEnrollment(ctx, &hostv1.ApplyManagedRemoteEnrollmentRequest{Registration: managed, EnrollmentToken: []byte("token")})
+			return server.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: managed, Credential: []byte("credential")})
 		})
 		return err
 	}
@@ -60,18 +57,15 @@ func TestRepeatedManagedEnrollmentUpdatesPolicyAndRejectsIdentityChange(t *testi
 	}
 	if updated.DisplayName != "New name" || updated.SourcePolicyRevision != 8 || updated.PerEnvPIDs != pids || updated.PerEnvDiskBytes != disk ||
 		updated.MaxEgressMode != int32(hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET) || updated.StopGraceSeconds != 30 ||
-		updated.PoolPolicyRevision != stored.PoolPolicyRevision+1 || updated.EnrollmentState != stored.EnrollmentState {
+		updated.PoolPolicyRevision != stored.PoolPolicyRevision+1 || updated.EnrollmentState != stored.EnrollmentState || updated.State != stored.State {
 		t.Fatalf("registration was not updated in place: %+v", updated)
 	}
 	if err := request("install-3", 7, nil); status.Code(err) != codes.Aborted {
 		t.Fatalf("older policy revision = %v", err)
 	}
-	identity := map[string]func(*hostv1.BeginRemoteEnrollmentRequest){
-		"endpoint": func(managed *hostv1.BeginRemoteEnrollmentRequest) { managed.Endpoint = "other.example.test:7443" },
-		"trust":    func(managed *hostv1.BeginRemoteEnrollmentRequest) { managed.TrustBundle = []byte("other") },
-		"scope": func(managed *hostv1.BeginRemoteEnrollmentRequest) {
-			managed.ScopeDigest = base64.RawURLEncoding.EncodeToString(bytes.Repeat([]byte{1}, 32))
-		},
+	identity := map[string]func(*hostv1.RemoteRegistrationConnection){
+		"endpoint": func(managed *hostv1.RemoteRegistrationConnection) { managed.Endpoint = "other.example.test:7443" },
+		"trust":    func(managed *hostv1.RemoteRegistrationConnection) { managed.TrustBundle = []byte("other") },
 	}
 	for name, mutate := range identity {
 		if err := request("install-"+name, 9, mutate); status.Code(err) != codes.FailedPrecondition {

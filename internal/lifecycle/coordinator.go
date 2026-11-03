@@ -15,10 +15,7 @@ const (
 	defaultCoordinatorInitTimeout      = 10 * time.Minute
 )
 
-var (
-	ErrCoordinatorAdapterUnavailable = errors.New("lifecycle adapter step is unavailable")
-	ErrCoordinatorNotReady           = errors.New("controller readiness was not observed")
-)
+var ErrCoordinatorAdapterUnavailable = errors.New("lifecycle adapter step is unavailable")
 
 // These actions are the local coordinator contract. The coordinator delegates
 // provider-specific work to LifecycleAdapter and owns no durable state,
@@ -39,14 +36,6 @@ type LifecycleRequest struct {
 	DisablePersonalMeshPairing bool
 }
 
-// LifecycleFacts are observations from the local operator boundary.
-// RemoteAttached means the exact managed registration is enrolled and its
-// connector is connected. It is not controller admission or product Node readiness.
-type LifecycleFacts struct {
-	HostHealthy    bool
-	RemoteAttached bool
-}
-
 // LifecycleAdapter is the provider-neutral seam. Implementations must honor
 // ctx and must return only after the requested local operation has settled or
 // failed. The real adapter can map these methods to local operator RPCs;
@@ -57,7 +46,6 @@ type LifecycleAdapter interface {
 	Register(context.Context, LifecycleRequest) error
 	Stop(context.Context, LifecycleRequest) error
 	Remove(context.Context, LifecycleRequest) error
-	Observe(context.Context, LifecycleRequest) (LifecycleFacts, error)
 }
 
 type LifecycleCoordinatorConfig struct {
@@ -88,13 +76,13 @@ func NewLifecycleCoordinator(adapter LifecycleAdapter, config LifecycleCoordinat
 }
 
 // Run performs one bounded contract action. Install and remove are the only
-// composite actions: installation moves forward through every admission
-// boundary, while removal stops before deleting local product state.
+// composite actions. Install prepares the Host and VM, then applies the
+// Registration. Remove stops before deleting local product state.
 func (coordinator *LifecycleCoordinator) Run(ctx context.Context, action LifecycleAction, request LifecycleRequest) error {
 	if ctx == nil {
 		return errors.New("lifecycle context is required")
 	}
-	steps, requireReady, err := coordinator.steps(action)
+	steps, err := coordinator.steps(action)
 	if err != nil {
 		return err
 	}
@@ -105,16 +93,6 @@ func (coordinator *LifecycleCoordinator) Run(ctx context.Context, action Lifecyc
 			return err
 		}
 	}
-	if !requireReady {
-		return nil
-	}
-	facts, err := coordinator.observe(operationContext, request)
-	if err != nil {
-		return err
-	}
-	if !facts.RemoteAttached {
-		return fmt.Errorf("%w: hostHealthy=%t", ErrCoordinatorNotReady, facts.HostHealthy)
-	}
 	return nil
 }
 
@@ -123,7 +101,7 @@ type coordinatorStep struct {
 	call func(LifecycleAdapter, context.Context, LifecycleRequest) error
 }
 
-func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordinatorStep, bool, error) {
+func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordinatorStep, error) {
 	step := func(name LifecycleAction, method func(LifecycleAdapter, context.Context, LifecycleRequest) error) coordinatorStep {
 		return coordinatorStep{name: name, call: method}
 	}
@@ -139,19 +117,19 @@ func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordi
 			step(LifecycleRegister, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 				return adapter.Register(ctx, request)
 			}),
-		}, true, nil
+		}, nil
 	case LifecycleInit:
 		return []coordinatorStep{step(LifecycleInit, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 			return adapter.Init(ctx, request)
-		})}, false, nil
+		})}, nil
 	case LifecycleRegister:
 		return []coordinatorStep{step(LifecycleRegister, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 			return adapter.Register(ctx, request)
-		})}, false, nil
+		})}, nil
 	case LifecycleStop:
 		return []coordinatorStep{step(LifecycleStop, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 			return adapter.Stop(ctx, request)
-		})}, false, nil
+		})}, nil
 	case LifecycleRemove:
 		return []coordinatorStep{
 			step(LifecycleStop, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
@@ -160,9 +138,9 @@ func (coordinator *LifecycleCoordinator) steps(action LifecycleAction) ([]coordi
 			step(LifecycleRemove, func(adapter LifecycleAdapter, ctx context.Context, request LifecycleRequest) error {
 				return adapter.Remove(ctx, request)
 			}),
-		}, false, nil
+		}, nil
 	default:
-		return nil, false, fmt.Errorf("unsupported lifecycle action %q", action)
+		return nil, fmt.Errorf("unsupported lifecycle action %q", action)
 	}
 }
 
@@ -183,29 +161,14 @@ func (coordinator *LifecycleCoordinator) runStep(ctx context.Context, name Lifec
 	return nil
 }
 
-func (coordinator *LifecycleCoordinator) observe(ctx context.Context, request LifecycleRequest) (LifecycleFacts, error) {
-	observeContext, cancel := context.WithTimeout(ctx, coordinator.config.StepTimeout)
-	defer cancel()
-	facts, err := coordinator.adapter.Observe(observeContext, request)
-	if err != nil {
-		return LifecycleFacts{}, fmt.Errorf("lifecycle observe: %w", err)
-	}
-	if err := observeContext.Err(); err != nil {
-		return LifecycleFacts{}, fmt.Errorf("lifecycle observe: %w", err)
-	}
-	return facts, nil
-}
-
 type lifecycleStepFunc func(context.Context, LifecycleRequest) error
-type lifecycleObserveFunc func(context.Context, LifecycleRequest) (LifecycleFacts, error)
 
 // lifecycleAdapterHooks lets the local helper reuse the already-owned host
 // install/VM/drain/remove operations while a product supplies only the
-// remote enrollment calls. A nil enrollment hook is a
+// remote Registration call. A nil Registration hook is a
 // deliberate fail-closed result, never an implicit success.
 type lifecycleAdapterHooks struct {
 	Register lifecycleStepFunc
-	Observe  lifecycleObserveFunc
 }
 
 type helperLifecycleAdapter struct {
@@ -241,23 +204,6 @@ func (adapter *helperLifecycleAdapter) Stop(ctx context.Context, _ LifecycleRequ
 
 func (adapter *helperLifecycleAdapter) Remove(ctx context.Context, request LifecycleRequest) error {
 	return removeService(ctx, adapter.value, request.Purge)
-}
-
-func (adapter *helperLifecycleAdapter) Observe(ctx context.Context, request LifecycleRequest) (LifecycleFacts, error) {
-	if adapter.hooks.Observe != nil {
-		return adapter.hooks.Observe(ctx, request)
-	}
-	if err := ctx.Err(); err != nil {
-		return LifecycleFacts{}, err
-	}
-	status := readStatusContext(ctx, adapter.value)
-	if err := ctx.Err(); err != nil {
-		return LifecycleFacts{}, err
-	}
-	return LifecycleFacts{
-		HostHealthy:    status.HostHealthy,
-		RemoteAttached: false,
-	}, nil
 }
 
 func (adapter *helperLifecycleAdapter) runHook(ctx context.Context, action LifecycleAction, hook lifecycleStepFunc, request LifecycleRequest) error {

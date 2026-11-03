@@ -5,6 +5,7 @@ package lifecycle
 import (
 	"encoding/json"
 	"errors"
+	"os"
 
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
 )
@@ -28,7 +29,11 @@ func persistOperationOwned(value paths, operation lifecycleOperation, owner *ope
 	}
 	state.LatestRequest = operation.RequestID
 	state.OperationRequests[operation.OperationID] = operation.RequestID
-	if receiptUnfinished(operation.Outcome, operation.Retryable) {
+	state.OperationRequests[operation.RequestID] = operation.RequestID
+	if operation.TargetRegistrationID != "" {
+		state.RegistrationRequests[operation.TargetRegistrationID] = operation.RequestID
+	}
+	if lifecycleExclusive(operation) && receiptUnfinished(operation.Outcome, operation.Retryable) {
 		state.ActiveRequest = operation.RequestID
 	} else if state.ActiveRequest == operation.RequestID {
 		state.ActiveRequest = ""
@@ -104,8 +109,79 @@ func readLifecycleOperationByID(value paths, operationID string) (*lifecycleOper
 		id = operationID
 	}
 	operation, err := loadLifecycleReceipt(directory, id)
-	if err != nil || operation.OperationID != operationID {
+	if errors.Is(err, os.ErrNotExist) && (state.OperationRequests[operationID] != "" || state.ActiveRequest == id || state.LatestRequest == id || state.CompletedRequests[id] || state.SupersededRequests[id] != "") {
+		return nil, errors.New("accepted lifecycle receipt is unavailable; keep the owner journal for recovery")
+	}
+	if err != nil {
+		return nil, err
+	}
+	if operation.OperationID != operationID && operation.RequestID != operationID {
 		return nil, errors.New("lifecycle operation was not found")
 	}
 	return operation, nil
+}
+
+func readOperationReportByID(value paths, id string) (map[string]any, error) {
+	receipt, err := readLifecycleOperationByID(value, id)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	directory, err := openExistingApplicationDataDirectory(value)
+	if err != nil {
+		return nil, err
+	}
+	defer directory.Close()
+	var report map[string]any
+	if err := readMaintenanceJSON(directory, maintenanceReceiptName(receipt.RequestID), &report); err != nil {
+		return nil, err
+	}
+	report["operationId"] = receipt.OperationID
+	report["requestId"] = receipt.RequestID
+	report["kind"] = receipt.Kind
+	report["contractVersion"] = cliContractVersion
+	return report, nil
+}
+
+// Only a committed one-time legacy receipt correlation can satisfy another request ID.
+func readCorrelatedOperation(value paths, requested, registrationID string) (map[string]any, error) {
+	report, err := readOperationReportByID(value, requested)
+	if err != nil {
+		return nil, err
+	}
+	if report != nil {
+		if report["targetRegistrationId"] != registrationID {
+			return nil, errors.New("request target does not match registration")
+		}
+		return report, nil
+	}
+	directory, err := openExistingApplicationDataDirectory(value)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	state, err := loadMaintenanceState(directory)
+	directory.Close()
+	if err != nil {
+		return nil, err
+	}
+	canonical := state.RegistrationRequests[registrationID]
+	if canonical == "" {
+		return nil, nil
+	}
+	report, err = readOperationReportByID(value, canonical)
+	if err != nil {
+		return nil, err
+	}
+	if report == nil {
+		return nil, errors.New("accepted registration receipt is unavailable")
+	}
+	if report["correlationRequestId"] != requested || report["kind"] != "registration-recover" || report["targetRegistrationId"] != registrationID {
+		return nil, nil
+	}
+	return report, nil
 }

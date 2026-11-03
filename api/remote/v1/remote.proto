@@ -9,33 +9,12 @@ option go_package = "github.com/AFK-surf/agent-vmm/api/remote/v1;remotev1";
 // RemoteControllerService is the provider-neutral controller endpoint for registration, command
 // delivery, and runtime tunnels.
 service RemoteControllerService {
-  // Enroll exchanges one registration's enrollment token for its bearer credential and managed
-  // trust bundle.
-  rpc Enroll(EnrollRequest) returns (EnrollResponse);
   // Connect exchanges current inventory, command authority, ordered commands, and terminal
   // delivery evidence.
   rpc Connect(stream ConnectRequest) returns (stream ConnectResponse);
   // ServeSession carries a current allocation's framed runtime connection under its issued session
   // identity.
   rpc ServeSession(stream ServeSessionRequest) returns (stream ServeSessionResponse);
-}
-
-// EnrollRequest binds a one-time enrollment token to the registration and public device
-// identity.
-message EnrollRequest {
-  string protocol_version = 1;
-  string registration_id = 2;
-  bytes enrollment_token = 3;
-  agentvmm.trust.v1.DeviceIdentity device_identity = 8;
-}
-
-// EnrollResponse returns the consumed token's bearer credential and managed trust bundle.
-message EnrollResponse {
-  string registration_id = 2;
-  string controller_display_name = 3;
-  bytes credential = 4;
-  agentvmm.trust.v1.TrustAnchor trust_anchor = 6;
-  agentvmm.trust.v1.MembershipCredential membership_credential = 7;
 }
 
 // EndpointObservationRenewal updates reachability under the current controller connection epoch.

@@ -34,7 +34,7 @@ func checkMutationUser(euid int) error {
 
 func executePlatformCommand(command string, request serviceRequest, args []string) bool {
 	switch command {
-	case "maintenance", "maintenance-status":
+	case "host-maintain", "maintenance", "maintenance-status":
 		executeMaintenanceCommand(command, request, args)
 	case "publish-host":
 		executePublishHost(request, args)

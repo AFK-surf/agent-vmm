@@ -11,3 +11,5 @@ import (
 func importArchiveAddressAllowed(address netip.Addr) bool {
 	return egress.DestinationAllowed(address, nil, true)
 }
+
+func importArchiveCurlTrustArgs() []string { return nil }

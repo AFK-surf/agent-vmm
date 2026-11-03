@@ -13,8 +13,6 @@ import (
 type coordinatorMock struct {
 	calls       []string
 	requests    []LifecycleRequest
-	facts       LifecycleFacts
-	observeErr  error
 	failAction  LifecycleAction
 	blockAction LifecycleAction
 }
@@ -52,12 +50,6 @@ func (mock *coordinatorMock) Remove(ctx context.Context, request LifecycleReques
 	return mock.step(ctx, LifecycleRemove, request)
 }
 
-func (mock *coordinatorMock) Observe(_ context.Context, request LifecycleRequest) (LifecycleFacts, error) {
-	mock.calls = append(mock.calls, "observe")
-	mock.requests = append(mock.requests, request)
-	return mock.facts, mock.observeErr
-}
-
 func newTestCoordinator(t *testing.T, mock *coordinatorMock, operationTimeout, stepTimeout time.Duration) *LifecycleCoordinator {
 	t.Helper()
 	coordinator, err := NewLifecycleCoordinator(mock, LifecycleCoordinatorConfig{
@@ -71,36 +63,20 @@ func newTestCoordinator(t *testing.T, mock *coordinatorMock, operationTimeout, s
 }
 
 func TestLifecycleCoordinatorInstallRunsBoundedForwardContract(t *testing.T) {
-	mock := &coordinatorMock{facts: LifecycleFacts{RemoteAttached: true}}
+	mock := &coordinatorMock{}
 	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
 	request := LifecycleRequest{RequestID: "request-1"}
 
 	if err := coordinator.Run(context.Background(), LifecycleInstall, request); err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"install", "init", "register", "observe"}; !reflect.DeepEqual(mock.calls, want) {
+	if want := []string{"install", "init", "register"}; !reflect.DeepEqual(mock.calls, want) {
 		t.Fatalf("calls=%v want=%v", mock.calls, want)
 	}
 	for index, observed := range mock.requests {
 		if observed != request {
 			t.Fatalf("request[%d]=%+v want=%+v", index, observed, request)
 		}
-	}
-}
-
-func TestLifecycleCoordinatorDoesNotDeriveControllerReadinessFromHealth(t *testing.T) {
-	mock := &coordinatorMock{facts: LifecycleFacts{
-		HostHealthy:    true,
-		RemoteAttached: false,
-	}}
-	coordinator := newTestCoordinator(t, mock, time.Second, time.Second)
-
-	err := coordinator.Run(context.Background(), LifecycleInstall, LifecycleRequest{RequestID: "request-2"})
-	if !errors.Is(err, ErrCoordinatorNotReady) {
-		t.Fatalf("error=%v want ErrCoordinatorNotReady", err)
-	}
-	if got, want := mock.calls[len(mock.calls)-1], "observe"; got != want {
-		t.Fatalf("last call=%q want=%q", got, want)
 	}
 }
 

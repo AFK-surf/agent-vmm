@@ -140,8 +140,7 @@ func applyUpdateRetryDisposition(envelope managedEnvelope, operation map[string]
 	envelope.OperationRef = map[string]any{"owner": "lifecycle", "id": stringFact(operation, "operationId")}
 	envelope.Stage = firstNonEmptyManaged(stringFact(operation, "failureStage"), stringFact(operation, "stage"), "preparation")
 	envelope.Facts["attempt"] = attempt
-	envelope.Facts["max_attempts"] = int64(3)
-	if !boolFact(operation, "retryable") || attempt >= 3 {
+	if !boolFact(operation, "retryable") && stringFact(operation, "failureCode") != "update_retry_limit_reached" {
 		envelope.State = "action_required"
 		envelope.Disposition = managedDispositionTerminalActionRequired
 		envelope.Issue = managedIssue{Code: firstNonEmptyManaged(stringFact(operation, "failureCode"), "update_failed"), Message: boundedManagedText(stringFact(operation, "failureMessage"), 512), Layer: "lifecycle", Retryable: managedBool(false)}
@@ -168,7 +167,7 @@ func (runtime managedRuntime) recordUpdatePreparationFailure(opts managedOptions
 	if err != nil {
 		return nil, err
 	}
-	args := []string{"update", "--preparation-failure-stdin", "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
+	args := []string{"host-update", "--preparation-failure-stdin", "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
 		"--artifact-sha256", strings.ToLower(opts.artifactSHA256), "--artifact-size", fmt.Sprint(opts.artifactSize)}
 	args = appendServiceArguments(args, opts)
 	recordCtx, cancelRecord := context.WithTimeout(context.Background(), managedObservationBudget)
@@ -246,7 +245,7 @@ func (runtime managedRuntime) update(ctx context.Context, opts managedOptions) (
 		return envelope, nil
 	}
 	envelope.Stage = "preparation"
-	args := []string{"update", "--source-app", stagedApp, "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
+	args := []string{"host-update", "--source-app", stagedApp, "--target-release-id", opts.targetRelease, "--request-id", opts.requestID,
 		"--artifact-sha256", strings.ToLower(opts.artifactSHA256), "--artifact-size", fmt.Sprint(opts.artifactSize)}
 	args = appendServiceArguments(args, opts)
 	waitCtx, cancelWait := context.WithTimeout(context.Background(), managedObservationBudget)

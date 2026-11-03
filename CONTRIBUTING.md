@@ -22,6 +22,8 @@ make swift-project
 `make proto-check` runs protobuf lint.
 `make proto-breaking` compares API compatibility with `origin/master`.
 Set `PROTO_BASE_REF` to select another commit or ref. Pull request CI uses its base commit.
+Authorized retirement can remove an RPC or message. All other `PACKAGE` compatibility checks remain active.
+Retained fields, types, tags, JSON names, and RPC shapes must preserve their existing contracts.
 
 `make check-generated` compares regenerated Go files with the source tree.
 `make check-swift-generated` compares regenerated Swift files with the source tree.

@@ -6,8 +6,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"errors"
+	"strings"
 	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
@@ -20,7 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-func (server *Owner) BeginRemoteEnrollment(ctx context.Context, request *hostv1.BeginRemoteEnrollmentRequest) (*hostv1.BeginRemoteEnrollmentResponse, error) {
+func (server *Owner) beginRemoteRegistration(ctx context.Context, request *hostv1.RemoteRegistrationConnection) (*hostv1.ApplyRemoteRegistrationResponse, error) {
 	if request.GetRequestId() == "" || request.GetEndpoint() == "" {
 		return nil, hostv1.InvalidField("request_id/endpoint", "request ID and endpoint are required")
 	}
@@ -31,7 +31,7 @@ func (server *Owner) BeginRemoteEnrollment(ctx context.Context, request *hostv1.
 		return nil, err
 	}
 	if existing, err := server.store.RemoteRegistrationByEnrollmentRequest(ctx, request.GetRequestId()); err == nil {
-		return &hostv1.BeginRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, existing)}, nil
+		return &hostv1.ApplyRemoteRegistrationResponse{Registration: server.RegistrationCurrent(ctx, existing)}, nil
 	}
 	registration, err := registrationFromPool(request.GetPool(), server.Capacity())
 	if err != nil {
@@ -52,121 +52,88 @@ func (server *Owner) BeginRemoteEnrollment(ctx context.Context, request *hostv1.
 	registration.ConnectorPhase = int32(hostv1.ConnectorPhase_CONNECTOR_PHASE_ENROLLING)
 	registration.EnrollmentRequestID = request.GetRequestId()
 	registration.TrustBundle = append([]byte(nil), request.GetTrustBundle()...)
-	registration.ScopeDigest = request.GetScopeDigest()
 	registration.SourcePolicyRevision = request.GetSourcePolicyRevision()
 	registration, err = server.store.CreateRemoteRegistration(ctx, registration)
 	if err != nil {
 		if existing, lookupErr := server.store.RemoteRegistrationByEnrollmentRequest(ctx, request.GetRequestId()); lookupErr == nil {
-			return &hostv1.BeginRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, existing)}, nil
+			return &hostv1.ApplyRemoteRegistrationResponse{Registration: server.RegistrationCurrent(ctx, existing)}, nil
 		}
 		return nil, status.Error(codes.FailedPrecondition, err.Error())
 	}
-	return &hostv1.BeginRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, registration)}, nil
+	return &hostv1.ApplyRemoteRegistrationResponse{Registration: server.RegistrationCurrent(ctx, registration)}, nil
 }
 
-func (server *Owner) ApplyManagedRemoteEnrollment(ctx context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.ApplyManagedRemoteEnrollmentResponse, error) {
+func (server *Owner) ApplyRemoteRegistration(ctx context.Context, request *hostv1.ApplyRemoteRegistrationRequest) (*hostv1.ApplyRemoteRegistrationResponse, error) {
 	ctx, releaseInventory, err := server.inventory.Enter(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer releaseInventory()
 	managed := request.GetRegistration()
-	if managed.GetRegistrationId() == "" {
-		return nil, hostv1.InvalidField("managed_registration", "managed registration identity is required")
+	if managed == nil || managed.GetRegistrationId() == "" {
+		return nil, hostv1.InvalidField("registration", "registration identity and policy are required")
+	}
+	if len(request.GetCredential()) == 0 || len(request.GetCredential()) > remoteconnector.MaxCredentialBytes {
+		return nil, hostv1.InvalidField("credential", "a bounded credential is required")
 	}
 	unlock, err := server.remoteEnrollmentLocks.Lock(ctx, managed.GetRegistrationId())
 	if err != nil {
 		return nil, err
 	}
 	defer unlock()
-	stored, err := server.prepareManagedRemoteEnrollment(ctx, request)
-	if err != nil {
-		return nil, err
-	}
-	if stored.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
-		server.ensureExternalConnector(stored.ID)
-		return &hostv1.ApplyManagedRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, stored)}, nil
-	}
-	config, err := server.externalConnectorConfig(stored)
-	if err != nil {
-		return nil, hostv1.InvalidField("managed_registration", err.Error())
-	}
-	token := append([]byte(nil), request.GetEnrollmentToken()...)
-	if _, err := remoteconnector.Enroll(ctx, config, token); err != nil {
-		message := "managed controller enrollment failed: " + err.Error()
-		server.remoteAdmissionMu.Lock()
-		_, _ = server.store.SetRemoteEnrollment(ctx, stored.ID, stored.Revision,
-			int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL),
-			int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE),
-			"MANAGED_ENROLLMENT_FAILED", message)
-		server.remoteAdmissionMu.Unlock()
-		return nil, status.Error(codes.Unavailable, message)
-	}
-	server.remoteAdmissionMu.Lock()
-	completed, err := server.store.SetRemoteEnrollment(ctx, stored.ID, stored.Revision,
-		int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL),
-		int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), "", "")
-	server.remoteAdmissionMu.Unlock()
-	if err != nil {
-		return nil, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_REGISTRATION_REVISION_CONFLICT, err.Error(), hostv1.WithResource("remote_registration", stored.ID))
-	}
-	server.ensureExternalConnector(completed.ID)
-	return &hostv1.ApplyManagedRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, completed)}, nil
-}
-
-func (server *Owner) prepareManagedRemoteEnrollment(ctx context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (store.RemoteRegistration, error) {
 	server.remoteAdmissionMu.Lock()
 	defer server.remoteAdmissionMu.Unlock()
-	managed := request.GetRegistration()
-	if managed == nil || managed.GetRegistrationId() == "" || managed.GetSourcePolicyRevision() == 0 || len(managed.GetTrustBundle()) == 0 || !validScopeDigest(managed.GetScopeDigest()) {
-		return store.RemoteRegistration{}, hostv1.InvalidField("managed_registration", "complete managed registration identity, trust, scope, and policy are required")
-	}
-	if len(request.GetEnrollmentToken()) == 0 || len(request.GetEnrollmentToken()) > remoteconnector.MaxCredentialBytes {
-		return store.RemoteRegistration{}, hostv1.InvalidField("enrollment_token", "a bounded enrollment token is required")
+	if err := server.cleanup.RequireUndisposedRegistration(ctx, managed.GetRegistrationId(), managed.GetRequestId()); err != nil {
+		return nil, err
 	}
 	stored, err := server.store.GetRemoteRegistration(ctx, managed.GetRegistrationId())
 	if errors.Is(err, sql.ErrNoRows) {
-		registered, beginErr := server.BeginRemoteEnrollment(ctx, managed)
+		registered, beginErr := server.beginRemoteRegistration(ctx, managed)
 		if beginErr != nil {
-			return store.RemoteRegistration{}, beginErr
+			return nil, beginErr
 		}
 		if registered.GetRegistration().GetId() != managed.GetRegistrationId() {
-			return store.RemoteRegistration{}, status.Error(codes.FailedPrecondition, "enrollment request is already bound to another registration")
+			return nil, status.Error(codes.FailedPrecondition, "request is bound to another registration")
 		}
 		stored, err = server.store.GetRemoteRegistration(ctx, managed.GetRegistrationId())
-	} else if err == nil {
-		err = server.cleanup.RequireUndisposedRegistration(ctx, stored.ID, managed.GetRequestId())
 	}
 	if err != nil {
-		return store.RemoteRegistration{}, err
+		return nil, err
 	}
-	if !managedRegistrationIdentityMatches(managed, stored) {
-		return store.RemoteRegistration{}, status.Error(codes.FailedPrecondition, "managed registration identity does not match durable state")
+	if stored.State == int32(hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED) {
+		return nil, status.Error(codes.PermissionDenied, "registration was explicitly revoked")
 	}
-	stored, err = server.applyManagedRegistrationPolicy(ctx, managed, stored)
+	if !registrationConnectionMatches(managed, stored) {
+		return nil, status.Error(codes.FailedPrecondition, "registration identity does not match durable state")
+	}
+	stored, err = server.applyRegistrationPolicy(ctx, managed, stored)
 	if err != nil {
-		return store.RemoteRegistration{}, err
+		return nil, err
 	}
-	if stored.EnrollmentState == int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE) {
-		stored, err = server.store.RetryRemoteEnrollment(ctx, stored.ID, stored.Revision)
+	if err := server.remoteCredentials.Replace(ctx, stored.ID, request.GetCredential()); err != nil {
+		return nil, err
+	}
+	if stored.EnrollmentState != int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY) {
+		stored, err = server.store.SetRemoteEnrollment(ctx, stored.ID, stored.Revision, stored.EnrollmentState, int32(hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY), "", "")
 		if err != nil {
-			return store.RemoteRegistration{}, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_REGISTRATION_REVISION_CONFLICT, err.Error(), hostv1.WithResource("remote_registration", stored.ID))
+			return nil, err
 		}
 	}
-	return stored, nil
+	server.ensureExternalConnector(stored.ID)
+	return &hostv1.ApplyRemoteRegistrationResponse{Registration: server.RegistrationCurrent(ctx, stored)}, nil
 }
 
-// managedRegistrationIdentityMatches compares the fields that name the
+// registrationConnectionMatches compares the fields that name the
 // controller and its authority. Policy fields are updated in place.
-func managedRegistrationIdentityMatches(managed *hostv1.BeginRemoteEnrollmentRequest, stored store.RemoteRegistration) bool {
+func registrationConnectionMatches(managed *hostv1.RemoteRegistrationConnection, stored store.RemoteRegistration) bool {
 	return stored.ID == managed.GetRegistrationId() && stored.Endpoint == managed.GetEndpoint() &&
-		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle()) && stored.ScopeDigest == managed.GetScopeDigest()
+		bytes.Equal(stored.TrustBundle, managed.GetTrustBundle())
 }
 
-// applyManagedRegistrationPolicy stores the display name, source policy
+// applyRegistrationPolicy stores the display name, source policy
 // revision, and pool policy of a repeated managed enrollment. An older source
 // policy revision, or the same revision with a different pool, is a conflict.
-func (controller *Owner) applyManagedRegistrationPolicy(ctx context.Context, managed *hostv1.BeginRemoteEnrollmentRequest, stored store.RemoteRegistration) (store.RemoteRegistration, error) {
+func (controller *Owner) applyRegistrationPolicy(ctx context.Context, managed *hostv1.RemoteRegistrationConnection, stored store.RemoteRegistration) (store.RemoteRegistration, error) {
 	update, err := registrationFromPool(managed.GetPool(), controller.Capacity())
 	if err != nil {
 		return store.RemoteRegistration{}, err
@@ -198,48 +165,6 @@ func (controller *Owner) fencePoolPolicyChange(ctx context.Context, previous, up
 	}
 	controller.deleteRemoteConnectionEpoch(previous.ID, previous.ConnectionInstance)
 	return controller.store.SetRemoteConnection(ctx, previous.ID, previous.ConnectionInstance, int32(hostv1.RemoteConnectionState_REMOTE_CONNECTION_STATE_DISCONNECTED))
-}
-
-func validScopeDigest(value string) bool {
-	decoded, err := base64.RawURLEncoding.DecodeString(value)
-	return err == nil && len(decoded) == 32
-}
-
-func (server *Owner) CompleteRemoteEnrollment(ctx context.Context, request *hostv1.CompleteRemoteEnrollmentRequest) (*hostv1.CompleteRemoteEnrollmentResponse, error) {
-	registration, err := server.setEnrollment(ctx, request.GetRequestId(), request.GetRegistrationId(), request.GetExpectedRevision(),
-		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL,
-		hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY, "", "")
-	return &hostv1.CompleteRemoteEnrollmentResponse{Registration: registration}, err
-}
-
-func (server *Owner) RetryRemoteEnrollment(ctx context.Context, request *hostv1.RetryRemoteEnrollmentRequest) (*hostv1.RetryRemoteEnrollmentResponse, error) {
-	if request.GetRequestId() == "" || request.GetRegistrationId() == "" || request.GetExpectedRevision() == 0 {
-		return nil, hostv1.InvalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
-	}
-	if err := server.cleanup.RequireUndisposedRegistration(ctx, request.GetRegistrationId(), ""); err != nil {
-		return nil, err
-	}
-
-	updated, err := server.store.RetryRemoteEnrollment(ctx, request.GetRegistrationId(), request.GetExpectedRevision())
-	if err != nil {
-		return nil, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_REGISTRATION_REVISION_CONFLICT, err.Error(), hostv1.WithResource("remote_registration", request.GetRegistrationId()))
-	}
-	return &hostv1.RetryRemoteEnrollmentResponse{Registration: server.RegistrationCurrent(ctx, updated)}, nil
-}
-
-func (server *Owner) setEnrollment(ctx context.Context, requestID, id string, revision uint64, from, state hostv1.RemoteEnrollmentState, code, message string) (*hostv1.RemoteRegistration, error) {
-	if requestID == "" || id == "" || revision == 0 {
-		return nil, hostv1.InvalidField("request_id/registration_id/expected_revision", "request ID, registration ID, and revision are required")
-	}
-	if err := server.cleanup.RequireUndisposedRegistration(ctx, id, ""); err != nil {
-		return nil, err
-	}
-
-	updated, err := server.store.SetRemoteEnrollment(ctx, id, revision, int32(from), int32(state), code, message)
-	if err != nil {
-		return nil, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_REGISTRATION_REVISION_CONFLICT, err.Error(), hostv1.WithResource("remote_registration", id))
-	}
-	return server.RegistrationCurrent(ctx, updated), nil
 }
 
 func (server *Owner) BeginRemoteRevocation(ctx context.Context, request *hostv1.BeginRemoteRevocationRequest) (*hostv1.BeginRemoteRevocationResponse, error) {
@@ -420,6 +345,7 @@ func registrationToProto(registration store.RemoteRegistration) *hostv1.RemoteRe
 		EnrollmentErrorMessage: registration.EnrollmentErrorMessage, CreatedAt: timestamppb.New(registration.CreatedAt), UpdatedAt: timestamppb.New(registration.UpdatedAt),
 		OwnerKind: hostv1.RemoteRegistrationOwnerKind(registration.OwnerKind), InstallationId: registration.InstallationID,
 		InventoryRevision: registration.InventoryRevision,
+		SourceRequestId:   strings.TrimSuffix(strings.TrimSuffix(registration.EnrollmentRequestID, ":managed-enrollment"), ":registration"),
 		ConnectorStatus: &hostv1.ConnectorStatus{Phase: connectorPhase, ConnectorRelease: registration.ConnectorRelease,
 			ObservedAt: timestamppb.New(registration.ConnectorObservedAt), LastConnectedAt: timestamppb.New(registration.LastConnectedAt),
 			DisconnectedAt: timestamppb.New(registration.DisconnectedAt), NextRetryAt: timestamppb.New(registration.NextRetryAt),

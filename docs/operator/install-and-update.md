@@ -59,7 +59,8 @@ After replacement, repair forward with the same request and artifact.
 The previous application remains recovery evidence until the owner verifies the replacement.
 It is not a runnable rollback target after state changes.
 
-A retryable stage has a 30-second cooldown and at most three attempts.
+A retryable stage has a 30-second cooldown. Continue the same request and selected artifact after a failure.
+The native owner does not apply a lifetime retry count.
 A terminal refusal requires a new explicit decision.
 CLI observation lasts at most 30 seconds. It does not cancel accepted owner work.
 See [the disposition table](cli.md#update-dispositions).
@@ -87,24 +88,46 @@ Host service stop or restart preserves the independent VMM and its workloads.
 Update and uninstall stop the VM through the Host before stopping the service and confirming disk release.
 A failed VM stop preserves the service definition, installed release, and data for retry.
 
-## Enrollment and observation
+## Registration and observation
 
-`install --operation-stdin --request-id REQUEST` accepts a managed operation descriptor through stdin.
-The owner starts the Host and VM, exchanges the descriptor, saves a private plan, and acknowledges the handoff.
-It then applies the exact registration and waits for `READY` and `CONNECTED`.
-The secret plan never appears in arguments or reports.
-A completed receipt survives plan cleanup.
-`install-operation-ack --operation-id OPERATION` removes only the named secret plan after the controller acknowledges its report.
+`registration-claim --descriptor-stdin --request-id REQUEST` accepts a Registration descriptor through stdin.
+The descriptor contains `version`, `registration_id`, `claim_url`, `ticket`, and `expires_at`.
+It can include the product `request_id` as correlation metadata.
+The owner starts the Host and VM. It saves the candidate credential before the TLS claim.
+The response contains public connection configuration. Claim completes after the owner saves and applies that configuration and credential.
+Host and VM preparation must also succeed. The control connection remains an independent observation.
+An unknown reply continues the same saved candidate and Registration.
+Secrets never appear in arguments or reports.
 
-Remote exchange and acknowledgement require HTTPS without redirects.
-Local development permits HTTP only on `localhost`, `127.0.0.1`, or `[::1]`, without proxies.
-This exception does not weaken controller TLS verification.
+`registration-recover --descriptor-stdin --request-id REQUEST` replaces a credential with proof from the original Host root.
+Its descriptor contains `version`, `registration_id`, `recovery_url`, and a current bare Session bearer in `authorization`.
+The authorization value stays in stdin and memory. The owner does not save it in the plan.
+Recovery completes when the same Registration configuration and replacement credential are durable.
+It does not require a control connection or enable a stopped Registration.
+Explicitly revoked or locally disposed Registrations cannot recover.
 
-`repair --registration-id ID` reconnects that existing registration after VM health succeeds.
-It does not replace credentials or the installed release.
-Status separates loaded job, running process, readable Host, VM health, Guest health, and exact registration connectivity.
+TLS requests reject redirects. Local development permits HTTP only on loopback, without proxies.
+This exception does not weaken Gateway TLS verification.
+
+`registration-drain`, `registration-enable`, and `registration-remove` require an exact Registration and request ID.
+Drain preserves data and fences the old enable request. A new explicit enable can restore the same Registration.
+Remove records its target tombstone before it completes local revocation. Old claim and enable requests cannot revive it.
+The native owner acquires the OS lock before it commits a supersession fence.
+A trusted caller can stop only its exact helper executor and must confirm exit before another mutation.
+
+`operation --request-id REQUEST` and `maintenance-status` read every accepted lifecycle receipt.
+For a lost legacy recovery reply, add `--registration-id ID` to the original requested read.
+Only an explicit committed `correlationRequestId` on that same receipt can return the preserved native request.
+This one-time migration metadata does not redirect later requests or accept a historical success for another request.
+A failed remote claim does not occupy the global maintenance pointer after its executor exits.
+Shared software and disk cutovers retain exclusive recovery ownership.
+`host-maintain` accepts the existing maintenance JSON request. Explicit `continue: true` opens another three-start Host restore window.
+It preserves the original cutover receipt and cumulative attempt count. Exhaustion pauses restoration and does not erase data.
+
+`repair --registration-id ID` restores software and observes that existing registration after VM health succeeds.
+It does not enable the Registration or replace credentials.
+Status separates loaded job, running process, readable Host, VM health, Guest health, and exact Registration connectivity.
 A loaded job does not prove a running process. A failed observation remains unknown.
-Controllers read the public CLI envelope rather than inventing another readiness interpretation.
 
 ## Database compatibility
 
@@ -133,6 +156,10 @@ A verified payload helper can run `publish-host --source-app APP --service-type 
 It publishes only to the configured user's standard shared app path under the lifecycle owner lock.
 It does not start launchd or the VM. An existing different or damaged target requires update or maintenance.
 `--shared-host` selects that fixed target. It does not accept an arbitrary path.
+
+After an owner uninstall, publication returns `host_uninstalled` with reason `owner_uninstalled` and a nonzero exit.
+An explicit setup can request the existing confirmed reinstall with preserved data, then continue its original request.
+Background retries cannot create that reinstall. An old blocked request keeps its own refusal and fence.
 
 Ordinary uninstall preserves data. `build/host/uninstall.sh --purge` requires approval for the exact deleted state.
 Resolve the service, registrations, installations, and disks before approving purge.

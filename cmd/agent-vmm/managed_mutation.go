@@ -148,7 +148,7 @@ func (runtime managedRuntime) repair(ctx context.Context, opts managedOptions) (
 		envelope.NextAction = []managedNextAction{{Action: "service_start", Permission: "administrator"}}
 		return envelope, nil
 	}
-	args := []string{"repair", "--request-id", opts.requestID}
+	args := []string{"host-repair", "--request-id", opts.requestID}
 	if opts.registrationID != "" {
 		args = append(args, "--registration-id", opts.registrationID)
 	}

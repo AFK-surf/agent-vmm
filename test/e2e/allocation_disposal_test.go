@@ -41,11 +41,11 @@ func TestAllocationDisposalE2E(t *testing.T) {
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		t.Cleanup(stopServer)
 		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
-		registration, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, Pool: pool})
+		_, err := harness.client.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: id, RegistrationId: id, Endpoint: endpoint, DisplayName: id, Pool: pool}, Credential: []byte("credential")})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: id + "-complete", RegistrationId: id, ExpectedRevision: registration.GetRegistration().GetRevision()}); err != nil {
+		if _, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: id}); err != nil {
 			t.Fatal(err)
 		}
 		run := func() context.CancelFunc {

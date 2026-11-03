@@ -32,7 +32,7 @@ func TestRegistrationRecoveryProofBindsExactChallengeToExistingRoot(t *testing.T
 	manager, _, _ := openManager(t, keys)
 	now := time.Unix(1790848400, 0)
 	manager.now = func() time.Time { return now }
-	challenge := Challenge{Purpose: Purpose, Audience: "https://controller.example", Subject: "original-user", SessionID: "new-session", ControllerBinding: `["tenant","group","workspace"]`, EnvironmentID: "environment", OperationID: "operation", RegistrationID: "registration", Nonce: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), Revision: 19, ExpiresAt: now.Add(time.Minute).Unix()}
+	challenge := Challenge{Purpose: Purpose, Audience: "https://controller.example", Subject: "original-user", SessionID: "new-session", ControllerBinding: `["tenant","group","workspace"]`, EnvironmentID: "environment", CandidateCredentialHash: base64.StdEncoding.EncodeToString(make([]byte, 32)), RegistrationID: "registration", Nonce: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), Revision: 19, ExpiresAt: now.Add(time.Minute).Unix()}
 	raw, err := json.Marshal(challenge)
 	if err != nil {
 		t.Fatal(err)

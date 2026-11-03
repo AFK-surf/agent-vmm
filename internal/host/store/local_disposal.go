@@ -74,13 +74,38 @@ func (store *Store) acceptDisposal(ctx context.Context, operation Operation, req
 		if loadErr != nil {
 			return Operation{}, loadErr
 		}
-		if target.Kind != requested.Kind || target.TargetID != requested.TargetID || target.Revision != requested.Revision || target.RegistrationID != requested.RegistrationID && remote || target.AllocationID != requested.AllocationID || target.AllocationGeneration != requested.AllocationGeneration {
+		if target.Kind != requested.Kind || target.TargetID != requested.TargetID || target.NamespaceID != requested.NamespaceID || target.Revision != requested.Revision || target.RegistrationID != requested.RegistrationID && remote || target.AllocationID != requested.AllocationID || target.AllocationGeneration != requested.AllocationGeneration {
 			return Operation{}, errors.New("disposal request identity conflict")
 		}
 		return prior, nil
 	}
 	if !errors.Is(err, sql.ErrNoRows) {
 		return Operation{}, err
+	}
+	if !remote {
+		target, err := scanDisposal(tx.QueryRowContext(ctx, disposalSelect+` WHERE target_kind=? AND target_id=?`, requested.Kind, requested.TargetID))
+		if err == nil {
+			if target.ParentID != "" || target.AllocationID != "" || target.AllocationGeneration != 0 || requested.AllocationID != "" || requested.AllocationGeneration != 0 {
+				return Operation{}, errors.New("disposal scope belongs to another owner")
+			}
+			if requested.Kind == "registration" {
+				var enrollment string
+				if err := tx.QueryRowContext(ctx, `SELECT enrollment_request_id FROM remote_registrations WHERE id=? AND owner_kind=?`, requested.TargetID, RemoteRegistrationExternal).Scan(&enrollment); err != nil {
+					return Operation{}, err
+				}
+				if requested.Revision == 0 || target.RegistrationID != requested.TargetID || target.EnrollmentRequestID != enrollment || target.NamespaceID != "" || requested.NamespaceID != "" || requested.RegistrationID != "" && requested.RegistrationID != requested.TargetID {
+					return Operation{}, errors.New("disposal registration scope changed")
+				}
+			} else if target.NamespaceID != requested.NamespaceID || target.Revision != requested.Revision || target.RegistrationID != "" || requested.RegistrationID != "" {
+				return Operation{}, errors.New("disposal environment scope changed")
+			}
+			// The permanent scope fence owns this deletion; a later intent observes
+			// its original receipt without accepting another deletion or request ID.
+			return scanOperation(tx.QueryRowContext(ctx, `SELECT id,kind,environment_id,state,stage,request_id,error_reason,error_message,output_path,started_at,updated_at,request_sha256,receipt FROM operations WHERE id=?`, target.OperationID))
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Operation{}, err
+		}
 	}
 	if requested.Kind == "registration" {
 		var revision uint64

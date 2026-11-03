@@ -115,42 +115,19 @@ message RemoteRegistration {
   uint64 inventory_revision = 18;
   ControllerDomainMetrics domain_metrics = 19;
   uint64 pool_policy_revision = 20;
+  string source_request_id = 21;
 }
 
-// BeginRemoteEnrollmentRequest carries inputs for an operation that records one controller
-// registration and its approved scope before credential enrollment.
-message BeginRemoteEnrollmentRequest {
+// RemoteRegistrationConnection carries public connection and local pool configuration.
+message RemoteRegistrationConnection {
   string request_id = 1;
   string endpoint = 2;
   string display_name = 3;
   RemotePoolPolicy pool = 5;
   string registration_id = 6;
   bytes trust_bundle = 7;
-  string scope_digest = 8;
+  reserved 8;
   uint64 source_policy_revision = 9;
-}
-
-// ApplyManagedRemoteEnrollmentRequest carries inputs for an operation that applies a managed
-// registration and one-time token within the local enrollment owner.
-message ApplyManagedRemoteEnrollmentRequest {
-  BeginRemoteEnrollmentRequest registration = 1;
-  bytes enrollment_token = 2;
-}
-
-// CompleteRemoteEnrollmentRequest carries inputs for an operation that commits credential
-// completion for the current registration revision.
-message CompleteRemoteEnrollmentRequest {
-  string request_id = 1;
-  string registration_id = 2;
-  uint64 expected_revision = 3;
-}
-
-// RetryRemoteEnrollmentRequest carries inputs for an operation that retries the existing
-// incomplete registration under its current revision.
-message RetryRemoteEnrollmentRequest {
-  string request_id = 1;
-  string registration_id = 2;
-  uint64 expected_revision = 3;
 }
 
 // BeginRemoteRevocationRequest carries inputs for an operation that records revocation intent
@@ -222,4 +199,10 @@ message LocalRegistrationMetadata {
   string id = 1;
   uint64 revision = 2;
   RemoteRegistrationState state = 3;
+}
+
+// ApplyRemoteRegistrationRequest saves an already claimed credential and public connection configuration.
+message ApplyRemoteRegistrationRequest {
+  RemoteRegistrationConnection registration = 1;
+  bytes credential = 2;
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/AFK-surf/agent-vmm/internal/hostdisk"
 	"golang.org/x/sys/unix"
@@ -33,7 +34,11 @@ func executePreflight(args []string) {
 	if err != nil {
 		fatal(err.Error())
 	}
-	report, err := preflight(directory, hostdisk.NewInstallationBytes())
+	required, err := preflightBackingBytes(directory)
+	if err != nil {
+		fatal("preflight cannot read existing backing: " + err.Error())
+	}
+	report, err := preflight(directory, required)
 	if err != nil {
 		fatal("preflight cannot read free disk space: " + err.Error())
 	}
@@ -63,4 +68,34 @@ func preflight(directory string, requiredBytes int64) (preflightReport, error) {
 		report.Issues = append(report.Issues, preflightIssue{Code: "insufficient_disk", RequiredBytes: requiredBytes, AvailableBytes: available})
 	}
 	return report, nil
+}
+
+func preflightBackingBytes(directory string) (int64, error) {
+	path := filepath.Join(directory, "instance", "state.raw")
+	fd, err := unix.Open(path, unix.O_RDONLY|unix.O_CLOEXEC|unix.O_NOFOLLOW, 0)
+	if errors.Is(err, os.ErrNotExist) {
+		return hostdisk.NewInstallationBytes(), nil
+	}
+	if err != nil {
+		return 0, err
+	}
+	file := os.NewFile(uintptr(fd), path)
+	defer file.Close()
+	info, err := file.Stat()
+	if err != nil {
+		return 0, err
+	}
+	stat, ok := info.Sys().(*syscall.Stat_t)
+	if !ok || !info.Mode().IsRegular() || info.Size() <= 0 || stat.Blocks < 0 {
+		return 0, errors.New("existing state backing is invalid")
+	}
+	allocated := min(uint64(stat.Blocks)*512, uint64(info.Size()))
+	missing := uint64(info.Size()) - allocated
+	if missing == 0 {
+		return 0, nil
+	}
+	if missing > uint64(1<<63-1-hostdisk.EmergencyBytes) {
+		return 0, errors.New("existing state backing exceeds preflight budget")
+	}
+	return int64(missing) + hostdisk.EmergencyBytes, nil
 }

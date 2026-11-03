@@ -12,3 +12,10 @@ import (
 func importArchiveAddressAllowed(address netip.Addr) bool {
 	return egress.DestinationAllowed(address, nil, true) || os.Getenv("AGENT_VMM_E2E_ARCHIVE_CA") != "" && address.IsLoopback()
 }
+
+func importArchiveCurlTrustArgs() []string {
+	if path := os.Getenv("AGENT_VMM_E2E_ARCHIVE_CA"); path != "" {
+		return []string{"--cacert", path}
+	}
+	return nil
+}

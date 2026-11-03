@@ -783,7 +783,7 @@ func TestRepairWaitsForExactRegistrationConnection(t *testing.T) {
 
 func TestLifecycleRootBoundaryOnlyAllowsObservation(t *testing.T) {
 	t.Parallel()
-	for _, command := range []string{"install", "install-operation-ack", "repair", "registration-state", "drain", "update", "uninstall"} {
+	for _, command := range []string{"install", "install-operation-ack", "host-repair", "repair", "registration-claim", "registration-recover", "registration-enable", "registration-drain", "registration-remove", "host-maintain", "registration-state", "drain", "host-update", "update", "uninstall"} {
 		if !lifecycleMutationCommand(command) {
 			t.Fatalf("%s was not classified as a business mutation", command)
 		}
@@ -896,7 +896,7 @@ func TestUpdateFailureAfterReplacementRetainsSourceAndSameRequestRepairsForward(
 					t.Fatalf("second removal: %+v %v", fourth, err)
 				}
 				fifth, err := run()
-				if err == nil || fifth.Attempt != 3 || fifth.Retryable {
+				if err == nil || fifth.Attempt != 3 || !fifth.Retryable {
 					t.Fatalf("third removal: %+v %v", fifth, err)
 				}
 				if repairCalls != 2 || removeCalls != 3 {
@@ -1028,34 +1028,18 @@ func TestUpdateSameRequestRejectsDifferentSelectedArtifact(t *testing.T) {
 	}
 }
 
-func TestUpdatePreparationFailureRetriesAreDurablyBounded(t *testing.T) {
-	t.Parallel()
+func TestUpdatePreparationFailureCanContinueSameArtifactAfterThreeAttempts(t *testing.T) {
 	value := testPaths(t.TempDir())
-	digest := strings.Repeat("c", 64)
-	run := func() (lifecycleOperation, error) {
-		return runUpdateLifecycleOperationForArtifact(value, "update-retry", "release-a", digest, 2048, func() error {
-			return updatePreparationError{descriptor: updatePreparationFailureDescriptor{Version: 1, Stage: "download", Code: "update_download_unavailable", Message: "network unavailable", Retryable: true}}
-		})
-	}
-	for attempt := 1; attempt <= boundedOperationMaxAttempts; attempt++ {
-		operation, err := run()
-		if err == nil || operation.Attempt != attempt || operation.TargetArtifactSHA256 != digest || operation.TargetArtifactSize != 2048 {
+	const digest = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	for attempt := 1; attempt <= 5; attempt++ {
+		operation, err := runUpdateLifecycleOperationForArtifact(value, "update", "release", digest, 2048, func() error { return status.Error(codes.Unavailable, "download unavailable") })
+		if err == nil || !operation.Retryable || operation.Attempt != attempt {
 			t.Fatalf("attempt=%d operation=%+v err=%v", attempt, operation, err)
 		}
-		if attempt < boundedOperationMaxAttempts && !operation.Retryable {
-			t.Fatalf("attempt %d became terminal early: %+v", attempt, operation)
-		}
-		if attempt == boundedOperationMaxAttempts && (operation.Retryable || operation.FailureCode != "update_retry_limit_reached") {
-			t.Fatalf("final attempt was not terminal: %+v", operation)
-		}
 	}
-	called := false
-	operation, err := runUpdateLifecycleOperationForArtifact(value, "update-retry", "release-a", digest, 2048, func() error {
-		called = true
-		return nil
-	})
-	if err == nil || called || operation.Attempt != boundedOperationMaxAttempts || operation.Retryable {
-		t.Fatalf("terminal replay operation=%+v err=%v called=%t", operation, err, called)
+	operation, err := runUpdateLifecycleOperationForArtifact(value, "update", "release", digest, 2048, func() error { return nil })
+	if err != nil || operation.Outcome != "succeeded" || operation.Attempt != 6 {
+		t.Fatalf("operation=%+v err=%v", operation, err)
 	}
 }
 
@@ -1117,317 +1101,6 @@ func TestLifecycleOperationFailureIsRecorded(t *testing.T) {
 	observed := readLifecycleOperation(value)
 	if observed == nil || observed.Outcome != "failed" || observed.Kind != "remove" {
 		t.Fatalf("failed operation=%+v", observed)
-	}
-}
-
-func TestManagedLifecycleOperationRetriesFailedStableRequest(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	calls := 0
-	first, err := runManagedLifecycleOperation(value, "install-managed", "operation-1", func() error {
-		calls++
-		return context.DeadlineExceeded
-	})
-	if err == nil || first.Outcome != "failed" {
-		t.Fatalf("first managed operation=%+v err=%v", first, err)
-	}
-	second, err := runManagedLifecycleOperation(value, "install-managed", "operation-1", func() error {
-		calls++
-		return nil
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if calls != 2 || second.Outcome != "succeeded" || second.OperationID != "operation-1" ||
-		second.OperationID != first.OperationID || second.RequestID != first.RequestID {
-		t.Fatalf("retried managed operation first=%+v second=%+v calls=%d", first, second, calls)
-	}
-}
-
-func TestManagedLifecycleOperationReportsPermanentFailureWithoutRetry(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	calls := 0
-	first, err := runManagedLifecycleOperation(value, "install-managed", "operation-terminal", func() error {
-		calls++
-		return os.ErrPermission
-	})
-	if err == nil || first.Retryable || first.FailureCode != "install_failed" {
-		t.Fatalf("terminal managed operation=%+v err=%v", first, err)
-	}
-	if first.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("durable non-retryable error did not enter terminal reporting: %+v", first)
-	}
-	second, err := runManagedLifecycleOperation(value, "install-managed", "operation-terminal", func() error {
-		calls++
-		return nil
-	})
-	if err == nil || calls != 1 || second.OperationID != first.OperationID || second.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("terminal operation was retried: first=%+v second=%+v calls=%d err=%v", first, second, calls, err)
-	}
-}
-
-func TestTerminalManagedLifecycleFailureRetainsPlanForServerAcknowledgement(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-terminal-cleanup"
-	planDirectory := filepath.Join(value.applicationData, "install-operations", operationID)
-	if err := os.MkdirAll(planDirectory, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(planDirectory, "plan.json"), []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		return terminalManagedInstallError(os.ErrPermission)
-	})
-	if operationErr == nil || operation.Retryable {
-		t.Fatalf("permanent failure was not terminal: operation=%+v err=%v", operation, operationErr)
-	}
-	if operation.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("permanent failure did not request terminal reporting: %+v", operation)
-	}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
-		t.Fatal("terminal operation error was lost")
-	}
-	if _, err := os.Stat(planDirectory); err != nil {
-		t.Fatalf("terminal failure removed plan before Server acknowledgement: %v", err)
-	}
-	recorded, err := os.ReadFile(filepath.Join(value.applicationData, maintenanceReceiptName(operationID)))
-	if err != nil || strings.Contains(string(recorded), "secret-token") || !strings.Contains(string(recorded), `"outcome":"failed"`) {
-		t.Fatalf("non-secret terminal operation record missing or leaked material: %s err=%v", recorded, err)
-	}
-}
-
-func TestRetryableManagedLifecycleFailureRetainsPlan(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-retryable-plan"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		return context.DeadlineExceeded
-	})
-	if operationErr == nil || !operation.Retryable {
-		t.Fatalf("transient failure was not retryable: operation=%+v err=%v", operation, operationErr)
-	}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
-		t.Fatal("retryable operation error was lost")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("retryable failure removed durable plan: %v", err)
-	}
-}
-
-func TestNonRetryableManagedFailureRetainsPlanUntilTerminalReportAck(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-storage-failure"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		return &os.PathError{Op: "sync", Path: planPath, Err: os.ErrPermission}
-	})
-	if operationErr == nil || operation.Retryable || operation.SecretDisposition != secretDispositionDestroyTerminal {
-		t.Fatalf("non-retryable failure did not enter terminal reporting: operation=%+v err=%v", operation, operationErr)
-	}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
-		t.Fatal("storage failure error was lost")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("storage failure removed durable plan: %v", err)
-	}
-	if err := cleanupInstallPlan(value, operationID); err != nil {
-		t.Fatalf("acknowledged terminal report did not clean the retained plan: %v", err)
-	}
-	if _, err := os.Stat(planPath); !errors.Is(err, os.ErrNotExist) {
-		t.Fatalf("acknowledged terminal plan remains: %v", err)
-	}
-}
-
-func TestNonRetryableResultRecordFailureRetainsPlan(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-record-failure"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(value.applicationData, 0o700) })
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		if err := os.Chmod(value.applicationData, 0o500); err != nil {
-			t.Fatal(err)
-		}
-		return os.ErrPermission
-	})
-	if err := os.Chmod(value.applicationData, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if operationErr == nil || operation.SecretDisposition != secretDispositionRetain {
-		t.Fatalf("undurable terminal result did not retain its plan: operation=%+v err=%v", operation, operationErr)
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("record failure removed retained plan: %v", err)
-	}
-}
-
-func TestManagedLifecycleLockContentionRetainsPlan(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-lock-contention"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	release, err := acquireOperationLock(value)
-	if err != nil {
-		t.Fatal(err)
-	}
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		t.Fatal("lock loser must not start the managed install")
-		return nil
-	})
-	release()
-	if !errors.Is(operationErr, errMaintenanceOwnerBusy) || operation.SecretDisposition != secretDispositionRetain ||
-		operation.OperationID != operationID || operation.FailureCode != "owner_busy" || !operation.Retryable || operation.Outcome != "unknown" {
-		t.Fatalf("lock contention disposition=%+v err=%v", operation, operationErr)
-	}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
-		t.Fatal("lock contention error was lost")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("lock loser removed the operation owner's plan: %v", err)
-	}
-}
-
-func TestSucceededManagedOperationWithoutCompletionDispositionRetainsPlan(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-corrupt-success"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	previous := lifecycleOperation{
-		OperationID: operationID, RequestID: operationID, Kind: "install-managed",
-		Outcome: "succeeded", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
-	}
-	if err := persistOperation(value, previous); err != nil {
-		t.Fatal(err)
-	}
-	operation, operationErr := runManagedLifecycleOperation(value, "install-managed", operationID, func() error {
-		t.Fatal("a recorded success must not replay the action")
-		return nil
-	})
-	if operationErr != nil || operation.SecretDisposition != "" {
-		t.Fatalf("corrupt success inferred disposition: operation=%+v err=%v", operation, operationErr)
-	}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, operationErr); err == nil {
-		t.Fatal("missing disposition was not diagnosed")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("missing disposition removed retained plan: %v", err)
-	}
-}
-
-func TestDestroyCompletedRequiresDurableCompletionReceipt(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-missing-receipt"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation := lifecycleOperation{SecretDisposition: secretDispositionDestroyCompleted}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, nil); err == nil {
-		t.Fatal("destroy_completed without a receipt was accepted")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("missing completion receipt removed retained plan: %v", err)
-	}
-}
-
-func TestDestroyTerminalRequiresDurableTerminalResult(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	operationID := "operation-missing-terminal-result"
-	planPath := filepath.Join(value.applicationData, "install-operations", operationID, "plan.json")
-	if err := os.MkdirAll(filepath.Dir(planPath), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(planPath, []byte(`{"material":"secret-token"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	operation := lifecycleOperation{SecretDisposition: secretDispositionDestroyTerminal}
-	if _, err := finalizeManagedInstallOperation(value, operationID, operation, os.ErrPermission); err == nil {
-		t.Fatal("destroy_terminal without a durable result was accepted")
-	}
-	if _, err := os.Stat(planPath); err != nil {
-		t.Fatalf("missing terminal result removed retained plan: %v", err)
-	}
-}
-
-func TestManagedLifecycleOperationStopsAtRetryLimit(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	calls := 0
-	fail := func() error {
-		calls++
-		return context.DeadlineExceeded
-	}
-	for attempt := 0; attempt < boundedOperationMaxAttempts; attempt++ {
-		if _, err := runManagedLifecycleOperation(value, "install-managed", "operation-bounded", fail); err == nil {
-			t.Fatalf("attempt %d unexpectedly succeeded", attempt+1)
-		}
-	}
-	operation, err := runManagedLifecycleOperation(value, "install-managed", "operation-bounded", func() error {
-		calls++
-		return nil
-	})
-	if err == nil || calls != boundedOperationMaxAttempts || operation.Retryable || operation.FailureCode != "retry_limit_reached" {
-		t.Fatalf("retry limit operation=%+v calls=%d err=%v", operation, calls, err)
-	}
-}
-
-func TestManagedLifecycleOperationRetriesUnknownSameRequest(t *testing.T) {
-	t.Parallel()
-	value := testPaths(t.TempDir())
-	previous := lifecycleOperation{
-		OperationID: "operation-unknown", RequestID: "operation-unknown", Kind: "install-managed",
-		Outcome: "pending", Attempt: 1, StartedAt: time.Now().UnixMilli(), UpdatedAt: time.Now().UnixMilli(),
-	}
-	if err := persistOperation(value, previous); err != nil {
-		t.Fatal(err)
-	}
-	calls := 0
-	operation, err := runManagedLifecycleOperation(value, "install-managed", previous.RequestID, func() error {
-		calls++
-		return nil
-	})
-	if err != nil || calls != 1 || operation.OperationID != previous.OperationID || operation.Attempt != 2 || operation.Outcome != "succeeded" {
-		t.Fatalf("unknown managed operation did not resume exactly: operation=%+v calls=%d err=%v", operation, calls, err)
 	}
 }
 

@@ -14,14 +14,16 @@ import (
 )
 
 type maintenanceState struct {
-	Version            int               `json:"version"`
-	ActiveRequest      string            `json:"activeRequest,omitempty"`
-	LatestRequest      string            `json:"latestRequest,omitempty"`
-	Uninstalled        bool              `json:"uninstalled"`
-	CompletedRequests  map[string]bool   `json:"completedRequests,omitempty"`
-	SupersededRequests map[string]string `json:"supersededRequests,omitempty"`
-	BlockedInstalls    map[string]bool   `json:"blockedInstalls,omitempty"`
-	OperationRequests  map[string]string `json:"operationRequests,omitempty"`
+	Version              int               `json:"version"`
+	ActiveRequest        string            `json:"activeRequest,omitempty"`
+	LatestRequest        string            `json:"latestRequest,omitempty"`
+	Uninstalled          bool              `json:"uninstalled"`
+	CompletedRequests    map[string]bool   `json:"completedRequests,omitempty"`
+	SupersededRequests   map[string]string `json:"supersededRequests,omitempty"`
+	BlockedInstalls      map[string]bool   `json:"blockedInstalls,omitempty"`
+	OperationRequests    map[string]string `json:"operationRequests,omitempty"`
+	RegistrationRequests map[string]string `json:"registrationRequests,omitempty"`
+	RemovedRegistrations map[string]bool   `json:"removedRegistrations,omitempty"`
 }
 
 func readMaintenanceJSON(directory *os.File, name string, result any) error {
@@ -69,6 +71,12 @@ func loadMaintenanceState(directory *os.File) (maintenanceState, error) {
 	if err == nil && state.Version != 1 {
 		err = errors.New("unsupported Host maintenance state")
 	}
+	if state.RegistrationRequests == nil {
+		state.RegistrationRequests = map[string]string{}
+	}
+	if state.RemovedRegistrations == nil {
+		state.RemovedRegistrations = map[string]bool{}
+	}
 	if state.OperationRequests == nil {
 		state.OperationRequests = map[string]string{}
 	}
@@ -112,6 +120,8 @@ func lockMaintenance(value paths) (*os.File, func(), error) {
 	return directory, func() { directory.Close(); release() }, nil
 }
 
+var errHostUninstalled = errors.New("the local owner removed this Host installation; start a new authorized setup")
+
 var errMaintenanceOwnerBusy = errors.New("owner_busy: another Host lifecycle operation holds the owner lock")
 
 type ownerBusyError struct{ requestID string }
@@ -129,6 +139,15 @@ func loadLifecycleReceipt(directory *os.File, id string) (*lifecycleOperation, e
 	if err := readMaintenanceJSON(directory, maintenanceReceiptName(id), &operation); err != nil {
 		return nil, err
 	}
+	var version struct {
+		Version int `json:"version"`
+	}
+	if err := readMaintenanceJSON(directory, maintenanceReceiptName(id), &version); err != nil {
+		return nil, err
+	}
+	if version.Version != 0 && version.Version != 1 {
+		return nil, errors.New("Host receipt has an unsupported version")
+	}
 	if operation.OperationID == "" {
 		var record struct {
 			RequestID, Action, Stage, Outcome, TargetReleaseID, FailureCode, FailureMessage string
@@ -138,6 +157,9 @@ func loadLifecycleReceipt(directory *os.File, id string) (*lifecycleOperation, e
 			return nil, err
 		}
 		operation = lifecycleOperation{OperationID: id, RequestID: id, Kind: record.Action, Stage: record.Stage, Outcome: record.Outcome, TargetReleaseID: record.TargetReleaseID, FailureCode: record.FailureCode, FailureMessage: record.FailureMessage, Retryable: record.Retryable}
+	}
+	if operation.RequestID != id || operation.Kind == "" || operation.Outcome == "" {
+		return nil, errors.New("Host receipt identity or kind is unreadable")
 	}
 	return &operation, nil
 }
@@ -194,12 +216,23 @@ func acquireMaintenanceMutation(value paths, kind, requestID string) (func(), er
 		return nil, err
 	}
 	state, err := loadMaintenanceState(directory)
-	directory.Close()
 	if err == nil && state.ActiveRequest != "" {
-		err = ownerBusyError{requestID: state.ActiveRequest}
+		previous, readErr := loadLifecycleReceipt(directory, state.ActiveRequest)
+		if readErr != nil {
+			err = readErr
+		} else if lifecycleExclusive(*previous) {
+			err = ownerBusyError{requestID: state.ActiveRequest}
+		} else {
+			state.ActiveRequest = ""
+			err = writeOwnerState(directory, state)
+		}
 	}
-	if err == nil && (state.Uninstalled || kind == "install-managed" && state.BlockedInstalls[requestID]) {
+	directory.Close()
+	if err == nil && kind == "install-managed" && state.BlockedInstalls[requestID] {
 		err = errors.New("the local owner removed this Host installation; start a new authorized setup")
+	}
+	if err == nil && state.Uninstalled {
+		err = errHostUninstalled
 	}
 	if err != nil {
 		release()

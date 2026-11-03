@@ -176,21 +176,26 @@ func validateImportArchiveURL(raw string) error {
 func downloadImportArchive(ctx context.Context, raw string, size uint64, send func([]byte) error) error {
 	ctx, cancel := context.WithTimeout(ctx, guestconn.ImportDownloadTimeout)
 	defer cancel()
-	client, err := importHTTPClient(ctx, raw, net.DefaultResolver, (&net.Dialer{}).DialContext)
-	if err != nil {
-		return fmt.Errorf("resolve runtime OCI archive: %w", err)
-	}
-	return downloadImportArchiveWithClient(ctx, client, raw, size, send)
+	return downloadImportArchivePlatform(ctx, raw, size, send)
 }
 
 type importAddressResolver interface {
 	LookupNetIP(context.Context, string, string) ([]netip.Addr, error)
 }
 
-func importHTTPClient(ctx context.Context, raw string, resolver importAddressResolver, dialContext func(context.Context, string, string) (net.Conn, error)) (*http.Client, error) {
+type importArchiveEndpoint struct {
+	hostname string
+	port     string
+	address  netip.Addr
+}
+
+func resolveImportArchiveEndpoint(ctx context.Context, raw string, resolver importAddressResolver) (importArchiveEndpoint, error) {
+	if err := validateImportArchiveURL(raw); err != nil {
+		return importArchiveEndpoint{}, err
+	}
 	parsed, err := url.Parse(raw)
 	if err != nil {
-		return nil, err
+		return importArchiveEndpoint{}, err
 	}
 	hostname := parsed.Hostname()
 	port := parsed.Port()
@@ -199,25 +204,32 @@ func importHTTPClient(ctx context.Context, raw string, resolver importAddressRes
 	}
 	addresses, err := resolver.LookupNetIP(ctx, "ip4", hostname)
 	if err != nil {
-		return nil, err
+		return importArchiveEndpoint{}, err
 	}
 	if len(addresses) == 0 {
-		return nil, errors.New("runtime OCI archive host has no public IPv4 address")
+		return importArchiveEndpoint{}, errors.New("runtime OCI archive host has no public IPv4 address")
 	}
 	for _, address := range addresses {
 		if !importArchiveAddressAllowed(address) {
-			return nil, errors.New("runtime OCI archive host resolved to a non-public address")
+			return importArchiveEndpoint{}, errors.New("runtime OCI archive host resolved to a non-public address")
 		}
 	}
-	selected := addresses[0]
+	return importArchiveEndpoint{hostname: hostname, port: port, address: addresses[0]}, nil
+}
+
+func importHTTPClient(ctx context.Context, raw string, resolver importAddressResolver, dialContext func(context.Context, string, string) (net.Conn, error)) (*http.Client, error) {
+	endpoint, err := resolveImportArchiveEndpoint(ctx, raw, resolver)
+	if err != nil {
+		return nil, err
+	}
 	transport := &http.Transport{
 		Proxy: nil, ForceAttemptHTTP2: true,
 		DialContext: func(dialCtx context.Context, network, requested string) (net.Conn, error) {
 			requestedHost, requestedPort, splitErr := net.SplitHostPort(requested)
-			if splitErr != nil || !strings.EqualFold(strings.TrimSuffix(requestedHost, "."), strings.TrimSuffix(hostname, ".")) || requestedPort != port {
+			if splitErr != nil || !strings.EqualFold(strings.TrimSuffix(requestedHost, "."), strings.TrimSuffix(endpoint.hostname, ".")) || requestedPort != endpoint.port {
 				return nil, errors.New("runtime OCI archive transport requested an unexpected destination")
 			}
-			return dialContext(dialCtx, "tcp4", net.JoinHostPort(selected.String(), port))
+			return dialContext(dialCtx, "tcp4", net.JoinHostPort(endpoint.address.String(), endpoint.port))
 		},
 	}
 	if base, ok := http.DefaultTransport.(*http.Transport); ok && base.TLSClientConfig != nil {

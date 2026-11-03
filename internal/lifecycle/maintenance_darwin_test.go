@@ -519,27 +519,24 @@ func TestMaintenancePreflightRefusesTargetOlderThanDataWithoutEffects(t *testing
 	}
 }
 
-func TestMaintenanceRestoreIsBoundedAndThenReplaceable(t *testing.T) {
+func TestMaintenanceRestoreCanContinueSameCutoverAfterThreeAttempts(t *testing.T) {
 	t.Parallel()
 	p, r, a := maintenanceFixture(t)
 	restores := 0
+	resets := 0
 	a.restore = func(paths, string) error { restores++; return errors.New("host exited") }
-	for attempt := 1; attempt <= boundedOperationMaxAttempts+1; attempt++ {
+	a.resetData = func(paths) error { resets++; return nil }
+	for attempt := 1; attempt <= 5; attempt++ {
+		r.Continue = attempt == 4
 		got, err := runMaintenance(p, r, a)
-		final := attempt >= boundedOperationMaxAttempts
-		if err == nil || got.Outcome != "failed" || got.Retryable == final || (got.FailureCode == "host_start_failed") != final || got.Stage != "restore" {
-			t.Fatalf("attempt %d = %+v %v", attempt, got, err)
+		if err == nil || got.Outcome != "failed" || !got.Retryable || got.Stage != "restore" || got.Attempt != attempt {
+			t.Fatalf("attempt=%d receipt=%+v err=%v", attempt, got, err)
 		}
 	}
-	if restores != boundedOperationMaxAttempts {
-		t.Fatalf("restores = %d", restores)
-	}
-	reset := r
-	reset.RequestID, reset.SupersedesRequestID = "maint-reset", ""
-	reset.DataPolicy, reset.ConfirmDataDeletion = "reset", true
-	a.restore = func(paths, string) error { return nil }
-	if got, err := runMaintenance(p, reset, a); err != nil || got.Outcome != "succeeded" {
-		t.Fatalf("replacement after host_start_failed = %+v %v", got, err)
+	a.restore = func(paths, string) error { restores++; return nil }
+	got, err := runMaintenance(p, r, a)
+	if err != nil || got.Outcome != "succeeded" || restores != 6 || resets != 0 {
+		t.Fatalf("receipt=%+v err=%v restores=%d resets=%d", got, err, restores, resets)
 	}
 }
 
@@ -1021,5 +1018,39 @@ func TestMaintenanceCurrentSchemaDoesNotRequireMigrationMetadata(t *testing.T) {
 				t.Fatalf("unknown migration support = %+v, %v", got, err)
 			}
 		})
+	}
+}
+
+func TestSharedUninstallCanTakeOwnershipAfterLegacyFailedClaim(t *testing.T) {
+	p, r, a := maintenanceFixture(t)
+	previous := lifecycleOperation{OperationID: "legacy-install", RequestID: "legacy-install", Kind: "install-managed", Outcome: "failed", Retryable: true}
+	if err := persistOperation(p, previous); err != nil {
+		t.Fatal(err)
+	}
+	directory, err := openExistingApplicationDataDirectory(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state, err := loadMaintenanceState(directory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	state.ActiveRequest = previous.RequestID
+	if err := writeOwnerState(directory, state); err != nil {
+		t.Fatal(err)
+	}
+	directory.Close()
+	r.Action = "uninstall"
+	r.SourceApp = ""
+	r.TargetReleaseID = ""
+	r.DataPolicy = "reset"
+	r.ConfirmDataDeletion = true
+	got, err := runMaintenance(p, r, a)
+	if err != nil || got.Outcome != "succeeded" {
+		t.Fatalf("uninstall=%+v err=%v", got, err)
+	}
+	old, err := readLifecycleOperationByID(p, previous.OperationID)
+	if err != nil || old.Outcome != "failed" {
+		t.Fatalf("old accepted result changed: %+v %v", old, err)
 	}
 }

@@ -11,18 +11,19 @@ import (
 )
 
 type paths struct {
-	owner             *serviceOwner
-	home              string
-	app               string
-	resources         string
-	hostPlist         string
-	applicationData   string
-	logs              string
-	serviceLogs       string
-	serviceConfigFile string
-	agentPlist        string
-	daemonPlist       string
-	service           serviceConfig
+	correlationRequestID string
+	owner                *serviceOwner
+	home                 string
+	app                  string
+	resources            string
+	hostPlist            string
+	applicationData      string
+	logs                 string
+	serviceLogs          string
+	serviceConfigFile    string
+	agentPlist           string
+	daemonPlist          string
+	service              serviceConfig
 }
 
 func lifecyclePaths(request serviceRequest) (paths, error) {

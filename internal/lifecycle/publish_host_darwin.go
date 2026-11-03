@@ -17,11 +17,12 @@ func sharedHostApp(home string) string {
 }
 
 type publishHostResult struct {
-	Version   int    `json:"version"`
-	Action    string `json:"action"`
-	TargetApp string `json:"targetApp"`
-	ReleaseID string `json:"releaseId"`
-	Outcome   string `json:"outcome"`
+	Version   int               `json:"version"`
+	Action    string            `json:"action"`
+	TargetApp string            `json:"targetApp"`
+	ReleaseID string            `json:"releaseId"`
+	Outcome   string            `json:"outcome"`
+	Error     map[string]string `json:"error,omitempty"`
 }
 
 type publicationActions struct {
@@ -58,6 +59,9 @@ func publishHost(value paths, source string, actions publicationActions) (publis
 	}
 	release, err := acquireMaintenanceMutation(value, "publish-host", "")
 	if err != nil {
+		if errors.Is(err, errHostUninstalled) {
+			result.Error = map[string]string{"code": "host_uninstalled", "reason": "owner_uninstalled"}
+		}
 		return result, err
 	}
 	defer release()
@@ -128,6 +132,9 @@ func executePublishHost(request serviceRequest, args []string) {
 	value := paths{home: account.HomeDir, app: sharedHostApp(account.HomeDir), service: config}
 	result, err := publishHost(value, args[1], defaultPublicationActions())
 	if err != nil {
+		if result.Error != nil {
+			_ = json.NewEncoder(os.Stdout).Encode(result)
+		}
 		fatal(err.Error())
 	}
 	if err = json.NewEncoder(os.Stdout).Encode(result); err != nil {

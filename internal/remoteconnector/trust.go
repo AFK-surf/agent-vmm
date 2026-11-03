@@ -30,32 +30,6 @@ func probeTrust(ctx context.Context, socketPath string) error {
 	return nil
 }
 
-func enrollmentIdentity(ctx context.Context, socketPath string) (*trustv1.DeviceIdentity, error) {
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
-	if err != nil {
-		return nil, err
-	}
-	defer closeClient()
-	identity, err := client.GetDeviceIdentity(requestContext, &trustv1.GetDeviceIdentityRequest{})
-	if err != nil || identity.GetDeviceId() == "" || len(identity.GetRootPublicKey()) != 33 || identity.GetRootKeyRevision() == 0 {
-		return nil, errors.New("host device identity is unavailable")
-	}
-	return identity, nil
-}
-
-func installManagedTrust(ctx context.Context, socketPath string, anchor *trustv1.TrustAnchor, credential *trustv1.MembershipCredential) error {
-	if anchor == nil || credential == nil {
-		return errors.New("controller managed trust bundle is incomplete")
-	}
-	client, requestContext, closeClient, err := trustClient(ctx, socketPath)
-	if err != nil {
-		return err
-	}
-	defer closeClient()
-	_, err = client.InstallManagedTrust(requestContext, &trustv1.InstallManagedTrustRequest{TrustAnchor: anchor, MembershipCredential: credential})
-	return err
-}
-
 func signEndpointObservation(ctx context.Context, socketPath, endpointID string, generation uint64) (*trustv1.EndpointObservation, error) {
 	if endpointID == "" || generation == 0 {
 		return nil, errors.New("complete data endpoint identity is required")

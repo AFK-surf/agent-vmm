@@ -37,18 +37,6 @@ func (server *remoteComputeServer) EnsureAllocation(ctx context.Context, request
 func (server *remoteComputeServer) ReleaseAllocation(ctx context.Context, request *connectorv1.ReleaseAllocationRequest) (*connectorv1.AllocationResponse, error) {
 	return server.controller.remote.ReleaseAllocation(ctx, request)
 }
-func (server *operatorServer) BeginRemoteEnrollment(ctx context.Context, request *hostv1.BeginRemoteEnrollmentRequest) (*hostv1.BeginRemoteEnrollmentResponse, error) {
-	return server.controller.remote.BeginRemoteEnrollment(ctx, request)
-}
-func (server *operatorServer) ApplyManagedRemoteEnrollment(ctx context.Context, request *hostv1.ApplyManagedRemoteEnrollmentRequest) (*hostv1.ApplyManagedRemoteEnrollmentResponse, error) {
-	return server.controller.remote.ApplyManagedRemoteEnrollment(ctx, request)
-}
-func (server *operatorServer) CompleteRemoteEnrollment(ctx context.Context, request *hostv1.CompleteRemoteEnrollmentRequest) (*hostv1.CompleteRemoteEnrollmentResponse, error) {
-	return server.controller.remote.CompleteRemoteEnrollment(ctx, request)
-}
-func (server *operatorServer) RetryRemoteEnrollment(ctx context.Context, request *hostv1.RetryRemoteEnrollmentRequest) (*hostv1.RetryRemoteEnrollmentResponse, error) {
-	return server.controller.remote.RetryRemoteEnrollment(ctx, request)
-}
 func (server *operatorServer) BeginRemoteRevocation(ctx context.Context, request *hostv1.BeginRemoteRevocationRequest) (*hostv1.BeginRemoteRevocationResponse, error) {
 	return server.controller.remote.BeginRemoteRevocation(ctx, request)
 }
@@ -75,4 +63,8 @@ func (server *remoteComputeServer) PlanCleanupAllocation(ctx context.Context, re
 }
 func (server *remoteComputeServer) ExecuteCleanupAllocation(ctx context.Context, request *connectorv1.ExecuteCleanupAllocationRequest) (*connectorv1.AllocationResponse, error) {
 	return server.controller.cleanup.ExecuteCleanupAllocation(ctx, request)
+}
+
+func (server *operatorServer) ApplyRemoteRegistration(ctx context.Context, request *hostv1.ApplyRemoteRegistrationRequest) (*hostv1.ApplyRemoteRegistrationResponse, error) {
+	return server.controller.remote.ApplyRemoteRegistration(ctx, request)
 }

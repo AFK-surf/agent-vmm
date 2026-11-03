@@ -13,24 +13,18 @@ import (
 	"syscall"
 	"time"
 
-	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
 const (
-	version                     = "0.1.0"
-	productionHostLabel         = bundle.HostBundleIdentifier
-	boundedOperationMaxAttempts = 3
-	statusObservationBudget     = 4 * time.Second
+	version                          = "0.1.0"
+	productionHostLabel              = bundle.HostBundleIdentifier
+	maintenanceRestoreWindowAttempts = 3
+	statusObservationBudget          = 4 * time.Second
 	// hostStopTimeout bounds a Host stop. The service manager kills the Host
 	// after the 90 s stop timeout of its service definition.
 	hostStopTimeout = 90 * time.Second
 )
-
-type managedInstallDispositionError struct {
-	err         error
-	disposition string
-}
 
 type lifecycleProgress struct {
 	Event       string `json:"event"`
@@ -47,29 +41,6 @@ func reportLifecycleProgress(progress lifecycleProgress) {
 	}
 }
 
-func (err managedInstallDispositionError) Error() string { return err.err.Error() }
-func (err managedInstallDispositionError) Unwrap() error { return err.err }
-func (err managedInstallDispositionError) ManagedSecretDisposition() string {
-	return err.disposition
-}
-
-func terminalManagedInstallError(err error) error {
-	if err == nil {
-		return nil
-	}
-	return managedInstallDispositionError{err: err, disposition: secretDispositionDestroyTerminal}
-}
-
-func managedInstallSecretDisposition(err error) string {
-	var dispositionError interface {
-		ManagedSecretDisposition() string
-	}
-	if errors.As(err, &dispositionError) && dispositionError.ManagedSecretDisposition() == secretDispositionDestroyTerminal {
-		return secretDispositionDestroyTerminal
-	}
-	return secretDispositionRetain
-}
-
 // releaseID is injected by the Host package build for diagnostics. The outer
 // Server descriptor digest, not this display value, authorizes archive bytes.
 var releaseID = version
@@ -83,39 +54,34 @@ var errHostServiceNotFound = errors.New("host service not found")
 // LifecycleCoordinator; repair remains the narrow host-service repair action.
 
 type lifecycleOperation struct {
-	Cutover              *cutoverProgress `json:"cutover,omitempty"`
-	OperationID          string           `json:"operationId"`
-	RequestID            string           `json:"requestId"`
-	Kind                 string           `json:"kind"`
-	TargetRegistrationID string           `json:"targetRegistrationId,omitempty"`
-	TargetReleaseID      string           `json:"targetReleaseId,omitempty"`
-	TargetArtifactSHA256 string           `json:"targetArtifactSha256,omitempty"`
-	TargetArtifactSize   uint64           `json:"targetArtifactSize,omitempty"`
-	Stage                string           `json:"stage,omitempty"`
-	Outcome              string           `json:"outcome"`
-	Attempt              int              `json:"attempt,omitempty"`
-	FailureStage         string           `json:"failureStage,omitempty"`
-	FailureCode          string           `json:"failureCode,omitempty"`
-	FailureMessage       string           `json:"failureMessage,omitempty"`
-	Retryable            bool             `json:"retryable,omitempty"`
-	// SecretDisposition is independent from scheduling retryability. Only an
-	// explicitly persisted terminal result or durable completion receipt may
-	// authorize destruction of the managed install plan.
-	SecretDisposition string `json:"secretDisposition,omitempty"`
-	StartedAt         int64  `json:"startedAt"`
-	UpdatedAt         int64  `json:"updatedAt"`
+	Cutover               *cutoverProgress `json:"cutover,omitempty"`
+	OperationID           string           `json:"operationId"`
+	RequestID             string           `json:"requestId"`
+	Kind                  string           `json:"kind"`
+	TargetRegistrationID  string           `json:"targetRegistrationId,omitempty"`
+	TargetReleaseID       string           `json:"targetReleaseId,omitempty"`
+	TargetArtifactSHA256  string           `json:"targetArtifactSha256,omitempty"`
+	TargetArtifactSize    uint64           `json:"targetArtifactSize,omitempty"`
+	Stage                 string           `json:"stage,omitempty"`
+	Outcome               string           `json:"outcome"`
+	Attempt               int              `json:"attempt,omitempty"`
+	FailureStage          string           `json:"failureStage,omitempty"`
+	FailureCode           string           `json:"failureCode,omitempty"`
+	FailureMessage        string           `json:"failureMessage,omitempty"`
+	Retryable             bool             `json:"retryable,omitempty"`
+	StartedAt             int64            `json:"startedAt"`
+	UpdatedAt             int64            `json:"updatedAt"`
+	CorrelationRequestID  string           `json:"correlationRequestId,omitempty"`
+	SupersededByRequestID string           `json:"supersededByRequestId,omitempty"`
 }
-
-const (
-	secretDispositionRetain           = "retain"
-	secretDispositionDestroyTerminal  = "destroy_terminal"
-	secretDispositionDestroyCompleted = "destroy_completed"
-)
 
 func Main() {
 	signal.Ignore(syscall.SIGPIPE, syscall.SIGHUP)
 	if len(os.Args) < 2 {
-		fatal("usage: agent-vmm-lifecycle version --json|preflight --json|status|operation|maintenance|maintenance-status|publish-host|install|install-operation-ack|repair|registration-state|drain|update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+		fatal("usage: agent-vmm-lifecycle version --json|preflight --json|status|operation|host-maintain|maintenance-status|publish-host|install|host-repair|registration-claim|registration-recover|registration-enable|registration-drain|registration-remove|host-update|uninstall [--service-type agent|daemon|auto] [--service-user USER] [...]")
+	}
+	if !knownLifecycleCommand(os.Args[1]) {
+		fatal("upgrade_required: unknown lifecycle command")
 	}
 	if os.Args[1] == "version" {
 		if len(os.Args) != 3 || os.Args[2] != "--json" {
@@ -152,15 +118,20 @@ func Main() {
 		if err != nil {
 			fatal(err.Error())
 		}
-		operationID, err := parseLifecycleOperationArgs(commandArgs)
+		var report map[string]any
+		if len(commandArgs) == 4 && commandArgs[0] == "--request-id" && commandArgs[2] == "--registration-id" && operationIDPattern.MatchString(commandArgs[1]) && operationIDPattern.MatchString(commandArgs[3]) {
+			report, err = readCorrelatedOperation(resolved, commandArgs[1], commandArgs[3])
+		} else {
+			var id string
+			id, err = parseLifecycleOperationArgs(commandArgs)
+			if err == nil {
+				report, err = readOperationReportByID(resolved, id)
+			}
+		}
 		if err != nil {
 			fatal(err.Error())
 		}
-		operation, err := readLifecycleOperationByID(resolved, operationID)
-		if err != nil {
-			fatal(err.Error())
-		}
-		if err := writeOperation(*operation); err != nil {
+		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
 			fatal("operation encoding failed")
 		}
 		return
@@ -187,140 +158,104 @@ func Main() {
 	}
 	switch os.Args[1] {
 	case "install-operation-ack":
-		operationID, err := parseInstallOperationAckArgs(commandArgs)
+		fatal("upgrade_required: installation handoff was replaced by registration claim")
+	case "registration-claim", "registration-recover":
+		disablePairing, requestID, descriptorStdin, _, _ := parseInstallArgs("registration-claim", commandArgs)
+		if requestID == "" {
+			fatal("registration-claim requires --request-id")
+		}
+		adapter := &productionLifecycleAdapter{value: resolved, requestID: requestID}
+		if os.Args[1] == "registration-recover" {
+			if !descriptorStdin {
+				fatal("registration-recover requires fresh authorization on stdin")
+			}
+			decoded, err := decodeRecoveryDescriptor(os.Stdin)
+			if err != nil {
+				fatal(err.Error())
+			}
+			adapter.recovery = &decoded
+		} else if descriptorStdin {
+			decoded, err := decodeRegistrationClaimDescriptor(os.Stdin)
+			if err != nil {
+				fatal(err.Error())
+			}
+			adapter.descriptor = &decoded
+		} else {
+			saved, err := productionRegistrationAdapterForResume(resolved, requestID)
+			if err != nil {
+				fatal(err.Error())
+			}
+			adapter = saved
+		}
+		registrationID := ""
+		if adapter.recovery != nil {
+			registrationID = adapter.recovery.RegistrationID
+		} else if adapter.descriptor != nil {
+			registrationID = adapter.descriptor.RegistrationID
+		} else {
+			registrationID = adapter.plan.Descriptor.RegistrationID
+		}
+		suppliedRequestID := requestID
+		requestID, err = originalRegistrationRequestID(resolved, registrationID, requestID, os.Args[1])
 		if err != nil {
 			fatal(err.Error())
 		}
-		if err := cleanupInstallPlan(resolved, operationID); err != nil {
-			fatal("acknowledged install operation could not be cleaned up: " + err.Error())
+		adapter.requestID = requestID
+		if requestID != suppliedRequestID {
+			resolved.correlationRequestID = suppliedRequestID
 		}
-	case "install", "repair":
-		disablePairing, requestID, operationStdin, resumeOperationID, registrationID := parseInstallArgs(os.Args[1], commandArgs)
-		var descriptor *operationHandoffDescriptor
-		if os.Args[1] == "install" && operationStdin {
-			decoded, decodeErr := decodeOperationHandoffDescriptor(os.Stdin)
-			err = decodeErr
-			if err != nil {
-				fatal(err.Error())
-			}
-			if requestID == "" || requestID != decoded.OperationID {
-				fatal("--request-id must match the install descriptor operation_id")
-			}
-			descriptor = &decoded
+		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, os.Args[1], requestID, registrationID, "", "", 0, true, func() error {
+			return runRegistrationLifecycle(lifecycleAdapterFor(adapter), os.Args[1], LifecycleRequest{RequestID: requestID, DisablePersonalMeshPairing: disablePairing})
+		})
+		if operationErr == nil {
+			reconcileBuiltinMCP(resolved)
 		}
-		if operationStdin && resumeOperationID != "" {
-			fatal("--operation-stdin and --resume-operation are mutually exclusive")
+		if err := writeOperation(operation); err != nil {
+			fatal("operation encoding failed")
 		}
-		var adapter LifecycleAdapter
-		var productionAdapter *productionLifecycleAdapter
-		completedResume := false
-		var resumePreparationErr error
-		if resumeOperationID != "" {
-			if !operationIDPattern.MatchString(resumeOperationID) || requestID == "" {
-				fatal("--resume-operation requires a valid operation id and --request-id")
-			}
-			completedResume, err = completedInstallExists(resolved, resumeOperationID)
-			if err != nil {
-				fatal(err.Error())
-			}
-			if !completedResume {
-				productionAdapter, err = productionLifecycleAdapterForResume(resolved, resumeOperationID)
-				if err != nil {
-					resumePreparationErr = err
-					if errors.Is(err, errManagedInstallPlanUnavailable) {
-						resumePreparationErr = terminalManagedInstallError(err)
-					}
-				} else {
-					adapter = lifecycleAdapterFor(productionAdapter)
-				}
-			}
-		} else if descriptor != nil {
-			productionAdapter = &productionLifecycleAdapter{value: resolved, descriptor: descriptor}
-			adapter = lifecycleAdapterFor(productionAdapter)
-		} else {
-			adapter = newProductionLifecycleAdapter(resolved)
+		if operationErr != nil {
+			fatal(operationErr.Error())
 		}
-		operationKind := os.Args[1]
-		if descriptor != nil || resumeOperationID != "" {
-			operationKind = "install-managed"
+	case "install", "host-repair", "repair":
+		kind := os.Args[1]
+		if kind == "host-repair" {
+			kind = "repair"
 		}
-		// The same request identity must fence both the durable lifecycle
-		// operation and the VM start it performs. runLifecycleOperation can
-		// synthesize an ID internally, but that happens after this closure has
-		// captured requestID and would otherwise send an empty StartVM request.
+		disablePairing, requestID, oldProtocol, oldResume, registrationID := parseInstallArgs(kind, commandArgs)
+		if oldProtocol || oldResume != "" {
+			fatal("upgrade_required: use registration-claim")
+		}
 		requestID = lifecycleRequestID(requestID)
-		runOperation := runLifecycleOperation
-		if operationKind == "install-managed" {
-			runOperation = runManagedLifecycleOperation
-		} else if operationKind == "repair" {
-			runOperation = func(value paths, _ string, requestID string, action func() error) (lifecycleOperation, error) {
-				return runRepairLifecycleOperation(value, requestID, registrationID, action)
+		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, kind, requestID, registrationID, "", "", 0, true, func() error {
+			stage := func(name string) error {
+				if kind == "repair" {
+					return persistRepairStage(resolved, requestID, registrationID, name)
+				}
+				return nil
 			}
-		}
-		operation, operationErr := runOperation(resolved, operationKind, requestID, func() error {
-			if os.Args[1] == "install" {
-				if descriptor == nil && resumeOperationID == "" {
-					reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_started", RequestID: requestID})
-					if err := withHostStopTimeout(func(ctx context.Context) error { return reconcileService(ctx, resolved, disablePairing) }); err != nil {
-						return err
-					}
-					reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
-					return ensureVMStarted(resolved, requestID)
-				}
-				if err := checkMaintenanceInstallTarget(resolved, resumeOperationID); err != nil {
-					return err
-				}
-				if completedResume {
-					return nil
-				}
-				if resumePreparationErr != nil {
-					return resumePreparationErr
-				}
-				coordinator, err := NewLifecycleCoordinator(adapter, LifecycleCoordinatorConfig{})
-				if err != nil {
-					return err
-				}
-				if err := coordinator.Run(context.Background(), LifecycleInstall, LifecycleRequest{
-					RequestID:                  requestID,
-					DisablePersonalMeshPairing: disablePairing,
-				}); err != nil {
-					return err
-				}
-				return persistCompletedInstall(resolved, productionAdapter)
-			}
-			if err := persistRepairStage(resolved, requestID, registrationID, "service"); err != nil {
+			if err := stage("service"); err != nil {
 				return err
 			}
-			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_started", RequestID: requestID})
 			if err := withHostStopTimeout(func(ctx context.Context) error { return reconcileService(ctx, resolved, disablePairing) }); err != nil {
 				return err
 			}
-			reportLifecycleProgress(lifecycleProgress{Event: "service_reconcile_completed", RequestID: requestID})
-			if err := persistRepairStage(resolved, requestID, registrationID, "vm"); err != nil {
+			if err := stage("vm"); err != nil {
 				return err
 			}
 			if err := ensureVMStarted(resolved, requestID); err != nil {
 				return err
 			}
 			if registrationID != "" {
-				if err := persistRepairStage(resolved, requestID, registrationID, "registration"); err != nil {
-					return err
-				}
-				if err := setRemoteRegistrationState(context.Background(), resolved, registrationID, hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED, requestID); err != nil {
+				if err := stage("registration"); err != nil {
 					return err
 				}
 				if err := waitRemoteRegistrationConnected(resolved, registrationID); err != nil {
 					return err
 				}
 			}
-			return persistRepairStage(resolved, requestID, registrationID, "complete")
+			return stage("complete")
 		})
-		completedOperationID := resumeOperationID
-		if descriptor != nil {
-			completedOperationID = descriptor.OperationID
-		}
-		operation, operationErr = finalizeManagedInstallOperation(resolved, completedOperationID, operation, operationErr)
-		if os.Args[1] == "install" && operationErr == nil {
+		if operationErr == nil {
 			reconcileBuiltinMCP(resolved)
 		}
 		if err := writeOperation(operation); err != nil {
@@ -340,7 +275,7 @@ func Main() {
 		if operationErr != nil {
 			fatal(operationErr.Error())
 		}
-	case "update":
+	case "host-update", "update":
 		update := parseUpdateArgs(commandArgs)
 		var preparationFailure *updatePreparationFailureDescriptor
 		if update.preparationFailureStdin {
@@ -368,12 +303,12 @@ func Main() {
 		if operationErr != nil {
 			fatal(operationErr.Error())
 		}
-	case "registration-revoke":
+	case "registration-remove", "registration-revoke":
 		registrationID, _, requestID := parseRegistrationStateArgs(append(commandArgs, "--state", "draining"))
 		if requestID == "" {
 			requestID = newOperationID("req")
 		}
-		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, "registration-revoke", requestID, registrationID, "", "", 0, true, func() error {
+		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, "registration-remove", requestID, registrationID, "", "", 0, true, func() error {
 			return revokeRemoteRegistration(context.Background(), resolved, registrationID, requestID)
 		})
 		if err := writeOperation(operation); err != nil {
@@ -382,12 +317,23 @@ func Main() {
 		if operationErr != nil {
 			fatal(operationErr.Error())
 		}
-	case "registration-state":
-		registrationID, state, requestID := parseRegistrationStateArgs(commandArgs)
+	case "registration-enable", "registration-drain", "registration-state":
+		stateArgs := commandArgs
+		if os.Args[1] == "registration-enable" {
+			stateArgs = append(append([]string{}, commandArgs...), "--state", "enabled")
+		}
+		if os.Args[1] == "registration-drain" {
+			stateArgs = append(append([]string{}, commandArgs...), "--state", "draining")
+		}
+		registrationID, state, requestID := parseRegistrationStateArgs(stateArgs)
 		if requestID == "" {
 			requestID = newOperationID("req")
 		}
-		operation, operationErr := runRegistrationStateOperation(resolved, "registration-"+state.String(), requestID, func() error {
+		kind := os.Args[1]
+		if kind == "registration-state" {
+			kind = "registration-" + state.String()
+		}
+		operation, operationErr := runLifecycleOperationWithFailedRetry(resolved, kind, requestID, registrationID, "", "", 0, true, func() error {
 			return setRemoteRegistrationState(context.Background(), resolved, registrationID, state, requestID)
 		})
 		if err := writeOperation(operation); err != nil {
@@ -412,9 +358,17 @@ func Main() {
 	}
 }
 
+func knownLifecycleCommand(command string) bool {
+	switch command {
+	case "version", "preflight", "status", "operation", "maintenance-status":
+		return true
+	}
+	return lifecycleMutationCommand(command) || localOperatorCommand(command)
+}
+
 func lifecycleMutationCommand(command string) bool {
 	switch command {
-	case "publish-host", "maintenance", "install", "install-operation-ack", "repair", "registration-state", "registration-revoke", "drain", "update", "uninstall":
+	case "publish-host", "host-maintain", "maintenance", "install", "install-operation-ack", "host-repair", "repair", "registration-claim", "registration-recover", "registration-enable", "registration-drain", "registration-remove", "registration-state", "registration-revoke", "drain", "host-update", "update", "uninstall":
 		return true
 	default:
 		return false

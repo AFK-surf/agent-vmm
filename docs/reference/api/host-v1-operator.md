@@ -254,31 +254,11 @@ ExportSupportBundle exports only the operator-approved diagnostic scope.
 
 `.agentvmm.host.v1.ExportSupportBundleRequest` → `.agentvmm.host.v1.ExportSupportBundleResponse`
 
-### `BeginRemoteEnrollment`
+### `ApplyRemoteRegistration`
 
-BeginRemoteEnrollment records one controller registration and its approved scope before
-credential enrollment.
+ApplyRemoteRegistration saves a claimed registration and starts its control connection.
 
-`.agentvmm.host.v1.BeginRemoteEnrollmentRequest` → `.agentvmm.host.v1.BeginRemoteEnrollmentResponse`
-
-### `ApplyManagedRemoteEnrollment`
-
-ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-local enrollment owner.
-
-`.agentvmm.host.v1.ApplyManagedRemoteEnrollmentRequest` → `.agentvmm.host.v1.ApplyManagedRemoteEnrollmentResponse`
-
-### `CompleteRemoteEnrollment`
-
-CompleteRemoteEnrollment commits credential completion for the current registration revision.
-
-`.agentvmm.host.v1.CompleteRemoteEnrollmentRequest` → `.agentvmm.host.v1.CompleteRemoteEnrollmentResponse`
-
-### `RetryRemoteEnrollment`
-
-RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-
-`.agentvmm.host.v1.RetryRemoteEnrollmentRequest` → `.agentvmm.host.v1.RetryRemoteEnrollmentResponse`
+`.agentvmm.host.v1.ApplyRemoteRegistrationRequest` → `.agentvmm.host.v1.ApplyRemoteRegistrationResponse`
 
 ### `BeginRemoteRevocation`
 
@@ -1025,30 +1005,6 @@ ExportSupportBundleResponse carries results from an operation that exports only 
 approved diagnostic scope.
 
 
-## Message `BeginRemoteEnrollmentResponse`
-
-BeginRemoteEnrollmentResponse carries results from an operation that records one controller
-registration and its approved scope before credential enrollment.
-
-
-## Message `ApplyManagedRemoteEnrollmentResponse`
-
-ApplyManagedRemoteEnrollmentResponse carries results from an operation that applies a managed
-registration and one-time token within the local enrollment owner.
-
-
-## Message `CompleteRemoteEnrollmentResponse`
-
-CompleteRemoteEnrollmentResponse carries results from an operation that commits credential
-completion for the current registration revision.
-
-
-## Message `RetryRemoteEnrollmentResponse`
-
-RetryRemoteEnrollmentResponse carries results from an operation that retries the existing
-incomplete registration under its current revision.
-
-
 ## Message `CompleteRemoteRevocationResponse`
 
 CompleteRemoteRevocationResponse carries results from an operation that completes the selected
@@ -1218,3 +1174,8 @@ RotateMCPTokenKeyRequest selects the built-in MCP appliance signing key.
 ## Message `RotateMCPTokenKeyResponse`
 
 RotateMCPTokenKeyResponse identifies the appliance update that replaces the signing key.
+
+
+## Message `ApplyRemoteRegistrationResponse`
+
+ApplyRemoteRegistrationResponse returns the current local registration.

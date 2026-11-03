@@ -78,10 +78,6 @@ type remoteE2ESession struct {
 	connection   net.Conn
 }
 
-func (server *remoteE2EController) Enroll(context.Context, *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not used")
-}
-
 func (server *remoteE2EController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
 		return status.Error(codes.Unauthenticated, "rejected")
@@ -242,10 +238,6 @@ type isolatedDomainController struct {
 	finished       atomic.Bool
 }
 
-func (server *isolatedDomainController) Enroll(context.Context, *remotev1.EnrollRequest) (*remotev1.EnrollResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "not used")
-}
-
 func (server *isolatedDomainController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
 	if values := metadata.ValueFromIncomingContext(stream.Context(), "authorization"); len(values) != 1 || values[0] != controllerremote.EncodeBearer([]byte("remote-e2e")) {
 		return status.Error(codes.Unauthenticated, "rejected")
@@ -348,14 +340,11 @@ func testRemoteWorkflow(t *testing.T, harness *hostHarness) {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
 	defer cancel()
 	pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(256, 2<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(2 * time.Second)}
-	registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", Pool: pool})
+	registered, err := harness.client.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: "remote-e2e", RegistrationId: "registration-remote-e2e", Endpoint: endpoint, DisplayName: "E2E Controller", Pool: pool}, Credential: []byte("credential")})
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{
-		RequestId: "remote-e2e-complete", RegistrationId: registered.GetRegistration().GetId(),
-		ExpectedRevision: registered.GetRegistration().GetRevision(),
-	})
+	_, err = harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registered.GetRegistration().GetId()})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -517,11 +506,11 @@ func testSixRemoteDomains(t *testing.T, harness *hostHarness) {
 		controller := &isolatedDomainController{session: make(chan net.Conn, 1), finish: make(chan struct{}), cleaned: make(chan struct{})}
 		endpoint, roots, stopServer := startRemoteController(t, controller)
 		requestID := "six-domain-" + strconv.Itoa(index)
-		registered, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, Pool: pool})
+		registered, err := harness.client.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: requestID, RegistrationId: "registration-" + requestID, Endpoint: endpoint, DisplayName: requestID, Pool: pool}, Credential: []byte("credential")})
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, err = harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: requestID + "-complete", RegistrationId: registered.GetRegistration().GetId(), ExpectedRevision: registered.GetRegistration().GetRevision()})
+		_, err = harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registered.GetRegistration().GetId()})
 		if err != nil {
 			t.Fatal(err)
 		}

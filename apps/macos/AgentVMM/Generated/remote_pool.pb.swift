@@ -601,6 +601,11 @@ public nonisolated struct Agentvmm_Host_V1_RemoteRegistration: @unchecked Sendab
     set {_uniqueStorage()._poolPolicyRevision = newValue}
   }
 
+  public var sourceRequestID: String {
+    get {_storage._sourceRequestID}
+    set {_uniqueStorage()._sourceRequestID = newValue}
+  }
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -608,9 +613,8 @@ public nonisolated struct Agentvmm_Host_V1_RemoteRegistration: @unchecked Sendab
   fileprivate var _storage = _StorageClass.defaultInstance
 }
 
-/// BeginRemoteEnrollmentRequest carries inputs for an operation that records one controller
-/// registration and its approved scope before credential enrollment.
-public nonisolated struct Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: Sendable {
+/// RemoteRegistrationConnection carries public connection and local pool configuration.
+public nonisolated struct Agentvmm_Host_V1_RemoteRegistrationConnection: Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
@@ -634,8 +638,6 @@ public nonisolated struct Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: Sendabl
 
   public var trustBundle: Data = Data()
 
-  public var scopeDigest: String = String()
-
   public var sourcePolicyRevision: UInt64 = 0
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
@@ -643,67 +645,6 @@ public nonisolated struct Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: Sendabl
   public init() {}
 
   fileprivate var _pool: Agentvmm_Host_V1_RemotePoolPolicy? = nil
-}
-
-/// ApplyManagedRemoteEnrollmentRequest carries inputs for an operation that applies a managed
-/// registration and one-time token within the local enrollment owner.
-public nonisolated struct Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var registration: Agentvmm_Host_V1_BeginRemoteEnrollmentRequest {
-    get {_registration ?? Agentvmm_Host_V1_BeginRemoteEnrollmentRequest()}
-    set {_registration = newValue}
-  }
-  /// Returns true if `registration` has been explicitly set.
-  public var hasRegistration: Bool {self._registration != nil}
-  /// Clears the value of `registration`. Subsequent reads from it will return its default value.
-  public mutating func clearRegistration() {self._registration = nil}
-
-  public var enrollmentToken: Data = Data()
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-
-  fileprivate var _registration: Agentvmm_Host_V1_BeginRemoteEnrollmentRequest? = nil
-}
-
-/// CompleteRemoteEnrollmentRequest carries inputs for an operation that commits credential
-/// completion for the current registration revision.
-public nonisolated struct Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var requestID: String = String()
-
-  public var registrationID: String = String()
-
-  public var expectedRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
-}
-
-/// RetryRemoteEnrollmentRequest carries inputs for an operation that retries the existing
-/// incomplete registration under its current revision.
-public nonisolated struct Agentvmm_Host_V1_RetryRemoteEnrollmentRequest: Sendable {
-  // SwiftProtobuf.Message conformance is added in an extension below. See the
-  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
-  // methods supported on all messages.
-
-  public var requestID: String = String()
-
-  public var registrationID: String = String()
-
-  public var expectedRevision: UInt64 = 0
-
-  public var unknownFields = SwiftProtobuf.UnknownStorage()
-
-  public init() {}
 }
 
 /// BeginRemoteRevocationRequest carries inputs for an operation that records revocation intent
@@ -858,6 +799,30 @@ public nonisolated struct Agentvmm_Host_V1_LocalRegistrationMetadata: Sendable {
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
+}
+
+/// ApplyRemoteRegistrationRequest saves an already claimed credential and public connection configuration.
+public nonisolated struct Agentvmm_Host_V1_ApplyRemoteRegistrationRequest: Sendable {
+  // SwiftProtobuf.Message conformance is added in an extension below. See the
+  // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
+  // methods supported on all messages.
+
+  public var registration: Agentvmm_Host_V1_RemoteRegistrationConnection {
+    get {_registration ?? Agentvmm_Host_V1_RemoteRegistrationConnection()}
+    set {_registration = newValue}
+  }
+  /// Returns true if `registration` has been explicitly set.
+  public var hasRegistration: Bool {self._registration != nil}
+  /// Clears the value of `registration`. Subsequent reads from it will return its default value.
+  public mutating func clearRegistration() {self._registration = nil}
+
+  public var credential: Data = Data()
+
+  public var unknownFields = SwiftProtobuf.UnknownStorage()
+
+  public init() {}
+
+  fileprivate var _registration: Agentvmm_Host_V1_RemoteRegistrationConnection? = nil
 }
 
 // MARK: - Code below here is support for the SwiftProtobuf runtime.
@@ -1193,7 +1158,7 @@ nonisolated extension Agentvmm_Host_V1_RemotePoolPolicy: SwiftProtobuf.Message, 
 
 nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".RemoteRegistration"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}endpoint\0\u{3}display_name\0\u{2}\u{2}pool\0\u{1}revision\0\u{1}state\0\u{3}connection_state\0\u{1}allocations\0\u{3}enrollment_state\0\u{3}enrollment_error_code\0\u{3}enrollment_error_message\0\u{3}connector_status\0\u{3}created_at\0\u{3}updated_at\0\u{3}owner_kind\0\u{3}installation_id\0\u{3}inventory_revision\0\u{3}domain_metrics\0\u{3}pool_policy_revision\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}id\0\u{1}endpoint\0\u{3}display_name\0\u{2}\u{2}pool\0\u{1}revision\0\u{1}state\0\u{3}connection_state\0\u{1}allocations\0\u{3}enrollment_state\0\u{3}enrollment_error_code\0\u{3}enrollment_error_message\0\u{3}connector_status\0\u{3}created_at\0\u{3}updated_at\0\u{3}owner_kind\0\u{3}installation_id\0\u{3}inventory_revision\0\u{3}domain_metrics\0\u{3}pool_policy_revision\0\u{3}source_request_id\0")
 
   fileprivate class _StorageClass {
     var _id: String = String()
@@ -1215,6 +1180,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
     var _inventoryRevision: UInt64 = 0
     var _domainMetrics: Agentvmm_Host_V1_ControllerDomainMetrics? = nil
     var _poolPolicyRevision: UInt64 = 0
+    var _sourceRequestID: String = String()
 
       // This property is used as the initial default value for new instances of the type.
       // The type itself is protecting the reference to its storage via CoW semantics.
@@ -1244,6 +1210,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
       _inventoryRevision = source._inventoryRevision
       _domainMetrics = source._domainMetrics
       _poolPolicyRevision = source._poolPolicyRevision
+      _sourceRequestID = source._sourceRequestID
     }
   }
 
@@ -1281,6 +1248,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
         case 18: try { try decoder.decodeSingularUInt64Field(value: &_storage._inventoryRevision) }()
         case 19: try { try decoder.decodeSingularMessageField(value: &_storage._domainMetrics) }()
         case 20: try { try decoder.decodeSingularUInt64Field(value: &_storage._poolPolicyRevision) }()
+        case 21: try { try decoder.decodeSingularStringField(value: &_storage._sourceRequestID) }()
         default: break
         }
       }
@@ -1350,6 +1318,9 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
       if _storage._poolPolicyRevision != 0 {
         try visitor.visitSingularUInt64Field(value: _storage._poolPolicyRevision, fieldNumber: 20)
       }
+      if !_storage._sourceRequestID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._sourceRequestID, fieldNumber: 21)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
@@ -1378,6 +1349,7 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
         if _storage._inventoryRevision != rhs_storage._inventoryRevision {return false}
         if _storage._domainMetrics != rhs_storage._domainMetrics {return false}
         if _storage._poolPolicyRevision != rhs_storage._poolPolicyRevision {return false}
+        if _storage._sourceRequestID != rhs_storage._sourceRequestID {return false}
         return true
       }
       if !storagesAreEqual {return false}
@@ -1387,9 +1359,9 @@ nonisolated extension Agentvmm_Host_V1_RemoteRegistration: SwiftProtobuf.Message
   }
 }
 
-nonisolated extension Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".BeginRemoteEnrollmentRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}endpoint\0\u{3}display_name\0\u{2}\u{2}pool\0\u{3}registration_id\0\u{3}trust_bundle\0\u{3}scope_digest\0\u{3}source_policy_revision\0")
+nonisolated extension Agentvmm_Host_V1_RemoteRegistrationConnection: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".RemoteRegistrationConnection"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{1}endpoint\0\u{3}display_name\0\u{2}\u{2}pool\0\u{3}registration_id\0\u{3}trust_bundle\0\u{4}\u{2}source_policy_revision\0\u{c}\u{8}\u{1}")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -1403,7 +1375,6 @@ nonisolated extension Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: SwiftProtob
       case 5: try { try decoder.decodeSingularMessageField(value: &self._pool) }()
       case 6: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
       case 7: try { try decoder.decodeSingularBytesField(value: &self.trustBundle) }()
-      case 8: try { try decoder.decodeSingularStringField(value: &self.scopeDigest) }()
       case 9: try { try decoder.decodeSingularUInt64Field(value: &self.sourcePolicyRevision) }()
       default: break
       }
@@ -1433,143 +1404,20 @@ nonisolated extension Agentvmm_Host_V1_BeginRemoteEnrollmentRequest: SwiftProtob
     if !self.trustBundle.isEmpty {
       try visitor.visitSingularBytesField(value: self.trustBundle, fieldNumber: 7)
     }
-    if !self.scopeDigest.isEmpty {
-      try visitor.visitSingularStringField(value: self.scopeDigest, fieldNumber: 8)
-    }
     if self.sourcePolicyRevision != 0 {
       try visitor.visitSingularUInt64Field(value: self.sourcePolicyRevision, fieldNumber: 9)
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
-  public static func ==(lhs: Agentvmm_Host_V1_BeginRemoteEnrollmentRequest, rhs: Agentvmm_Host_V1_BeginRemoteEnrollmentRequest) -> Bool {
+  public static func ==(lhs: Agentvmm_Host_V1_RemoteRegistrationConnection, rhs: Agentvmm_Host_V1_RemoteRegistrationConnection) -> Bool {
     if lhs.requestID != rhs.requestID {return false}
     if lhs.endpoint != rhs.endpoint {return false}
     if lhs.displayName != rhs.displayName {return false}
     if lhs._pool != rhs._pool {return false}
     if lhs.registrationID != rhs.registrationID {return false}
     if lhs.trustBundle != rhs.trustBundle {return false}
-    if lhs.scopeDigest != rhs.scopeDigest {return false}
     if lhs.sourcePolicyRevision != rhs.sourcePolicyRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".ApplyManagedRemoteEnrollmentRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}registration\0\u{3}enrollment_token\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._registration) }()
-      case 2: try { try decoder.decodeSingularBytesField(value: &self.enrollmentToken) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._registration {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.enrollmentToken.isEmpty {
-      try visitor.visitSingularBytesField(value: self.enrollmentToken, fieldNumber: 2)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest, rhs: Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest) -> Bool {
-    if lhs._registration != rhs._registration {return false}
-    if lhs.enrollmentToken != rhs.enrollmentToken {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".CompleteRemoteEnrollmentRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}registration_id\0\u{3}expected_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.expectedRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
-    }
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 2)
-    }
-    if self.expectedRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedRevision, fieldNumber: 3)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest, rhs: Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest) -> Bool {
-    if lhs.requestID != rhs.requestID {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.expectedRevision != rhs.expectedRevision {return false}
-    if lhs.unknownFields != rhs.unknownFields {return false}
-    return true
-  }
-}
-
-nonisolated extension Agentvmm_Host_V1_RetryRemoteEnrollmentRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
-  public static let protoMessageName: String = _protobuf_package + ".RetryRemoteEnrollmentRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}registration_id\0\u{3}expected_revision\0")
-
-  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularStringField(value: &self.requestID) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.registrationID) }()
-      case 3: try { try decoder.decodeSingularUInt64Field(value: &self.expectedRevision) }()
-      default: break
-      }
-    }
-  }
-
-  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    if !self.requestID.isEmpty {
-      try visitor.visitSingularStringField(value: self.requestID, fieldNumber: 1)
-    }
-    if !self.registrationID.isEmpty {
-      try visitor.visitSingularStringField(value: self.registrationID, fieldNumber: 2)
-    }
-    if self.expectedRevision != 0 {
-      try visitor.visitSingularUInt64Field(value: self.expectedRevision, fieldNumber: 3)
-    }
-    try unknownFields.traverse(visitor: &visitor)
-  }
-
-  public static func ==(lhs: Agentvmm_Host_V1_RetryRemoteEnrollmentRequest, rhs: Agentvmm_Host_V1_RetryRemoteEnrollmentRequest) -> Bool {
-    if lhs.requestID != rhs.requestID {return false}
-    if lhs.registrationID != rhs.registrationID {return false}
-    if lhs.expectedRevision != rhs.expectedRevision {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -1883,6 +1731,45 @@ nonisolated extension Agentvmm_Host_V1_LocalRegistrationMetadata: SwiftProtobuf.
     if lhs.id != rhs.id {return false}
     if lhs.revision != rhs.revision {return false}
     if lhs.state != rhs.state {return false}
+    if lhs.unknownFields != rhs.unknownFields {return false}
+    return true
+  }
+}
+
+nonisolated extension Agentvmm_Host_V1_ApplyRemoteRegistrationRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
+  public static let protoMessageName: String = _protobuf_package + ".ApplyRemoteRegistrationRequest"
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}registration\0\u{1}credential\0")
+
+  public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
+    while let fieldNumber = try decoder.nextFieldNumber() {
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every case branch when no optimizations are
+      // enabled. https://github.com/apple/swift-protobuf/issues/1034
+      switch fieldNumber {
+      case 1: try { try decoder.decodeSingularMessageField(value: &self._registration) }()
+      case 2: try { try decoder.decodeSingularBytesField(value: &self.credential) }()
+      default: break
+      }
+    }
+  }
+
+  public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
+    // The use of inline closures is to circumvent an issue where the compiler
+    // allocates stack space for every if/case branch local when no optimizations
+    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+    // https://github.com/apple/swift-protobuf/issues/1182
+    try { if let v = self._registration {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+    } }()
+    if !self.credential.isEmpty {
+      try visitor.visitSingularBytesField(value: self.credential, fieldNumber: 2)
+    }
+    try unknownFields.traverse(visitor: &visitor)
+  }
+
+  public static func ==(lhs: Agentvmm_Host_V1_ApplyRemoteRegistrationRequest, rhs: Agentvmm_Host_V1_ApplyRemoteRegistrationRequest) -> Bool {
+    if lhs._registration != rhs._registration {return false}
+    if lhs.credential != rhs.credential {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

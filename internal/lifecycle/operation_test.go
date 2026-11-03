@@ -163,7 +163,7 @@ func TestTerminalOperationPersistenceFailureReturnsUnknown(t *testing.T) {
 				}
 				return nil
 			})
-			if err == nil || operation.Outcome != "unknown" || operation.SecretDisposition != secretDispositionRetain {
+			if err == nil || operation.Outcome != "unknown" {
 				t.Fatalf("operation=%+v err=%v", operation, err)
 			}
 			data, readErr := os.ReadFile(filepath.Join(value.applicationData, maintenanceReceiptName(operation.RequestID)))

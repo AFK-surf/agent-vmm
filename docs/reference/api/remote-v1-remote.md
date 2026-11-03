@@ -7,13 +7,6 @@ Source: `remote/v1/remote.proto`.
 RemoteControllerService is the provider-neutral controller endpoint for registration, command
 delivery, and runtime tunnels.
 
-### `Enroll`
-
-Enroll exchanges one registration's enrollment token for its bearer credential and managed
-trust bundle.
-
-`.agentvmm.remote.v1.EnrollRequest` → `.agentvmm.remote.v1.EnrollResponse`
-
 ### `Connect`
 
 Connect exchanges current inventory, command authority, ordered commands, and terminal
@@ -27,17 +20,6 @@ ServeSession carries a current allocation's framed runtime connection under its 
 identity.
 
 `stream .agentvmm.remote.v1.ServeSessionRequest` → `stream .agentvmm.remote.v1.ServeSessionResponse`
-
-## Message `EnrollRequest`
-
-EnrollRequest binds a one-time enrollment token to the registration and public device
-identity.
-
-
-## Message `EnrollResponse`
-
-EnrollResponse returns the consumed token's bearer credential and managed trust bundle.
-
 
 ## Message `EndpointObservationRenewal`
 

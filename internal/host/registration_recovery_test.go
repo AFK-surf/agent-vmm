@@ -46,7 +46,7 @@ func TestRegistrationRecoveryKeepsIdentityProofIndependentOfEnrollmentHealth(t *
 	}
 	server := &operatorServer{controller: newTestController(&Controller{store: database, trust: identity})}
 	now := time.Now()
-	challenge := trust.Challenge{Purpose: trust.Purpose, Audience: "https://controller.example", Subject: "owner", SessionID: "new-session", ControllerBinding: `["tenant","group","workspace"]`, EnvironmentID: "environment", OperationID: "operation", RegistrationID: registration.ID, Nonce: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), Revision: 1, ExpiresAt: now.Add(time.Minute).Unix()}
+	challenge := trust.Challenge{Purpose: trust.Purpose, Audience: "https://controller.example", Subject: "owner", SessionID: "new-session", ControllerBinding: `["tenant","group","workspace"]`, EnvironmentID: "environment", CandidateCredentialHash: base64.StdEncoding.EncodeToString(make([]byte, 32)), RegistrationID: registration.ID, Nonce: base64.RawURLEncoding.EncodeToString(make([]byte, 32)), Revision: 1, ExpiresAt: now.Add(time.Minute).Unix()}
 	call := func() (*hostv1.SignRegistrationRecoveryResponse, error) {
 		raw, _ := json.Marshal(challenge)
 		value, err := auth.UnaryInterceptor(auth.Identity{Role: auth.Operator})(ctx, nil, &grpc.UnaryServerInfo{}, func(ctx context.Context, _ any) (any, error) {
@@ -87,7 +87,7 @@ func TestRegistrationRecoveryKeepsIdentityProofIndependentOfEnrollmentHealth(t *
 		t.Fatalf("revoked registration signed proof: %v", err)
 	}
 	challenge.RegistrationID = "other"
-	if _, err := call(); err == nil {
-		t.Fatal("missing exact local registration signed proof")
+	if _, err := call(); err != nil {
+		t.Fatalf("undisposed registration with original root could not recover: %v", err)
 	}
 }

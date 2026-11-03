@@ -10,9 +10,12 @@ import (
 	"github.com/AFK-surf/agent-vmm/internal/bundle"
 )
 
+var errRestoreWindowExhausted = errors.New("Host restore window is paused. Continue this request to try again.")
+
 // The owner journal survives bundle replacement and Host data reset.
 type maintenanceRequest struct {
 	Version             int    `json:"version"`
+	Continue            bool   `json:"continue,omitempty"`
 	RequestID           string `json:"requestId"`
 	Action              string `json:"action"`
 	DataPolicy          string `json:"dataPolicy"`
@@ -25,7 +28,11 @@ type maintenanceRequest struct {
 }
 
 type maintenanceReceipt struct {
-	Attempt int `json:"attempt"`
+	OperationID           string `json:"operationId"`
+	Kind                  string `json:"kind"`
+	TargetRegistrationID  string `json:"targetRegistrationId,omitempty"`
+	Attempt               int    `json:"attempt"`
+	RestoreWindowAttempts int    `json:"restoreWindowAttempts,omitempty"`
 	maintenanceRequest
 	AdmissionPreviousRequestID string      `json:"admissionPreviousRequestId,omitempty"`
 	SupersededByRequestID      string      `json:"supersededByRequestId,omitempty"`
@@ -46,10 +53,17 @@ func maintenanceReport(receipt *maintenanceReceipt) any {
 	if receipt == nil {
 		return nil
 	}
+	copy := *receipt
+	if copy.OperationID == "" {
+		copy.OperationID = copy.RequestID
+	}
+	if copy.Kind == "" {
+		copy.Kind = copy.Action
+	}
 	return struct {
 		ContractVersion int `json:"contractVersion"`
 		*maintenanceReceipt
-	}{cliContractVersion, receipt}
+	}{cliContractVersion, &copy}
 }
 
 func validateMaintenanceRequest(value paths, request maintenanceRequest) error {
@@ -131,6 +145,18 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 	if err != nil {
 		return receipt, err
 	}
+	if state.ActiveRequest != "" && state.ActiveRequest != request.RequestID {
+		previous, err := loadLifecycleReceipt(directory, state.ActiveRequest)
+		if err != nil {
+			return receipt, err
+		}
+		if !lifecycleExclusive(*previous) {
+			state.ActiveRequest = ""
+			if err := writeOwnerState(directory, state); err != nil {
+				return receipt, err
+			}
+		}
+	}
 	name := maintenanceReceiptName(request.RequestID)
 	readErr := readMaintenanceJSON(directory, name, &receipt)
 	if readErr == nil {
@@ -211,6 +237,13 @@ func runMaintenance(value paths, request maintenanceRequest, actions maintenance
 		return receipt, err
 	}
 
+	if request.Continue {
+		receipt.RestoreWindowAttempts = 0
+		receipt.Continue = false
+		if err := writeMaintenanceJSON(directory, name, receipt); err != nil {
+			return receipt, err
+		}
+	}
 	return executeMaintenance(value, directory, name, state, receipt, actions)
 }
 
@@ -223,6 +256,9 @@ func executeMaintenance(value paths, directory *os.File, name string, state main
 			receipt.Outcome, receipt.Retryable = "failed", true
 			receipt.FailureCode, receipt.FailureMessage = "maintenance_incomplete", err.Error()
 
+			if errors.Is(err, errRestoreWindowExhausted) {
+				receipt.FailureCode = maintenanceHostStartFailed
+			}
 			var failure maintenanceFailure
 			if errors.As(err, &failure) {
 				receipt.Retryable, receipt.FailureCode = false, failure.code
@@ -242,9 +278,10 @@ func executeMaintenance(value paths, directory *os.File, name string, state main
 
 	save := func(stage string) error {
 		if stage == "restore" {
-			if receipt.Attempt >= boundedOperationMaxAttempts {
-				return maintenanceFailure{code: maintenanceHostStartFailed, err: errors.New("Host restore retry limit reached")}
+			if receipt.RestoreWindowAttempts >= maintenanceRestoreWindowAttempts {
+				return errRestoreWindowExhausted
 			}
+			receipt.RestoreWindowAttempts++
 			receipt.Attempt++
 		}
 		receipt.Stage, receipt.Outcome, receipt.Retryable = stage, "pending", true
@@ -256,9 +293,6 @@ func executeMaintenance(value paths, directory *os.File, name string, state main
 		stop: func() error { return actions.stop(value) }, reset: func() error { return actions.resetData(value) }, remove: func() error { return actions.removeSoftware(value) },
 		replace: func() error { return actions.replace(value, request) }, restore: func() error {
 			err := actions.restore(value, maintenanceRestoreRequestID(request.RequestID, uint64(receipt.Attempt)))
-			if err != nil && receipt.Attempt == boundedOperationMaxAttempts {
-				return maintenanceFailure{code: maintenanceHostStartFailed, err: err}
-			}
 			return err
 		},
 		verify: func() error { return actions.verify(value, request) },

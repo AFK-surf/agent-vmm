@@ -514,55 +514,16 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
                 type: .unary
             )
         }
-        /// Namespace for "BeginRemoteEnrollment" metadata.
-        public enum BeginRemoteEnrollment: Sendable {
-            /// Request type for "BeginRemoteEnrollment".
-            public typealias Input = Agentvmm_Host_V1_BeginRemoteEnrollmentRequest
-            /// Response type for "BeginRemoteEnrollment".
-            public typealias Output = Agentvmm_Host_V1_BeginRemoteEnrollmentResponse
-            /// Descriptor for "BeginRemoteEnrollment".
+        /// Namespace for "ApplyRemoteRegistration" metadata.
+        public enum ApplyRemoteRegistration: Sendable {
+            /// Request type for "ApplyRemoteRegistration".
+            public typealias Input = Agentvmm_Host_V1_ApplyRemoteRegistrationRequest
+            /// Response type for "ApplyRemoteRegistration".
+            public typealias Output = Agentvmm_Host_V1_ApplyRemoteRegistrationResponse
+            /// Descriptor for "ApplyRemoteRegistration".
             public static let descriptor = GRPCCore.MethodDescriptor(
                 service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
-                method: "BeginRemoteEnrollment",
-                type: .unary
-            )
-        }
-        /// Namespace for "ApplyManagedRemoteEnrollment" metadata.
-        public enum ApplyManagedRemoteEnrollment: Sendable {
-            /// Request type for "ApplyManagedRemoteEnrollment".
-            public typealias Input = Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest
-            /// Response type for "ApplyManagedRemoteEnrollment".
-            public typealias Output = Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse
-            /// Descriptor for "ApplyManagedRemoteEnrollment".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
-                method: "ApplyManagedRemoteEnrollment",
-                type: .unary
-            )
-        }
-        /// Namespace for "CompleteRemoteEnrollment" metadata.
-        public enum CompleteRemoteEnrollment: Sendable {
-            /// Request type for "CompleteRemoteEnrollment".
-            public typealias Input = Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest
-            /// Response type for "CompleteRemoteEnrollment".
-            public typealias Output = Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse
-            /// Descriptor for "CompleteRemoteEnrollment".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
-                method: "CompleteRemoteEnrollment",
-                type: .unary
-            )
-        }
-        /// Namespace for "RetryRemoteEnrollment" metadata.
-        public enum RetryRemoteEnrollment: Sendable {
-            /// Request type for "RetryRemoteEnrollment".
-            public typealias Input = Agentvmm_Host_V1_RetryRemoteEnrollmentRequest
-            /// Response type for "RetryRemoteEnrollment".
-            public typealias Output = Agentvmm_Host_V1_RetryRemoteEnrollmentResponse
-            /// Descriptor for "RetryRemoteEnrollment".
-            public static let descriptor = GRPCCore.MethodDescriptor(
-                service: GRPCCore.ServiceDescriptor(fullyQualifiedService: "agentvmm.host.v1.OperatorService"),
-                method: "RetryRemoteEnrollment",
+                method: "ApplyRemoteRegistration",
                 type: .unary
             )
         }
@@ -983,10 +944,7 @@ public enum Agentvmm_Host_V1_OperatorService: Sendable {
             RunDiagnostics.descriptor,
             PreviewSupportBundle.descriptor,
             ExportSupportBundle.descriptor,
-            BeginRemoteEnrollment.descriptor,
-            ApplyManagedRemoteEnrollment.descriptor,
-            CompleteRemoteEnrollment.descriptor,
-            RetryRemoteEnrollment.descriptor,
+            ApplyRemoteRegistration.descriptor,
             BeginRemoteRevocation.descriptor,
             CompleteRemoteRevocation.descriptor,
             UpdateRemotePool.descriptor,
@@ -1933,98 +1891,27 @@ extension Agentvmm_Host_V1_OperatorService {
             onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ExportSupportBundleResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
-        /// Call the "BeginRemoteEnrollment" method.
+        /// Call the "ApplyRemoteRegistration" method.
         ///
         /// > Source IDL Documentation:
         /// >
-        /// > BeginRemoteEnrollment records one controller registration and its approved scope before
-        /// > credential enrollment.
+        /// > ApplyRemoteRegistration saves a claimed registration and starts its control connection.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_BeginRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_BeginRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_BeginRemoteEnrollmentResponse` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyRemoteRegistrationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyRemoteRegistrationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ApplyRemoteRegistrationResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        func beginRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>,
+        func applyRemoteRegistration<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>,
             options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "ApplyManagedRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-        /// > local enrollment owner.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func applyManagedRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "CompleteRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > CompleteRemoteEnrollment commits credential completion for the current registration revision.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func completeRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>) async throws -> Result
-        ) async throws -> Result where Result: Sendable
-
-        /// Call the "RetryRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_RetryRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_RetryRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RetryRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        func retryRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>) async throws -> Result
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>) async throws -> Result
         ) async throws -> Result where Result: Sendable
 
         /// Call the "BeginRemoteRevocation" method.
@@ -4037,137 +3924,33 @@ extension Agentvmm_Host_V1_OperatorService {
             )
         }
 
-        /// Call the "BeginRemoteEnrollment" method.
+        /// Call the "ApplyRemoteRegistration" method.
         ///
         /// > Source IDL Documentation:
         /// >
-        /// > BeginRemoteEnrollment records one controller registration and its approved scope before
-        /// > credential enrollment.
+        /// > ApplyRemoteRegistration saves a claimed registration and starts its control connection.
         ///
         /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_BeginRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_BeginRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_BeginRemoteEnrollmentResponse` messages.
+        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyRemoteRegistrationRequest` message.
+        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyRemoteRegistrationRequest` messages.
+        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ApplyRemoteRegistrationResponse` messages.
         ///   - options: Options to apply to this RPC.
         ///   - handleResponse: A closure which handles the response, the result of which is
         ///       returned to the caller. Returning from the closure will cancel the RPC if it
         ///       hasn't already finished.
         /// - Returns: The result of `handleResponse`.
-        public func beginRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>,
+        public func applyRemoteRegistration<Result>(
+            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>,
+            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>,
+            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>,
             options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>) async throws -> Result = { response in
+            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>) async throws -> Result = { response in
                 try response.message
             }
         ) async throws -> Result where Result: Sendable {
             try await self.client.unary(
                 request: request,
-                descriptor: Agentvmm_Host_V1_OperatorService.Method.BeginRemoteEnrollment.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "ApplyManagedRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-        /// > local enrollment owner.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func applyManagedRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_OperatorService.Method.ApplyManagedRemoteEnrollment.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "CompleteRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > CompleteRemoteEnrollment commits credential completion for the current registration revision.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func completeRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_OperatorService.Method.CompleteRemoteEnrollment.descriptor,
-                serializer: serializer,
-                deserializer: deserializer,
-                options: options,
-                onResponse: handleResponse
-            )
-        }
-
-        /// Call the "RetryRemoteEnrollment" method.
-        ///
-        /// > Source IDL Documentation:
-        /// >
-        /// > RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-        ///
-        /// - Parameters:
-        ///   - request: A request containing a single `Agentvmm_Host_V1_RetryRemoteEnrollmentRequest` message.
-        ///   - serializer: A serializer for `Agentvmm_Host_V1_RetryRemoteEnrollmentRequest` messages.
-        ///   - deserializer: A deserializer for `Agentvmm_Host_V1_RetryRemoteEnrollmentResponse` messages.
-        ///   - options: Options to apply to this RPC.
-        ///   - handleResponse: A closure which handles the response, the result of which is
-        ///       returned to the caller. Returning from the closure will cancel the RPC if it
-        ///       hasn't already finished.
-        /// - Returns: The result of `handleResponse`.
-        public func retryRemoteEnrollment<Result>(
-            request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>,
-            serializer: some GRPCCore.MessageSerializer<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>,
-            deserializer: some GRPCCore.MessageDeserializer<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>,
-            options: GRPCCore.CallOptions = .defaults,
-            onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>) async throws -> Result = { response in
-                try response.message
-            }
-        ) async throws -> Result where Result: Sendable {
-            try await self.client.unary(
-                request: request,
-                descriptor: Agentvmm_Host_V1_OperatorService.Method.RetryRemoteEnrollment.descriptor,
+                descriptor: Agentvmm_Host_V1_OperatorService.Method.ApplyRemoteRegistration.descriptor,
                 serializer: serializer,
                 deserializer: deserializer,
                 options: options,
@@ -6297,119 +6080,30 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
-    /// Call the "BeginRemoteEnrollment" method.
+    /// Call the "ApplyRemoteRegistration" method.
     ///
     /// > Source IDL Documentation:
     /// >
-    /// > BeginRemoteEnrollment records one controller registration and its approved scope before
-    /// > credential enrollment.
+    /// > ApplyRemoteRegistration saves a claimed registration and starts its control connection.
     ///
     /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_BeginRemoteEnrollmentRequest` message.
+    ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyRemoteRegistrationRequest` message.
     ///   - options: Options to apply to this RPC.
     ///   - handleResponse: A closure which handles the response, the result of which is
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func beginRemoteEnrollment<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>,
+    public func applyRemoteRegistration<Result>(
+        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>,
         options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>) async throws -> Result = { response in
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        try await self.beginRemoteEnrollment(
+        try await self.applyRemoteRegistration(
             request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ApplyManagedRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-    /// > local enrollment owner.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func applyManagedRemoteEnrollment<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.applyManagedRemoteEnrollment(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "CompleteRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > CompleteRemoteEnrollment commits credential completion for the current registration revision.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func completeRemoteEnrollment<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.completeRemoteEnrollment(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>(),
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "RetryRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-    ///
-    /// - Parameters:
-    ///   - request: A request containing a single `Agentvmm_Host_V1_RetryRemoteEnrollmentRequest` message.
-    ///   - options: Options to apply to this RPC.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func retryRemoteEnrollment<Result>(
-        request: GRPCCore.ClientRequest<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>,
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        try await self.retryRemoteEnrollment(
-            request: request,
-            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>(),
-            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>(),
+            serializer: GRPCProtobuf.ProtobufSerializer<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>(),
+            deserializer: GRPCProtobuf.ProtobufDeserializer<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>(),
             options: options,
             onResponse: handleResponse
         )
@@ -8543,12 +8237,11 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
         )
     }
 
-    /// Call the "BeginRemoteEnrollment" method.
+    /// Call the "ApplyRemoteRegistration" method.
     ///
     /// > Source IDL Documentation:
     /// >
-    /// > BeginRemoteEnrollment records one controller registration and its approved scope before
-    /// > credential enrollment.
+    /// > ApplyRemoteRegistration saves a claimed registration and starts its control connection.
     ///
     /// - Parameters:
     ///   - message: request message to send.
@@ -8558,119 +8251,19 @@ extension Agentvmm_Host_V1_OperatorService.ClientProtocol {
     ///       returned to the caller. Returning from the closure will cancel the RPC if it
     ///       hasn't already finished.
     /// - Returns: The result of `handleResponse`.
-    public func beginRemoteEnrollment<Result>(
-        _ message: Agentvmm_Host_V1_BeginRemoteEnrollmentRequest,
+    public func applyRemoteRegistration<Result>(
+        _ message: Agentvmm_Host_V1_ApplyRemoteRegistrationRequest,
         metadata: GRPCCore.Metadata = [:],
         options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_BeginRemoteEnrollmentResponse>) async throws -> Result = { response in
+        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyRemoteRegistrationResponse>) async throws -> Result = { response in
             try response.message
         }
     ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_BeginRemoteEnrollmentRequest>(
+        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyRemoteRegistrationRequest>(
             message: message,
             metadata: metadata
         )
-        return try await self.beginRemoteEnrollment(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "ApplyManagedRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > ApplyManagedRemoteEnrollment applies a managed registration and one-time token within the
-    /// > local enrollment owner.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func applyManagedRemoteEnrollment<Result>(
-        _ message: Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_ApplyManagedRemoteEnrollmentRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.applyManagedRemoteEnrollment(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "CompleteRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > CompleteRemoteEnrollment commits credential completion for the current registration revision.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func completeRemoteEnrollment<Result>(
-        _ message: Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_CompleteRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_CompleteRemoteEnrollmentRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.completeRemoteEnrollment(
-            request: request,
-            options: options,
-            onResponse: handleResponse
-        )
-    }
-
-    /// Call the "RetryRemoteEnrollment" method.
-    ///
-    /// > Source IDL Documentation:
-    /// >
-    /// > RetryRemoteEnrollment retries the existing incomplete registration under its current revision.
-    ///
-    /// - Parameters:
-    ///   - message: request message to send.
-    ///   - metadata: Additional metadata to send, defaults to empty.
-    ///   - options: Options to apply to this RPC, defaults to `.defaults`.
-    ///   - handleResponse: A closure which handles the response, the result of which is
-    ///       returned to the caller. Returning from the closure will cancel the RPC if it
-    ///       hasn't already finished.
-    /// - Returns: The result of `handleResponse`.
-    public func retryRemoteEnrollment<Result>(
-        _ message: Agentvmm_Host_V1_RetryRemoteEnrollmentRequest,
-        metadata: GRPCCore.Metadata = [:],
-        options: GRPCCore.CallOptions = .defaults,
-        onResponse handleResponse: @Sendable @escaping (GRPCCore.ClientResponse<Agentvmm_Host_V1_RetryRemoteEnrollmentResponse>) async throws -> Result = { response in
-            try response.message
-        }
-    ) async throws -> Result where Result: Sendable {
-        let request = GRPCCore.ClientRequest<Agentvmm_Host_V1_RetryRemoteEnrollmentRequest>(
-            message: message,
-            metadata: metadata
-        )
-        return try await self.retryRemoteEnrollment(
+        return try await self.applyRemoteRegistration(
             request: request,
             options: options,
             onResponse: handleResponse

@@ -5,6 +5,7 @@ package e2e
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -153,25 +154,34 @@ func TestExternalSettingsBridgeE2E(t *testing.T) {
 						}
 					}
 					result = value
-				case "install":
+				case "registration-claim":
 					var descriptor struct {
-						Operation string `json:"operation_id"`
-						URL       string `json:"exchange_url"`
-						Secret    string `json:"one_time_secret"`
+						RegistrationID string `json:"registration_id"`
+						URL            string `json:"claim_url"`
+						Ticket         string `json:"ticket"`
 					}
 					operationErr = json.Unmarshal([]byte(command.Stdin), &descriptor)
 					if operationErr == nil {
 						identity, identityErr := h.client.GetDeviceIdentity(operationCtx, &hostv1.GetDeviceIdentityRequest{})
 						operationErr = identityErr
+						candidatePath := filepath.Join(commandDir, arg("--request-id")+".candidate")
+						candidate, readErr := os.ReadFile(candidatePath)
+						if errors.Is(readErr, os.ErrNotExist) {
+							raw := make([]byte, 32)
+							_, operationErr = rand.Read(raw)
+							candidate = []byte(base64.RawURLEncoding.EncodeToString(raw))
+							if operationErr == nil {
+								operationErr = os.WriteFile(candidatePath, candidate, 0600)
+							}
+						} else if readErr != nil {
+							operationErr = readErr
+						}
 						if operationErr == nil {
-							body := map[string]any{"version": 2, "operation_id": descriptor.Operation, "device_id": identity.GetIdentity().GetDeviceId(), "root_public_key": base64.StdEncoding.EncodeToString(identity.GetIdentity().GetRootPublicKey()), "root_key_revision": identity.GetIdentity().GetRootKeyRevision()}
+							body := map[string]any{"version": 1, "registration_id": descriptor.RegistrationID, "device_id": identity.GetIdentity().GetDeviceId(), "root_public_key": base64.StdEncoding.EncodeToString(identity.GetIdentity().GetRootPublicKey()), "root_key_revision": identity.GetIdentity().GetRootKeyRevision(), "candidate_credential": base64.StdEncoding.EncodeToString(candidate)}
 							var material struct {
-								Registration   string `json:"registration_id"`
-								Scope          string `json:"scope_digest"`
-								IdentityDigest string `json:"host_identity_digest"`
+								RegistrationID string `json:"registration_id"`
 								Remote         struct {
 									Endpoint string `json:"gateway_endpoint"`
-									Token    []byte `json:"enrollment_token"`
 									Trust    []byte `json:"trust_bundle"`
 									Revision uint64 `json:"policy_revision"`
 									Pool     struct {
@@ -182,43 +192,36 @@ func TestExternalSettingsBridgeE2E(t *testing.T) {
 										Egress string `json:"max_egress_mode"`
 										Grace  uint64 `json:"stop_grace_seconds"`
 									} `json:"pool_policy"`
-								} `json:"remote_enrollment"`
+								} `json:"remote_connection"`
 							}
-							operationErr = externalChainPost(operationCtx, descriptor.URL, descriptor.Secret, body, &material)
+							operationErr = externalChainPost(operationCtx, descriptor.URL, descriptor.Ticket, body, &material)
 							if operationErr == nil {
-								roots := x509.NewCertPool()
-								if !roots.AppendCertsFromPEM(material.Remote.Trust) {
-									operationErr = fmt.Errorf("invalid real enrollment trust")
-								} else {
-									egress := hostv1.EgressMode_EGRESS_MODE_DENY_ALL
-									if material.Remote.Pool.Egress == "public_internet" {
-										egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
-									}
-									limits := material.Remote.Pool.Limits
-									begun, beginErr := h.client.BeginRemoteEnrollment(operationCtx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: descriptor.Operation + ":managed-enrollment", RegistrationId: material.Registration, Endpoint: material.Remote.Endpoint, DisplayName: "Isolated settings fixture", TrustBundle: material.Remote.Trust, ScopeDigest: material.Scope, SourcePolicyRevision: material.Remote.Revision, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: &limits.PIDs, DiskBytes: &limits.Disk}, MaxEgressMode: egress, StopGrace: durationpb.New(time.Duration(material.Remote.Pool.Grace) * time.Second)}})
-									operationErr = beginErr
-									if operationErr == nil {
-										connectorConfig = remoteconnector.Config{RegistrationID: material.Registration, RemoteComputeSocket: h.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: material.Remote.Endpoint, Credentials: &e2eCredentialStore{}, Roots: roots, Trust: &remoteconnector.TrustBoundary{Socket: h.trustSocket}}}
-										_, operationErr = remoteconnector.Enroll(operationCtx, connectorConfig, material.Remote.Token)
-										if operationErr == nil {
-											_, operationErr = h.client.CompleteRemoteEnrollment(operationCtx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: descriptor.Operation + ":complete", RegistrationId: material.Registration, ExpectedRevision: begun.GetRegistration().GetRevision()})
-										}
-										if operationErr == nil {
-											startConnector()
-											operationErr = externalChainPost(operationCtx, strings.TrimSuffix(descriptor.URL, "/exchange")+"/ack", descriptor.Secret, map[string]string{"operation_id": descriptor.Operation, "host_identity_digest": material.IdentityDigest}, nil)
-										}
+								egress := hostv1.EgressMode_EGRESS_MODE_DENY_ALL
+								if material.Remote.Pool.Egress == "public_internet" {
+									egress = hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET
+								}
+								limits := material.Remote.Pool.Limits
+								_, operationErr = h.client.ApplyRemoteRegistration(operationCtx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: arg("--request-id") + ":registration", RegistrationId: material.RegistrationID, Endpoint: material.Remote.Endpoint, DisplayName: "Isolated settings fixture", TrustBundle: material.Remote.Trust, SourcePolicyRevision: material.Remote.Revision, Pool: &hostv1.RemotePoolPolicy{PerEnvironmentLimits: &hostv1.ResourceLimits{Pids: &limits.PIDs, DiskBytes: &limits.Disk}, MaxEgressMode: egress, StopGrace: durationpb.New(time.Duration(material.Remote.Pool.Grace) * time.Second)}}, Credential: candidate})
+								if operationErr == nil {
+									roots := x509.NewCertPool()
+									if !roots.AppendCertsFromPEM(material.Remote.Trust) {
+										operationErr = fmt.Errorf("invalid fixture TLS trust")
+									} else {
+										connectorConfig = remoteconnector.Config{RegistrationID: material.RegistrationID, RemoteComputeSocket: h.remoteComputeSocket, Transport: remoteconnector.ExternalTransport{Endpoint: material.Remote.Endpoint, Credentials: &e2eCredentialStore{value: candidate}, Roots: roots, Trust: &remoteconnector.TrustBoundary{Socket: h.trustSocket}}}
+										startConnector()
 									}
 								}
 							}
 						}
 					}
-				case "registration-state":
+					result = map[string]any{"requestId": arg("--request-id"), "operationId": arg("--request-id"), "targetRegistrationId": descriptor.RegistrationID, "kind": "registration-claim", "outcome": "succeeded"}
+				case "registration-enable", "registration-drain":
 					id := arg("--registration-id")
 					observed, readErr := h.client.GetRemoteRegistration(operationCtx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: id})
 					operationErr = readErr
 					if operationErr == nil {
 						state := hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_ENABLED
-						if arg("--state") == "draining" {
+						if command.Args[0] == "registration-drain" {
 							state = hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_DRAINING
 						}
 						_, operationErr = h.client.SetRemoteRegistrationState(operationCtx, &hostv1.SetRemoteRegistrationStateRequest{RequestId: arg("--request-id"), RegistrationId: id, ExpectedRevision: observed.GetRegistration().GetRevision(), State: state})
@@ -260,7 +263,7 @@ func externalChainPost(ctx context.Context, url, secret string, body any, result
 	if err != nil {
 		return err
 	}
-	request.Header.Set("Authorization", "InstallOperation "+secret)
+	request.Header.Set("Authorization", "RegistrationTicket "+secret)
 	request.Header.Set("Content-Type", "application/json")
 	response, err := (&http.Client{Timeout: 30 * time.Second}).Do(request)
 	if err != nil {
@@ -269,7 +272,7 @@ func externalChainPost(ctx context.Context, url, secret string, body any, result
 	defer response.Body.Close()
 	if response.StatusCode != 200 {
 		raw, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("enrollment HTTP %d: %s", response.StatusCode, raw)
+		return fmt.Errorf("claim HTTP %d: %s", response.StatusCode, raw)
 	}
 	if result != nil {
 		return json.NewDecoder(io.LimitReader(response.Body, 65536)).Decode(result)
@@ -337,11 +340,11 @@ func TestExternalPressureBridgeE2E(t *testing.T) {
 	failures := make(chan error, 6)
 	for _, registration := range fixture.Registrations {
 		pool := &hostv1.RemotePoolPolicy{PerEnvironmentLimits: isolationLimits(512, 3<<30), MaxEgressMode: hostv1.EgressMode_EGRESS_MODE_PUBLIC_INTERNET, StopGrace: durationpb.New(time.Second)}
-		started, err := harness.client.BeginRemoteEnrollment(ctx, &hostv1.BeginRemoteEnrollmentRequest{RequestId: registration.ID + "-begin", RegistrationId: registration.ID, Endpoint: fixture.Endpoint, DisplayName: "external pressure fixture", Pool: pool})
+		_, err := harness.client.ApplyRemoteRegistration(ctx, &hostv1.ApplyRemoteRegistrationRequest{Registration: &hostv1.RemoteRegistrationConnection{RequestId: registration.ID + "-begin", RegistrationId: registration.ID, Endpoint: fixture.Endpoint, DisplayName: "external pressure fixture", Pool: pool}, Credential: []byte("credential")})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := harness.client.CompleteRemoteEnrollment(ctx, &hostv1.CompleteRemoteEnrollmentRequest{RequestId: registration.ID + "-complete", RegistrationId: registration.ID, ExpectedRevision: started.GetRegistration().GetRevision()}); err != nil {
+		if _, err := harness.client.GetRemoteRegistration(ctx, &hostv1.GetRemoteRegistrationRequest{RegistrationId: registration.ID}); err != nil {
 			t.Fatal(err)
 		}
 		go func() {

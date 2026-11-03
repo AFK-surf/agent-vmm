@@ -25,16 +25,17 @@ const (
 // paths is the fixed Linux layout. app is the current release link; source
 // is the release directory that contains the running executable.
 type paths struct {
-	owner             *serviceOwner
-	source            string
-	installRoot       string
-	app               string
-	unit              string
-	applicationData   string
-	logs              string
-	serviceLogs       string
-	serviceConfigFile string
-	service           serviceConfig
+	correlationRequestID string
+	owner                *serviceOwner
+	source               string
+	installRoot          string
+	app                  string
+	unit                 string
+	applicationData      string
+	logs                 string
+	serviceLogs          string
+	serviceConfigFile    string
+	service              serviceConfig
 }
 
 func pathsUnder(root, source string, service serviceConfig) paths {

@@ -59,10 +59,9 @@ The Host verifies remote endpoints against active membership before storage.
 ## Managed authority
 
 Managed and personal authorities share encoding and verification code, with separate keys, membership state, and claims.
-Managed enrollment carries public DeviceIdentity and a one-time token.
-The controller consumes that token with its membership-credential commit and returns the authenticated anchor and credential.
-The connector saves its bearer credential and asks the Host to verify and install the trust bundle atomically.
-Failed Host verification removes that new bearer credential.
+Product Registration claim supplies a bearer credential through the local registration owner.
+It does not install a managed route anchor or membership credential.
+Independent appliance bootstrap remains the owner of appliance managed trust.
 
 A byte-identical credential remains idempotent.
 A different valid credential at the same policy revision can replace stored bytes only after the stored credential expires.

@@ -65,6 +65,12 @@ func TestLocalDisposalSurvivesRestartAndFencesOnlyItsConfirmedScope(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	later := root
+	later.Revision++
+	pending, err := database.AcceptLocalDisposal(ctx, Operation{ID: "unused", RequestID: "later-confirm-A"}, later)
+	if err != nil || pending.ID != accepted.ID || pending.RequestID != operation.RequestID || pending.State != int32(hostv1.OperationState_OPERATION_STATE_RUNNING) {
+		t.Fatalf("pending owner receipt=%+v, %v", pending, err)
+	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -123,6 +129,18 @@ func TestLocalDisposalSurvivesRestartAndFencesOnlyItsConfirmedScope(t *testing.T
 	replay, err := database.AcceptLocalDisposal(ctx, operation, root)
 	if err != nil || replay.State != int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED) {
 		t.Fatalf("replay=%+v,%v", replay, err)
+	}
+	changed := root
+	changed.Revision++
+	if _, err := database.AcceptLocalDisposal(ctx, operation, changed); err == nil {
+		t.Fatal("original request changed its confirmed registration revision")
+	}
+	child, err := database.GetLocalDisposal(ctx, "environment", "env-A-000")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := database.AcceptLocalDisposal(ctx, Operation{ID: "narrow-child", RequestID: "narrow-child"}, LocalDisposal{Kind: "environment", TargetID: child.TargetID, NamespaceID: child.NamespaceID, Revision: child.Revision}); err == nil {
+		t.Fatal("registration child reused as an independent local environment receipt")
 	}
 	root.TargetID = "B"
 	if _, err := database.AcceptLocalDisposal(ctx, operation, root); err == nil {
@@ -199,6 +217,24 @@ func TestOwnerLocalDisposalDoesNotRevokeAnotherLocalEnvironment(t *testing.T) {
 	if err := database.FinishLocalDisposal(ctx, root); err != nil {
 		t.Fatal(err)
 	}
+	confirmation := Operation{ID: "unused", RequestID: "later-confirm-target"}
+	replayed, err := database.AcceptLocalDisposal(ctx, confirmation, root)
+	if err != nil || replayed.ID != root.OperationID || replayed.RequestID != "confirm-target" || replayed.State != int32(hostv1.OperationState_OPERATION_STATE_SUCCEEDED) {
+		t.Fatalf("completed environment receipt=%+v, %v", replayed, err)
+	}
+	wrong := root
+	wrong.NamespaceID = "other-namespace"
+	if _, err := database.AcceptLocalDisposal(ctx, confirmation, wrong); err == nil {
+		t.Fatal("another namespace reused the completed environment receipt")
+	}
+	if _, err := database.AcceptLocalDisposal(ctx, Operation{ID: root.OperationID, RequestID: "confirm-target"}, wrong); err == nil {
+		t.Fatal("original request changed its confirmed namespace")
+	}
+	wrong = root
+	wrong.Revision++
+	if _, err := database.AcceptLocalDisposal(ctx, confirmation, wrong); err == nil {
+		t.Fatal("another environment revision reused the completed receipt")
+	}
 	if _, err := database.GetSession(ctx, "other-000"); err != nil {
 		t.Fatal("other local Session removed", err)
 	}
@@ -247,6 +283,9 @@ func TestAllocationDisposalKeepsRegistrationAndAdjacentAllocationAcrossRestart(t
 	root, err = database.AllocationDisposal(ctx, "shared", "target", 7)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, err := database.AcceptLocalDisposal(ctx, Operation{ID: "local-request", RequestID: "local-request"}, LocalDisposal{Kind: "environment", TargetID: root.TargetID, NamespaceID: root.NamespaceID, Revision: root.Revision}); err == nil {
+		t.Fatal("allocation owner receipt reused as local environment authority")
 	}
 	if err := database.Close(); err != nil {
 		t.Fatal(err)

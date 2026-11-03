@@ -127,7 +127,7 @@ func TestManagedUpdateDoesNotInferDurabilityFromFailedHelperOutput(t *testing.T)
 		},
 		runHelperInput: func(_ context.Context, _ string, args []string, _ []byte) ([]byte, []byte, error) {
 			helperCalls++
-			if args[0] != "update" {
+			if args[0] != "host-update" {
 				t.Fatalf("unexpected failure readback: %v", args)
 			}
 			return []byte(`{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","outcome":"unknown","failureCode":"update_download_unavailable","retryable":true}`), nil, errors.New("persistence failed")
@@ -149,7 +149,7 @@ func TestManagedUpdateUsesStableOwnerOperation(t *testing.T) {
 			if args[0] == "status" {
 				return []byte(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host"}`), nil, nil
 			}
-			if strings.Join(args, " ") != "update --source-app "+prepared+" --target-release-id release-2 --request-id update-1 --artifact-sha256 "+strings.Repeat("b", 64)+" --artifact-size 1024" {
+			if strings.Join(args, " ") != "host-update --source-app "+prepared+" --target-release-id release-2 --request-id update-1 --artifact-sha256 "+strings.Repeat("b", 64)+" --artifact-size 1024" {
 				t.Fatalf("update args=%v", args)
 			}
 			return []byte(`{"operationId":"operation-2","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"` + strings.Repeat("b", 64) + `","targetArtifactSize":1024,"stage":"complete","outcome":"succeeded"}`), nil, nil
@@ -209,23 +209,12 @@ func TestManagedUpdatePreflightHonorsDurableRetryCooldown(t *testing.T) {
 	}
 }
 
-func TestManagedUpdatePreflightStopsAtDurableRetryLimit(t *testing.T) {
+func TestManagedUpdateContinuesAfterPreviousRetryLimit(t *testing.T) {
 	now := time.UnixMilli(1789372800000)
-	prepared := false
-	digest := strings.Repeat("b", 64)
-	runtime := managedRuntime{
-		now: func() time.Time { return now },
-		runHelper: func(context.Context, string, []string) ([]byte, []byte, error) {
-			return []byte(fmt.Sprintf(`{"serviceApp":"/Users/runner/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app","serviceUser":"runner","serviceUid":501,"hostJob":"gui/501/com.afk-surf.agent-vmm-host","operation":{"operationId":"operation-1","requestId":"update-1","kind":"update","targetReleaseId":"release-2","targetArtifactSha256":"%s","targetArtifactSize":1024,"stage":"download","outcome":"failed","attempt":3,"failureStage":"download","failureCode":"update_retry_limit_reached","failureMessage":"retry limit reached","retryable":false,"updatedAt":%d}}`, digest, now.Add(-time.Minute).UnixMilli())), nil, nil
-		},
-		prepareUpdate: func(context.Context, managedOptions, map[string]any) (string, error) {
-			prepared = true
-			return "", nil
-		},
-	}
-	var stdout, stderr bytes.Buffer
-	exit := runManagedCLI([]string{"update", "--request-id", "update-1", "--target-release-id", "release-2", "--artifact-url", "https://example.test/Agent-VMM-Host.zip", "--artifact-sha256", digest, "--artifact-size", "1024", "--lifecycle-helper", "/tmp/lifecycle", "--json"}, &stdout, &stderr, runtime)
-	if exit != 0 || prepared || stderr.Len() != 0 || !strings.Contains(stdout.String(), `"disposition":"terminal_action_required"`) || !strings.Contains(stdout.String(), `"max_attempts":3`) {
-		t.Fatalf("exit=%d prepared=%t stdout=%s stderr=%s", exit, prepared, stdout.String(), stderr.String())
+	operation := map[string]any{"operationId": "receipt", "requestId": "update-1", "kind": "update", "targetReleaseId": "release-2", "targetArtifactSha256": strings.Repeat("b", 64), "targetArtifactSize": float64(1024), "outcome": "failed", "attempt": float64(5), "failureCode": "update_retry_limit_reached", "retryable": false, "updatedAt": float64(now.Add(-time.Minute).UnixMilli())}
+	options := managedOptions{requestID: "update-1", targetRelease: "release-2", artifactSHA256: strings.Repeat("b", 64), artifactSize: 1024}
+	_, handled := applyUpdateRetryDisposition(managedEnvelope{Facts: map[string]any{}}, operation, options, now)
+	if handled {
+		t.Fatal("old lifetime retry count prevented the same request from continuing")
 	}
 }
