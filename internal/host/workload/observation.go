@@ -244,6 +244,11 @@ func (controller *Owner) sampleWorkloadRuns(ctx context.Context, client vmmdv1.V
 		go func(run *Run) {
 			defer pending.Done()
 			defer func() { <-workers }()
+			controller.mu.Lock()
+			instance := run.instanceID
+			controller.mu.Unlock()
+			boot := controller.manager.Snapshot().GetBootId()
+			environment, environmentErr := controller.store.GetEnvironment(ctx, run.environmentID)
 			observed, inspectErr := client.InspectContainer(ctx, &vmmdv1.InspectContainerRequest{ActorNamespaceId: run.namespaceID, ContainerId: run.containerID})
 			if inspectErr != nil {
 				controller.mu.Lock()
@@ -259,8 +264,14 @@ func (controller *Owner) sampleWorkloadRuns(ctx context.Context, client vmmdv1.V
 			}
 			usage, _ := client.GetNamespaceUsage(ctx, &vmmdv1.GetNamespaceUsageRequest{NamespaceId: run.namespaceID})
 			controller.mu.Lock()
+			current := controller.workloadRuns[workloadRunKey(run.environmentID, run.containerID)] == run && run.instanceID == instance && observed.GetContainer().GetInstanceId() == instance
 			controller.observeWorkloadRunLocked(run, observed.GetContainer(), time.Now())
 			run.usage = usage.GetUsage()
+			if current && environmentErr == nil && environment.NamespaceID == run.namespaceID && observed.GetContainer().GetState() == vmmdv1.ContainerState_CONTAINER_STATE_RUNNING {
+				controller.rememberLocalResourceSampleLocked(environment, &hostv1.AgentEnvironment{
+					Usage: guestconn.Usage(usage.GetUsage()), Containers: []*hostv1.Container{guestconn.Container(observed.GetContainer())}, InventoryObservedAt: timestamppb.Now(),
+				}, boot)
+			}
 			if controller.workloadReclaim != nil && controller.workloadReclaim.run == run {
 				if !workloadUsageFresh(run.usage, time.Now()) {
 					controller.clearWorkloadReclaimLocked("usage_unavailable")

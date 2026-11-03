@@ -124,12 +124,19 @@ type localResourceSample struct {
 // Cache one scalar observation per environment from its existing owner read.
 // This does not add a sampler, timers, or Guest probes to the overview path.
 func (controller *Owner) RememberLocalResourceSample(environment store.Environment, snapshot *hostv1.AgentEnvironment) {
+	boot := controller.manager.Snapshot().GetBootId()
+	controller.mu.Lock()
+	defer controller.mu.Unlock()
+	controller.rememberLocalResourceSampleLocked(environment, snapshot, boot)
+}
+
+func (controller *Owner) rememberLocalResourceSampleLocked(environment store.Environment, snapshot *hostv1.AgentEnvironment, boot string) {
 	usage := snapshot.GetUsage()
 	if usage == nil || usage.GetStale() || usage.GetUnavailableReason() != "" || usage.GetSampledAt() == nil {
 		return
 	}
 	bytes := usage.GetDiskBytes()
-	sample := localResourceSample{namespace: environment.NamespaceID, boot: controller.manager.Snapshot().GetBootId(), generation: environment.AllocationGeneration, disk: &bytes, sampledAt: usage.GetSampledAt().AsTime(), observedAt: snapshot.GetInventoryObservedAt().AsTime()}
+	sample := localResourceSample{namespace: environment.NamespaceID, boot: boot, generation: environment.AllocationGeneration, disk: &bytes, sampledAt: usage.GetSampledAt().AsTime(), observedAt: snapshot.GetInventoryObservedAt().AsTime()}
 	// Partial positive evidence may prove activity. It cannot prove that other work is stopped.
 	for _, container := range snapshot.GetContainers() {
 		if container.GetState() == hostv1.ContainerState_CONTAINER_STATE_RUNNING {
@@ -137,8 +144,6 @@ func (controller *Owner) RememberLocalResourceSample(environment store.Environme
 			break
 		}
 	}
-	controller.mu.Lock()
-	defer controller.mu.Unlock()
 	if controller.localResourceCache == nil {
 		controller.localResourceCache = make(map[string]localResourceSample)
 	}

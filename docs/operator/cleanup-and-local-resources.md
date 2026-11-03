@@ -73,6 +73,8 @@ Read [registration recovery](../protocols/remote.md#registration-recovery) for t
 GetLocalDiskSummary reads the Guest filesystem total. It does not collect CPU or memory metrics.
 Local environment and registration pages contain at most 32 indexed records with explicit cursors.
 Private disk details use cached owner samples matched to boot, namespace, and allocation generation.
+The existing bounded workload observer supplies samples for admitted running containers.
+Environments without a recent sample remain unknown.
 Samples older than 15 seconds remain unknown.
 Import reservations are separate from used bytes.
 Namespace deletion does not promise immediate physical reclamation or secure erasure.

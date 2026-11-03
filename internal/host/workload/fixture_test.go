@@ -42,6 +42,9 @@ func (workloadTestServices) ReconcileHostShares(context.Context, vmmdv1.VMMDServ
 	return nil
 }
 func newTestWorkloadOwner(owner *Owner) *Owner {
+	if owner.manager == nil {
+		owner.manager = localResourceVM{&hostv1.VM{}}
+	}
 	owner.services = workloadTestServices{}
 	owner.hostShares = workloadTestServices{}
 	owner.projectionMu = &locks.RWMutex{}
