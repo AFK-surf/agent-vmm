@@ -122,6 +122,11 @@ Recreating either on each tick changes loopback ports and drops controller sessi
 
 ## Dependency behavior
 
+The macOS data worker has crashed inside SystemConfiguration's localized interface-name API.
+Netwatch discards this optional name after interface enumeration.
+The macOS interface adapter reads BSD network facts without SystemConfiguration metadata.
+Preserve interface addresses, IPv6 scopes, address flags, and route selection when changing this adapter.
+
 Pakery crypto types implement traits from pakery-core and pakery-spake2.
 Update these crates together. Mixed versions can expose incompatible copies of the same trait.
 

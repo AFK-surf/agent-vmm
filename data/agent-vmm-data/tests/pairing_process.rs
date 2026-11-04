@@ -2,7 +2,7 @@
 
 use serde_json::{Value, json};
 use std::{
-    io::{BufRead, BufReader, Write},
+    io::{BufRead, BufReader, Read, Write},
     os::unix::net::UnixStream,
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
@@ -23,10 +23,18 @@ impl Drop for Worker {
 }
 
 fn start_worker(root: &Path, name: &str) -> Worker {
+    start_worker_with_metadata_fault(root, name, None)
+}
+
+fn start_worker_with_metadata_fault(root: &Path, name: &str, library: Option<&Path>) -> Worker {
     let socket = root.join(format!("{name}-control.sock"));
     let service = root.join(format!("{name}-service.sock"));
     let mesh = root.join(format!("{name}-mesh.sock"));
-    let child = Command::new(env!("CARGO_BIN_EXE_agent-vmm-data"))
+    let mut command = Command::new(env!("CARGO_BIN_EXE_agent-vmm-data"));
+    if let Some(library) = library {
+        command.env("DYLD_INSERT_LIBRARIES", library);
+    }
+    let child = command
         .args([
             "--socket",
             socket.to_str().unwrap(),
@@ -40,12 +48,28 @@ fn start_worker(root: &Path, name: &str) -> Worker {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
+    let mut worker = Worker { child, socket };
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !socket.exists() && Instant::now() < deadline {
+    while !worker.socket.exists() && Instant::now() < deadline {
+        if let Some(status) = worker.child.try_wait().unwrap() {
+            let mut diagnostic = String::new();
+            worker
+                .child
+                .stderr
+                .take()
+                .unwrap()
+                .take(4096)
+                .read_to_string(&mut diagnostic)
+                .unwrap();
+            panic!("worker exited before ready: {status}, stderr={diagnostic}");
+        }
         thread::sleep(Duration::from_millis(20));
     }
-    assert!(socket.exists(), "worker control socket did not appear");
-    Worker { child, socket }
+    assert!(
+        worker.socket.exists(),
+        "worker control socket did not appear"
+    );
+    worker
 }
 
 fn request(socket: &Path, value: Value) -> Value {
@@ -63,6 +87,20 @@ fn request(socket: &Path, value: Value) -> Value {
 
 fn bytes(value: &[u8]) -> Value {
     Value::Array(value.iter().map(|byte| Value::from(*byte)).collect())
+}
+
+fn loopback_endpoint(status: &Value) -> Value {
+    let mut endpoint = status["endpoint_addr"].clone();
+    let port = endpoint["addrs"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|address| address["Ip"].as_str())
+        .find_map(|address| address.parse::<std::net::SocketAddr>().ok())
+        .unwrap()
+        .port();
+    endpoint["addrs"] = json!([{ "Ip": format!("127.0.0.1:{port}") }]);
+    endpoint
 }
 
 fn context(joiner_bound: bool) -> Value {
@@ -96,9 +134,41 @@ fn worker_exits_when_host_lifeline_closes() {
 
 #[test]
 fn two_worker_processes_complete_real_pairing_alpn_exchange() {
+    pairing_exchange(None);
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_optional_metadata_fault_preserves_worker_transport() {
     let root = tempfile::tempdir().unwrap();
-    let manager = start_worker(root.path(), "manager");
-    let joiner = start_worker(root.path(), "joiner");
+    let library = root.path().join("metadata-fault.dylib");
+    assert!(
+        Command::new("xcrun")
+            .args([
+                "clang",
+                "-dynamiclib",
+                "-framework",
+                "CoreFoundation",
+                "-framework",
+                "SystemConfiguration"
+            ])
+            .arg(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/tests/macos_metadata_fault.c"
+            ))
+            .arg("-o")
+            .arg(&library)
+            .status()
+            .unwrap()
+            .success()
+    );
+    pairing_exchange(Some(&library));
+}
+
+fn pairing_exchange(library: Option<&Path>) {
+    let root = tempfile::tempdir().unwrap();
+    let mut manager = start_worker_with_metadata_fault(root.path(), "manager", library);
+    let mut joiner = start_worker_with_metadata_fault(root.path(), "joiner", library);
     let manager_status = request(&manager.socket, json!({"command": "status"}));
 
     let prepared = request(
@@ -118,7 +188,7 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
         &joiner.socket,
         json!({
             "command": "join_pairing",
-            "endpoint_addr": manager_status["endpoint_addr"].clone(),
+            "endpoint_addr": loopback_endpoint(&manager_status),
             "context": context(true),
             "secret_kind": "pin",
             "secret": bytes(b"12345678"),
@@ -186,5 +256,24 @@ fn two_worker_processes_complete_real_pairing_alpn_exchange() {
             "joiner did not receive manager commit: {status}"
         );
         thread::sleep(Duration::from_millis(10));
+    }
+    for worker in [&mut manager, &mut joiner] {
+        drop(worker.child.stdin.take());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(status) = worker.child.try_wait().unwrap() {
+                assert!(
+                    status.success(),
+                    "worker did not exit normally after its Host lifeline closed"
+                );
+                break;
+            }
+            assert!(
+                Instant::now() < deadline,
+                "worker outlived its Host lifeline"
+            );
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!worker.socket.exists(), "worker left its control socket");
     }
 }

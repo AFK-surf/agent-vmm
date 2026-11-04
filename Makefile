@@ -60,10 +60,10 @@ e2e:
 	sh test/e2e/run.sh
 
 test-data-worker:
-	cargo test --manifest-path data/agent-vmm-data/Cargo.toml --all-targets
+	cargo test --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
 
 lint-data-worker:
-	cargo clippy --manifest-path data/agent-vmm-data/Cargo.toml --all-targets -- -D warnings
+	cargo clippy --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets -- -D warnings
 
 audit-data-worker:
 	cargo audit --file data/agent-vmm-data/Cargo.lock
