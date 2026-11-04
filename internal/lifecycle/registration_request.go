@@ -4,7 +4,6 @@ package lifecycle
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -43,6 +42,8 @@ func originalRegistrationRequestID(value paths, registrationID, requested, kind 
 			directory.Close()
 			return original, nil
 		}
+		directory.Close()
+		return requested, nil
 	}
 	for _, id := range []string{state.ActiveRequest, state.LatestRequest} {
 		if id == "" {
@@ -60,17 +61,12 @@ func originalRegistrationRequestID(value paths, registrationID, requested, kind 
 		if prior.Kind != "install-managed" || prior.Outcome == "succeeded" || prior.Outcome == "superseded" || kind != "registration-recover" || state.SupersededRequests[id] != "" || state.BlockedInstalls[id] {
 			continue
 		}
-		raw, err := readInstallOperationState(value, id, "plan.json", registrationPlanMaxBytes)
+		target, err := legacyRegistrationTarget(value, id)
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			directory.Close()
 			return "", err
 		}
-		var old struct {
-			Material struct {
-				RegistrationID string `json:"registration_id"`
-			} `json:"material"`
-		}
-		if json.Unmarshal(raw, &old) == nil && old.Material.RegistrationID == registrationID {
+		if err == nil && target == registrationID {
 			directory.Close()
 			return id, nil
 		}

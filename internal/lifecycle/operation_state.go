@@ -5,6 +5,7 @@ package lifecycle
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 
 	"github.com/AFK-surf/agent-vmm/internal/host/store"
@@ -121,6 +122,12 @@ func readLifecycleOperationByID(value paths, operationID string) (*lifecycleOper
 	return operation, nil
 }
 
+type requestBlockedError struct{ requestID string }
+
+func (err requestBlockedError) Error() string {
+	return "the local owner fenced this request; it cannot continue"
+}
+
 func readOperationReportByID(value paths, id string) (map[string]any, error) {
 	receipt, err := readLifecycleOperationByID(value, id)
 	if errors.Is(err, os.ErrNotExist) {
@@ -134,6 +141,13 @@ func readOperationReportByID(value paths, id string) (map[string]any, error) {
 		return nil, err
 	}
 	defer directory.Close()
+	state, err := loadMaintenanceState(directory)
+	if err != nil {
+		return nil, err
+	}
+	if state.BlockedInstalls[receipt.RequestID] {
+		return nil, requestBlockedError{requestID: receipt.RequestID}
+	}
 	var report map[string]any
 	if err := readMaintenanceJSON(directory, maintenanceReceiptName(receipt.RequestID), &report); err != nil {
 		return nil, err
@@ -152,6 +166,15 @@ func readCorrelatedOperation(value paths, requested, registrationID string) (map
 		return nil, err
 	}
 	if report != nil {
+		if report["kind"] == "install-managed" {
+			if err := migrateLegacyRegistration(value, requested, registrationID); err != nil {
+				return nil, err
+			}
+			report, err = readOperationReportByID(value, requested)
+			if err != nil {
+				return nil, err
+			}
+		}
 		if report["targetRegistrationId"] != registrationID {
 			return nil, errors.New("request target does not match registration")
 		}
@@ -184,4 +207,28 @@ func readCorrelatedOperation(value paths, requested, registrationID string) (map
 		return nil, nil
 	}
 	return report, nil
+}
+
+func writeOperationReport(value paths, args []string, output io.Writer) error {
+	var report map[string]any
+	var err error
+	if len(args) == 4 && args[0] == "--request-id" && args[2] == "--registration-id" && operationIDPattern.MatchString(args[1]) && operationIDPattern.MatchString(args[3]) {
+		report, err = readCorrelatedOperation(value, args[1], args[3])
+	} else {
+		var id string
+		id, err = parseLifecycleOperationArgs(args)
+		if err == nil {
+			report, err = readOperationReportByID(value, id)
+		}
+	}
+	if err != nil {
+		var blocked requestBlockedError
+		if errors.As(err, &blocked) {
+			if writeErr := json.NewEncoder(output).Encode(map[string]any{"error": map[string]string{"code": "request_blocked", "reason": "local_owner_fence", "requestId": blocked.requestID}}); writeErr != nil {
+				return writeErr
+			}
+		}
+		return err
+	}
+	return json.NewEncoder(output).Encode(report)
 }

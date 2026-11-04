@@ -115,7 +115,13 @@ Remove records its target tombstone before it completes local revocation. Old cl
 The native owner acquires the OS lock before it commits a supersession fence.
 A trusted caller can stop only its exact helper executor and must confirm exit before another mutation.
 
-`operation --request-id REQUEST` and `maintenance-status` read every accepted lifecycle receipt.
+`operation --request-id REQUEST` and `maintenance-status` read accepted lifecycle receipts.
+For `operation`, an exact request fenced by the local owner returns a nonzero exit with `error.code=request_blocked`, `reason=local_owner_fence`, and `requestId`.
+This error proves only that the request cannot run again. It does not prove its Registration target or cloud result.
+Keep the original receipt. Explicitly disconnect the cloud connection before a new setup.
+For an old `install-managed` request, an exact filtered read can fill its missing target from its protected version 1 plan or completion.
+The owner lock protects this one-time conversion. It preserves the original result and request, and does not change the active request.
+A blocked request, missing proof, or a newer Registration owner rejects that conversion.
 For a lost legacy recovery reply, add `--registration-id ID` to the original requested read.
 Only an explicit committed `correlationRequestId` on that same receipt can return the preserved native request.
 This one-time migration metadata does not redirect later requests or accept a historical success for another request.

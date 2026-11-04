@@ -22,6 +22,12 @@ Use inspectContainer task reconciliation. A missing task means stopped, not raw 
 
 ## Build and install
 
+A shared data reset fences old install requests before it removes their plans.
+Project that exact-request fence when reading status, even if the historical receipt still says retryable.
+The fence does not prove reset completion or cloud revocation. Do not infer a missing Registration target.
+Old successful installs delete their plan after they write a version 1 completion.
+Use that completion as identity proof when converting an unbound historical receipt. Do not require a live plan for success.
+
 Distribution ZIPs omit resource forks and extended attributes.
 Default `ditto` archives can emit AppleDouble `._` entries for those attributes.
 JavaScript extractors create ordinary files from those entries, which fail the bundle's strict code signature check.

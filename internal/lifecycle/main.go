@@ -118,21 +118,8 @@ func Main() {
 		if err != nil {
 			fatal(err.Error())
 		}
-		var report map[string]any
-		if len(commandArgs) == 4 && commandArgs[0] == "--request-id" && commandArgs[2] == "--registration-id" && operationIDPattern.MatchString(commandArgs[1]) && operationIDPattern.MatchString(commandArgs[3]) {
-			report, err = readCorrelatedOperation(resolved, commandArgs[1], commandArgs[3])
-		} else {
-			var id string
-			id, err = parseLifecycleOperationArgs(commandArgs)
-			if err == nil {
-				report, err = readOperationReportByID(resolved, id)
-			}
-		}
-		if err != nil {
+		if err := writeOperationReport(resolved, commandArgs, os.Stdout); err != nil {
 			fatal(err.Error())
-		}
-		if err := json.NewEncoder(os.Stdout).Encode(report); err != nil {
-			fatal("operation encoding failed")
 		}
 		return
 	}

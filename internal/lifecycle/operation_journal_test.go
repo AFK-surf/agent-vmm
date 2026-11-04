@@ -167,7 +167,7 @@ func TestLegacyRegistrationReadRetainsOriginalRequestWithoutAlias(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = atomicWriteStateFileAt(planDir, "plan.json", []byte(`{"version":1,"material":{"registration_id":"registration"}}`), 0600, nil)
+	err = atomicWriteStateFileAt(planDir, "plan.json", []byte(`{"version":1,"operation_id":"old-native-request","material":{"version":1,"operation_id":"old-native-request","registration_id":"registration"}}`), 0600, nil)
 	planDir.Close()
 	if err != nil {
 		t.Fatal(err)

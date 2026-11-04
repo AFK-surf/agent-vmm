@@ -125,6 +125,10 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		return lifecycleOperation{}, errors.New("the local owner removed this registration or Host installation")
 	}
 	if kind == "registration-recover" && targetRegistrationID != "" {
+		if legacy, err := loadLifecycleReceipt(directory, requestID); err == nil && legacy.Kind == "install-managed" && state.RegistrationRequests[targetRegistrationID] != "" && state.RegistrationRequests[targetRegistrationID] != requestID {
+			directory.Close()
+			return *legacy, errors.New("a newer request owns this Registration")
+		}
 		priorID := state.RegistrationRequests[targetRegistrationID]
 		if priorID != "" && priorID != requestID {
 			prior, err := loadLifecycleReceipt(directory, priorID)
@@ -204,13 +208,21 @@ func runLifecycleOperationWithFailedRetry(value paths, kind, requestID, targetRe
 		if previous.Outcome == "superseded" || previous.SupersededByRequestID != "" {
 			return *previous, errors.New("request was superseded by " + previous.SupersededByRequestID)
 		}
-		if kind == "registration-recover" && previous.Kind == "install-managed" && previous.TargetRegistrationID == "" {
-			original, err := originalRegistrationRequestID(value, targetRegistrationID, "", kind)
-			if err != nil {
-				return *previous, err
+		if kind == "registration-recover" && previous.Kind == "install-managed" {
+			if previous.Outcome == "succeeded" {
+				return *previous, errors.New("the legacy request already completed")
 			}
-			if original != requestID {
-				return *previous, errors.New("legacy request belongs to another registration")
+			if previous.TargetRegistrationID != targetRegistrationID {
+				if previous.TargetRegistrationID != "" {
+					return *previous, errors.New("legacy request belongs to another registration")
+				}
+				target, err := legacyRegistrationTarget(value, requestID)
+				if err != nil {
+					return *previous, err
+				}
+				if target != targetRegistrationID {
+					return *previous, errors.New("legacy request belongs to another registration")
+				}
 			}
 			previous.Kind = kind
 			previous.TargetRegistrationID = targetRegistrationID
