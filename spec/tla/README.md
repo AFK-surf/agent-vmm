@@ -30,6 +30,12 @@ form an artificial Cartesian product:
   watermarks, and ref-safe GC. The production private containerd image record
   refines the shared materialization fact; per-environment image records refine
   retained references rather than owning another physical snapshot.
+  Accepted-source receipt pins refine the same retained references. The runtime
+  inventory checks grants and pins under one lock. A copy publishes its target
+  grant before settlement releases its source pin. Unknown metadata writes preserve their candidate as a conservative retained
+  reference until a positive owner fact or the existing daemon-fenced rebuild.
+  Unreadable source pins disable destructive orphan GC, not runtime service.
+  The GC worker changes only scheduling. This model makes no cleanup progress claim.
 - `GuestDiskBudget.tla` owns the narrow physical `U+W+I+E+M<=D` budget shared by
   quota admission, retained namespaces, imports, and cache/content/snapshot GC;
   all allocated bytes live in the single `U` fact.

@@ -31,6 +31,14 @@ Overlay upper and work directories retain the same project.
 Creation-time inheritance assigns immutable content to the shared pool project.
 Shared logical image size is not physical space reclaimed by deleting one grant.
 
+VMMD samples pool project quotas in one coalesced worker. Requests read its cached sample without namespace RPCs or admission commitment scans.
+Project 9000 reports images and shared runtime files. Project 9001 reports build cache.
+Private bytes include all namespace projects on the pool filesystem, including projects outside the displayed environment page.
+Other bytes are the physical remainder. These categories partition one sample of used bytes.
+Import `.hold` allocations remain excluded from used bytes. Unused builder quota credit remains a reservation, not physical usage.
+Missing quota facts leave categories absent. A disk sample expires after 15 seconds.
+The Host stamps successful summary collection after the Guest reply.
+
 Disk admission uses filesystem usage, quota commitments, metadata reserves, and admitted import or builder growth.
 A quota is a hard limit. It does not allocate every permitted byte in advance.
 A system installation has an independent data quota on the control filesystem.
@@ -50,6 +58,24 @@ Only sandbox-visible `SETUID`, `SETGID`, and `SETPCAP` support sub-ID mapping.
 The sandbox mounts only the authorized context, temporary secrets, cache, and output.
 BuildKit control sockets never enter a workload.
 Build output uses the caller's bounded progress stream. It does not enter the shared Guest log.
+
+VMMD owns ordinary orphan image collection. Startup reconstructs logical grants. The GC worker reconstructs accepted-source pins before destructive collection.
+One worker coalesces release notifications and visits at most 32 indexed roots per batch.
+Each pass has a fixed upper bound. Changes during a pass schedule another pass.
+Each batch releases the materialization slot before the next batch. Failed batches retry after one second.
+Shutdown cancels and joins the worker before containerd closes or filesystems detach.
+Only exact digest-owned runtime image names qualify. Ordinary collection preserves retained build roots and temporary writer roots.
+A grant replacement, partial release, import completion, or settled writer can wake collection.
+The inventory checks grants and retention pins together. Copies publish target grants before settlement releases source pins.
+Receipt acceptance and image publication pin their candidate before the metadata write.
+A lost write reply preserves the previous grant and candidate pin. Positive owner indexing or terminal receipt observation releases the matching pin.
+An unconfirmed write can retain its candidate until the existing startup process settles the previous containerd daemon and rebuilds inventory.
+A same-daemon recovery read cannot clear a pin merely because its record is absent.
+Unreadable source receipts defer orphan collection and retry in its worker. They do not block VMMD startup or existing workload service.
+Source-less receipts do not require payload decoding for collection.
+Fresh first-grant creation holds the materialization slot. Existing grants or accepted pins protect warm copies.
+Containerd synchronous deletion preserves shared content and snapshots still used by containers or other roots.
+Retained image and builder cache eviction remains pressure-driven. Deleting a logical grant does not wait for physical collection.
 
 Use the [image receipt contract](../protocols/remote.md#image-operation-receipts) before replacement or deletion.
 

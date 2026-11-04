@@ -4,6 +4,7 @@ package quota
 
 import (
 	"fmt"
+	"io"
 	"math/bits"
 	"os"
 	"unsafe"
@@ -145,4 +146,42 @@ func SetLimit(device string, projectID uint32, bytes uint64) error {
 		return fmt.Errorf("set project quota %d: %w", projectID, errno)
 	}
 	return nil
+}
+
+// Next returns the next allocated project quota at or above projectID.
+func Next(device string, projectID uint32) (uint32, State, error) {
+	devicePointer, err := unix.BytePtrFromString(device)
+	if err != nil {
+		return 0, State{}, err
+	}
+	record := struct {
+		BlockHardLimit uint64
+		BlockSoftLimit uint64
+		CurrentSpace   uint64
+		InodeHardLimit uint64
+		InodeSoftLimit uint64
+		CurrentInodes  uint64
+		BlockTime      uint64
+		InodeTime      uint64
+		Valid          uint32
+		ID             uint32
+	}{}
+	command := uintptr(0x800009<<8 | projectQuota)
+	_, _, errno := unix.Syscall6(unix.SYS_QUOTACTL, command, uintptr(unsafe.Pointer(devicePointer)), uintptr(projectID), uintptr(unsafe.Pointer(&record)), 0, 0)
+	if errno == unix.ENOENT || errno == unix.ESRCH {
+		// ext4 and XFS differ at end-of-enumeration. Confirm quota access so a
+		// missing device or disabled quotas cannot become an empty usage sample.
+		if _, err := Read(device, projectID); err != nil {
+			return 0, State{}, err
+		}
+		return 0, State{}, io.EOF
+	}
+	if errno != 0 {
+		return 0, State{}, fmt.Errorf("read next project quota %d: %w", projectID, errno)
+	}
+	high, limit := bits.Mul64(record.BlockHardLimit, 1024)
+	if high != 0 {
+		return 0, State{}, fmt.Errorf("project quota %d limit overflows byte accounting", record.ID)
+	}
+	return record.ID, State{UsageBytes: record.CurrentSpace, HardLimitBytes: limit}, nil
 }

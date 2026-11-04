@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
 	"github.com/AFK-surf/agent-vmm/internal/guest/namespaceconfig"
@@ -272,18 +271,6 @@ func (r *Runtime) deleteNamespaceUnderBudgetLocked(ctx context.Context, namespac
 	}
 	if err := r.network.DeleteNamespace(namespaceID); err != nil {
 		return err
-	}
-	operationLabels, err := r.client.NamespaceService().Labels(ctx, runtimeContainerdNamespace)
-	if err != nil {
-		return err
-	}
-	operationPrefix := fmt.Sprintf("%simage-operation.%x.", labelPrefix, sha256.Sum256([]byte(namespaceID)))
-	for key := range operationLabels {
-		if strings.HasPrefix(key, operationPrefix) {
-			if err := r.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, ""); err != nil {
-				return err
-			}
-		}
 	}
 	if err := r.client.NamespaceService().Delete(ctx, namespaceID); err != nil {
 		return err

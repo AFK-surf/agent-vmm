@@ -5,8 +5,11 @@ package host
 import (
 	"context"
 	"fmt"
+	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"path/filepath"
 	"testing"
+	"time"
 
 	hostv1 "github.com/AFK-surf/agent-vmm/api/host/v1"
 	"github.com/AFK-surf/agent-vmm/internal/host/auth"
@@ -63,5 +66,27 @@ func TestLocalResourcePagesKeepMoreThanPreviewLimitAndUnknownMetrics(t *testing.
 	})
 	if err != nil || result.(*hostv1.GetLocalDiskSummaryResponse).GetGuestStateFs() != nil {
 		t.Fatalf("disk summary depended on database or filled missing metric: %v,%v", result, err)
+	}
+}
+
+type sampledDiskGuest struct {
+	vmmdv1.UnimplementedVMMDServiceServer
+}
+
+func (sampledDiskGuest) GetSystemUsage(context.Context, *vmmdv1.GetSystemUsageRequest) (*vmmdv1.GetUsageResponse, error) {
+	images, cache, private, other := uint64(1), uint64(2), uint64(3), uint64(4)
+	return &vmmdv1.GetUsageResponse{Disk: &vmmdv1.DiskAccounting{UsedBytes: 10, ImageRuntimeBytes: &images, BuildCacheBytes: &cache, PrivateBytes: &private, OtherBytes: &other, BreakdownSampledAtUnixNano: time.Now().UnixNano()}}, nil
+}
+func TestLocalDiskSummaryCollectionCompletesAfterGuestSample(t *testing.T) {
+	before := timestamppb.New(time.Now().Add(-time.Second))
+	result, err := readLocalDiskSummary(context.Background(), &hostv1.GetLocalDiskSummaryResponse{CollectedAt: before}, workloadGuestClient(t, sampledDiskGuest{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.CollectedAt.AsTime().Before(result.GuestStateFs.BreakdownSampledAt.AsTime()) {
+		t.Fatalf("collection predates Guest sample: %v", result)
+	}
+	if result.GuestStateFs.GetImageRuntimeBytes()+result.GuestStateFs.GetBuildCacheBytes()+result.GuestStateFs.GetPrivateBytes()+result.GuestStateFs.GetOtherBytes() != result.GuestStateFs.GetUsedBytes() {
+		t.Fatal(result)
 	}
 }

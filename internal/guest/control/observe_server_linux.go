@@ -52,14 +52,8 @@ func (s *Server) GetSystemUsage(ctx context.Context, _ *vmmdv1.GetSystemUsageReq
 	} else {
 		response.OpenFdsUnavailableReason = boundedObservationFailure("Guest file descriptors", openFDErr)
 	}
-	if disk, diskErr := s.runtime.guestDiskSnapshot(ctx); diskErr == nil {
-		response.Disk = &vmmdv1.DiskAccounting{
-			UsedBytes:              disk.UsedBytes,
-			CapacityBytes:          disk.CapacityBytes,
-			ImportReservationBytes: disk.ImportReservationBytes,
-			SystemReserveBytes:     disk.EmergencyBytes,
-			MetadataReserveBytes:   disk.MetadataGrowthBytes,
-		}
+	if disk, diskErr := s.runtime.observedDiskAccounting(); diskErr == nil {
+		response.Disk = disk
 	} else {
 		response.DiskUnavailableReason = boundedObservationFailure("Guest disk", diskErr)
 	}

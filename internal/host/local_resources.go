@@ -26,10 +26,15 @@ func (server *operatorServer) GetLocalDiskSummary(ctx context.Context, _ *hostv1
 		return result, nil
 	}
 
+	return readLocalDiskSummary(ctx, result, client)
+}
+
+func readLocalDiskSummary(ctx context.Context, result *hostv1.GetLocalDiskSummaryResponse, client vmmdv1.VMMDServiceClient) (*hostv1.GetLocalDiskSummaryResponse, error) {
 	usage, err := client.GetSystemUsage(ctx, &vmmdv1.GetSystemUsageRequest{})
 	if err != nil || usage.GetDisk() == nil {
 		return result, nil
 	}
+	result.CollectedAt = timestamppb.Now()
 	result.GuestStateFs = guestLayerResources(usage).GetDisk()
 	result.UnavailableReason = ""
 	return result, nil

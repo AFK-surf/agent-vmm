@@ -205,8 +205,8 @@ func (r *Runtime) pruneSystemImages(ctx context.Context, namespaceID, currentRef
 			return err
 		}
 	}
-	_, err = r.pruneUnreferencedRuntimeImages(ctx, maxGCDeletes)
-	return err
+	r.wakeRuntimeGC()
+	return nil
 }
 
 func (r *Runtime) prepareSystemImageImport(ctx context.Context, header *vmmdv1.ImportImageHeader, reference, targetDigest string) error {

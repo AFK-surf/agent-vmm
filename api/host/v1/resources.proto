@@ -523,6 +523,11 @@ message DiskAccounting {
   optional uint64 import_reservation_bytes = 4;
   optional uint64 system_reserve_bytes = 5;
   optional uint64 metadata_reserve_bytes = 6;
+  optional uint64 image_runtime_bytes = 7;
+  optional uint64 build_cache_bytes = 8;
+  optional uint64 private_bytes = 9;
+  optional uint64 other_bytes = 10;
+  google.protobuf.Timestamp breakdown_sampled_at = 11;
 }
 
 // LayerResources reports sampled resource facts for one implementation layer and preserves

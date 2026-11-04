@@ -190,6 +190,11 @@ message DiskAccounting {
   uint64 import_reservation_bytes = 3;
   uint64 system_reserve_bytes = 4;
   uint64 metadata_reserve_bytes = 5;
+  optional uint64 image_runtime_bytes = 6;
+  optional uint64 build_cache_bytes = 7;
+  optional uint64 private_bytes = 8;
+  optional uint64 other_bytes = 9;
+  int64 breakdown_sampled_at_unix_nano = 10;
 }
 
 enum LogStream {

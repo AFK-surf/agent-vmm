@@ -60,6 +60,15 @@ type Runtime struct {
 	materializationSlot      *semaphore.Weighted
 	inventory                *runtimeInventoryIndex
 	gcMu                     sync.Mutex
+	gcWake                   chan struct{}
+	gcCancel                 context.CancelFunc
+	gcDone                   chan struct{}
+	diskSampleMu             sync.Mutex
+	diskSample               *vmmdv1.DiskAccounting
+	diskSampleErr            error
+	diskSampleWake           chan struct{}
+	diskSampleCancel         context.CancelFunc
+	diskSampleDone           chan struct{}
 	gcRuntimeImageCursor     string
 	gcRetainedImageCursor    string
 	volumeSampler            func(string) (uint64, error)
@@ -142,6 +151,8 @@ func NewRuntime(stateDevice, controlDevice string, network *guestnetwork.Manager
 		return nil, fmt.Errorf("rebuild namespace network: %w", err)
 	}
 
+	runtime.startRuntimeGC()
+	runtime.startDiskSampler()
 	return runtime, nil
 }
 
@@ -209,7 +220,7 @@ func (r *Runtime) rehydrateNetwork(ctx context.Context) error {
 	return nil
 }
 
-func (r *Runtime) Close() error { return r.client.Close() }
+func (r *Runtime) Close() error { r.stopRuntimeGC(); r.stopDiskSampler(); return r.client.Close() }
 
 func syncStateFilesystem() error {
 	for _, path := range []string{stateRoot, controlRoot} {

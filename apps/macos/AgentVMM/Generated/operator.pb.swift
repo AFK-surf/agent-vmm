@@ -2045,41 +2045,49 @@ public nonisolated struct Agentvmm_Host_V1_GetRemoteRegistrationResponse: Sendab
 
 /// GetLocalDiskSummaryResponse carries results from an operation that reads Guest filesystem
 /// accounting without scanning every environment or collecting compute metrics.
-public nonisolated struct Agentvmm_Host_V1_GetLocalDiskSummaryResponse: Sendable {
+public nonisolated struct Agentvmm_Host_V1_GetLocalDiskSummaryResponse: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_collectedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_collectedAt = newValue}
+    get {_storage._collectedAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_uniqueStorage()._collectedAt = newValue}
   }
   /// Returns true if `collectedAt` has been explicitly set.
-  public var hasCollectedAt: Bool {self._collectedAt != nil}
+  public var hasCollectedAt: Bool {_storage._collectedAt != nil}
   /// Clears the value of `collectedAt`. Subsequent reads from it will return its default value.
-  public mutating func clearCollectedAt() {self._collectedAt = nil}
+  public mutating func clearCollectedAt() {_uniqueStorage()._collectedAt = nil}
 
-  public var bootID: String = String()
+  public var bootID: String {
+    get {_storage._bootID}
+    set {_uniqueStorage()._bootID = newValue}
+  }
 
-  public var vmState: Agentvmm_Host_V1_VMState = .unspecified
+  public var vmState: Agentvmm_Host_V1_VMState {
+    get {_storage._vmState}
+    set {_uniqueStorage()._vmState = newValue}
+  }
 
   public var guestStateFs: Agentvmm_Host_V1_DiskAccounting {
-    get {_guestStateFs ?? Agentvmm_Host_V1_DiskAccounting()}
-    set {_guestStateFs = newValue}
+    get {_storage._guestStateFs ?? Agentvmm_Host_V1_DiskAccounting()}
+    set {_uniqueStorage()._guestStateFs = newValue}
   }
   /// Returns true if `guestStateFs` has been explicitly set.
-  public var hasGuestStateFs: Bool {self._guestStateFs != nil}
+  public var hasGuestStateFs: Bool {_storage._guestStateFs != nil}
   /// Clears the value of `guestStateFs`. Subsequent reads from it will return its default value.
-  public mutating func clearGuestStateFs() {self._guestStateFs = nil}
+  public mutating func clearGuestStateFs() {_uniqueStorage()._guestStateFs = nil}
 
-  public var unavailableReason: String = String()
+  public var unavailableReason: String {
+    get {_storage._unavailableReason}
+    set {_uniqueStorage()._unavailableReason = newValue}
+  }
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
-  fileprivate var _guestStateFs: Agentvmm_Host_V1_DiskAccounting? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 /// ListLocalEnvironmentPageResponse carries results from an operation that reads an indexed
@@ -6286,51 +6294,95 @@ nonisolated extension Agentvmm_Host_V1_GetLocalDiskSummaryResponse: SwiftProtobu
   public static let protoMessageName: String = _protobuf_package + ".GetLocalDiskSummaryResponse"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}collected_at\0\u{3}boot_id\0\u{3}vm_state\0\u{3}guest_state_fs\0\u{3}unavailable_reason\0")
 
+  fileprivate class _StorageClass {
+    var _collectedAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+    var _bootID: String = String()
+    var _vmState: Agentvmm_Host_V1_VMState = .unspecified
+    var _guestStateFs: Agentvmm_Host_V1_DiskAccounting? = nil
+    var _unavailableReason: String = String()
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _collectedAt = source._collectedAt
+      _bootID = source._bootID
+      _vmState = source._vmState
+      _guestStateFs = source._guestStateFs
+      _unavailableReason = source._unavailableReason
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularMessageField(value: &self._collectedAt) }()
-      case 2: try { try decoder.decodeSingularStringField(value: &self.bootID) }()
-      case 3: try { try decoder.decodeSingularEnumField(value: &self.vmState) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._guestStateFs) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularMessageField(value: &_storage._collectedAt) }()
+        case 2: try { try decoder.decodeSingularStringField(value: &_storage._bootID) }()
+        case 3: try { try decoder.decodeSingularEnumField(value: &_storage._vmState) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._guestStateFs) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._unavailableReason) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._collectedAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
-    } }()
-    if !self.bootID.isEmpty {
-      try visitor.visitSingularStringField(value: self.bootID, fieldNumber: 2)
-    }
-    if self.vmState != .unspecified {
-      try visitor.visitSingularEnumField(value: self.vmState, fieldNumber: 3)
-    }
-    try { if let v = self._guestStateFs {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    } }()
-    if !self.unavailableReason.isEmpty {
-      try visitor.visitSingularStringField(value: self.unavailableReason, fieldNumber: 5)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._collectedAt {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 1)
+      } }()
+      if !_storage._bootID.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._bootID, fieldNumber: 2)
+      }
+      if _storage._vmState != .unspecified {
+        try visitor.visitSingularEnumField(value: _storage._vmState, fieldNumber: 3)
+      }
+      try { if let v = _storage._guestStateFs {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
+      if !_storage._unavailableReason.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._unavailableReason, fieldNumber: 5)
+      }
     }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_GetLocalDiskSummaryResponse, rhs: Agentvmm_Host_V1_GetLocalDiskSummaryResponse) -> Bool {
-    if lhs._collectedAt != rhs._collectedAt {return false}
-    if lhs.bootID != rhs.bootID {return false}
-    if lhs.vmState != rhs.vmState {return false}
-    if lhs._guestStateFs != rhs._guestStateFs {return false}
-    if lhs.unavailableReason != rhs.unavailableReason {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._collectedAt != rhs_storage._collectedAt {return false}
+        if _storage._bootID != rhs_storage._bootID {return false}
+        if _storage._vmState != rhs_storage._vmState {return false}
+        if _storage._guestStateFs != rhs_storage._guestStateFs {return false}
+        if _storage._unavailableReason != rhs_storage._unavailableReason {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

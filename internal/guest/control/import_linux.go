@@ -209,6 +209,7 @@ func (r *Runtime) createImportArchive() (*os.File, error) {
 }
 
 func (r *Runtime) importImage(ctx context.Context, archive io.ReadSeeker, header *vmmdv1.ImportImageHeader, imageReference string, manifest ocispec.Descriptor, system, replaceTarget bool) (result *vmmdv1.Image, importErr error) {
+	defer r.wakeRuntimeGC()
 	unlock, err := r.lockNamespace(ctx, header.GetActorNamespaceId())
 	if err != nil {
 		return nil, err
@@ -366,7 +367,11 @@ func (r *Runtime) indexCommittedImage(namespaceID, reference, targetDigest strin
 	if err != nil {
 		return err
 	}
-	return inventory.addImage(namespaceID, reference, targetDigest)
+	if err := inventory.addImage(namespaceID, reference, targetDigest); err != nil {
+		return err
+	}
+	r.releaseImagePin(imagePublicationKey(namespaceID, reference, targetDigest))
+	return nil
 }
 
 func (r *Runtime) commitLogicalImageRecord(ctx context.Context, current containerd.Image, currentErr error, reference string, target ocispec.Descriptor, fingerprint string) error {
@@ -453,6 +458,11 @@ func (r *Runtime) commitImportedImage(ctx context.Context, header *vmmdv1.Import
 	current, currentErr := r.client.GetImage(logicalContext, reference)
 	if currentErr == nil && current.Target().Digest != target.Digest && !replace {
 		return nil, hostv1.NewError(codes.Aborted, hostv1.ErrorReason_ERROR_REASON_IMAGE_DIGEST_CONFLICT, "image reference already names different content", hostv1.WithResource("image", reference))
+	}
+	if (currentErr == nil && current.Target().Digest != target.Digest) || errdefs.IsNotFound(currentErr) {
+		if _, err := r.pinImagePublication(namespace, reference, target.Digest.String()); err != nil {
+			return nil, err
+		}
 	}
 	if err := r.commitLogicalImageRecord(logicalContext, current, currentErr, reference, target, fingerprint); err != nil {
 		return nil, err

@@ -7,7 +7,6 @@ import (
 	"errors"
 
 	vmmdv1 "github.com/AFK-surf/agent-vmm/internal/api/vmmd/v1"
-	coreimages "github.com/containerd/containerd/v2/core/images"
 	"github.com/containerd/errdefs"
 )
 
@@ -50,32 +49,6 @@ func (r *Runtime) releaseSystemInstallationImagesMaterializerHeld(ctx context.Co
 	if err := r.pruneSystemImages(ctx, namespaceID, "", ""); err != nil {
 		return err
 	}
-	records, err := r.client.ImageService().List(runtimeContext(ctx))
-	if err != nil {
-		return err
-	}
-	inventory, err := r.requireRuntimeInventory()
-	if err != nil {
-		return err
-	}
-	for _, record := range records {
-		if record.Name != runtimeImageReference(record.Target.Digest) {
-			continue
-		}
-		retained, err := r.runtimeImageRetained(ctx, record.Target.Digest)
-		if err == nil && !retained {
-			reference := record.Name
-			err = r.client.ImageService().Delete(runtimeContext(ctx), reference, coreimages.SynchronousDelete())
-			if errdefs.IsNotFound(err) {
-				err = nil
-			}
-			if err == nil {
-				inventory.removeRuntimeImage(reference)
-			}
-		}
-		if err != nil {
-			return err
-		}
-	}
+	r.wakeRuntimeGC()
 	return nil
 }

@@ -17,12 +17,17 @@ import (
 // runtimeInventoryIndex is a rebuildable, in-memory projection of
 // containerd-owned records. It lets request paths enumerate one owner without
 // scanning the shared runtime containerd namespace. containerd remains the
-// durable authority; NewRuntime rebuilds this index before VMMD is available.
+// durable authority; NewRuntime rebuilds the grants before VMMD is available.
+// The GC worker recovers source pins before destructive orphan collection.
 type runtimeInventoryIndex struct {
 	mu              sync.RWMutex
 	containers      map[string]*btree.BTreeG[string]
 	images          map[string]map[string]string
 	imageDigestRefs map[string]uint64
+	imagePins       map[string]string
+	imagePinCounts  map[string]uint64
+	sourcePinsReady bool
+	wakeGC          func()
 	runtimeImages   *btree.BTreeG[string]
 }
 
@@ -31,7 +36,36 @@ func newRuntimeInventoryIndex() *runtimeInventoryIndex {
 		containers:      make(map[string]*btree.BTreeG[string]),
 		images:          make(map[string]map[string]string),
 		imageDigestRefs: make(map[string]uint64),
+		imagePins:       make(map[string]string),
+		imagePinCounts:  make(map[string]uint64),
+		sourcePinsReady: true,
 		runtimeImages:   btree.NewG(8, func(left, right string) bool { return left < right }),
+	}
+}
+
+func (index *runtimeInventoryIndex) notifyGC() {
+	if index.wakeGC != nil {
+		index.wakeGC()
+	}
+}
+
+// The caller holds mu. Pins also cover writes with an unknown commit result.
+func (index *runtimeInventoryIndex) setImagePinLocked(key, target string) {
+	if old := index.imagePins[key]; old != "" {
+		if old == target {
+			return
+		}
+		if index.imagePinCounts[old] <= 1 {
+			delete(index.imagePinCounts, old)
+		} else {
+			index.imagePinCounts[old]--
+		}
+		delete(index.imagePins, key)
+		index.notifyGC()
+	}
+	if target != "" {
+		index.imagePins[key] = target
+		index.imagePinCounts[target]++
 	}
 }
 
@@ -39,6 +73,7 @@ func (index *runtimeInventoryIndex) addRuntimeImage(reference string) {
 	index.mu.Lock()
 	defer index.mu.Unlock()
 	index.runtimeImages.ReplaceOrInsert(reference)
+	index.notifyGC()
 }
 
 func (index *runtimeInventoryIndex) removeRuntimeImage(reference string) {
@@ -122,6 +157,7 @@ func (index *runtimeInventoryIndex) addImage(namespaceID, reference, targetDiges
 		if current == targetDigest {
 			return nil
 		}
+		index.notifyGC()
 		if index.imageDigestRefs[current] <= 1 {
 			delete(index.imageDigestRefs, current)
 		} else {
@@ -145,6 +181,7 @@ func (index *runtimeInventoryIndex) removeImage(namespaceID, reference string) e
 		return fmt.Errorf("runtime image %q/%q is not indexed", namespaceID, reference)
 	}
 	delete(values, reference)
+	index.notifyGC()
 	if index.imageDigestRefs[targetDigest] <= 1 {
 		delete(index.imageDigestRefs, targetDigest)
 	} else {
@@ -156,7 +193,7 @@ func (index *runtimeInventoryIndex) removeImage(namespaceID, reference string) e
 func (index *runtimeInventoryIndex) imageDigestReferenced(targetDigest string) bool {
 	index.mu.RLock()
 	defer index.mu.RUnlock()
-	return index.imageDigestRefs[targetDigest] != 0
+	return index.imageDigestRefs[targetDigest] != 0 || index.imagePinCounts[targetDigest] != 0
 }
 
 func (index *runtimeInventoryIndex) removeNamespace(namespaceID string) error {
@@ -298,6 +335,8 @@ func (r *Runtime) rebuildRuntimeInventory(ctx context.Context) error {
 		}
 		rebuilt.addRuntimeImage(record.Name)
 	}
+	rebuilt.sourcePinsReady = false
+	rebuilt.wakeGC = r.wakeRuntimeGC
 	r.inventory = rebuilt
 	return nil
 }

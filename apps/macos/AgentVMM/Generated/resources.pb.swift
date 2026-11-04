@@ -2379,6 +2379,51 @@ public nonisolated struct Agentvmm_Host_V1_DiskAccounting: Sendable {
   /// Clears the value of `metadataReserveBytes`. Subsequent reads from it will return its default value.
   public mutating func clearMetadataReserveBytes() {self._metadataReserveBytes = nil}
 
+  public var imageRuntimeBytes: UInt64 {
+    get {_imageRuntimeBytes ?? 0}
+    set {_imageRuntimeBytes = newValue}
+  }
+  /// Returns true if `imageRuntimeBytes` has been explicitly set.
+  public var hasImageRuntimeBytes: Bool {self._imageRuntimeBytes != nil}
+  /// Clears the value of `imageRuntimeBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearImageRuntimeBytes() {self._imageRuntimeBytes = nil}
+
+  public var buildCacheBytes: UInt64 {
+    get {_buildCacheBytes ?? 0}
+    set {_buildCacheBytes = newValue}
+  }
+  /// Returns true if `buildCacheBytes` has been explicitly set.
+  public var hasBuildCacheBytes: Bool {self._buildCacheBytes != nil}
+  /// Clears the value of `buildCacheBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearBuildCacheBytes() {self._buildCacheBytes = nil}
+
+  public var privateBytes: UInt64 {
+    get {_privateBytes ?? 0}
+    set {_privateBytes = newValue}
+  }
+  /// Returns true if `privateBytes` has been explicitly set.
+  public var hasPrivateBytes: Bool {self._privateBytes != nil}
+  /// Clears the value of `privateBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearPrivateBytes() {self._privateBytes = nil}
+
+  public var otherBytes: UInt64 {
+    get {_otherBytes ?? 0}
+    set {_otherBytes = newValue}
+  }
+  /// Returns true if `otherBytes` has been explicitly set.
+  public var hasOtherBytes: Bool {self._otherBytes != nil}
+  /// Clears the value of `otherBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearOtherBytes() {self._otherBytes = nil}
+
+  public var breakdownSampledAt: SwiftProtobuf.Google_Protobuf_Timestamp {
+    get {_breakdownSampledAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_breakdownSampledAt = newValue}
+  }
+  /// Returns true if `breakdownSampledAt` has been explicitly set.
+  public var hasBreakdownSampledAt: Bool {self._breakdownSampledAt != nil}
+  /// Clears the value of `breakdownSampledAt`. Subsequent reads from it will return its default value.
+  public mutating func clearBreakdownSampledAt() {self._breakdownSampledAt = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -2389,71 +2434,75 @@ public nonisolated struct Agentvmm_Host_V1_DiskAccounting: Sendable {
   fileprivate var _importReservationBytes: UInt64? = nil
   fileprivate var _systemReserveBytes: UInt64? = nil
   fileprivate var _metadataReserveBytes: UInt64? = nil
+  fileprivate var _imageRuntimeBytes: UInt64? = nil
+  fileprivate var _buildCacheBytes: UInt64? = nil
+  fileprivate var _privateBytes: UInt64? = nil
+  fileprivate var _otherBytes: UInt64? = nil
+  fileprivate var _breakdownSampledAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
 }
 
 /// LayerResources reports sampled resource facts for one implementation layer and preserves
 /// unavailable observations.
-public nonisolated struct Agentvmm_Host_V1_LayerResources: Sendable {
+public nonisolated struct Agentvmm_Host_V1_LayerResources: @unchecked Sendable {
   // SwiftProtobuf.Message conformance is added in an extension below. See the
   // `Message` and `Message+*Additions` files in the SwiftProtobuf library for
   // methods supported on all messages.
 
   public var memoryBytes: UInt64 {
-    get {_memoryBytes ?? 0}
-    set {_memoryBytes = newValue}
+    get {_storage._memoryBytes ?? 0}
+    set {_uniqueStorage()._memoryBytes = newValue}
   }
   /// Returns true if `memoryBytes` has been explicitly set.
-  public var hasMemoryBytes: Bool {self._memoryBytes != nil}
+  public var hasMemoryBytes: Bool {_storage._memoryBytes != nil}
   /// Clears the value of `memoryBytes`. Subsequent reads from it will return its default value.
-  public mutating func clearMemoryBytes() {self._memoryBytes = nil}
+  public mutating func clearMemoryBytes() {_uniqueStorage()._memoryBytes = nil}
 
   public var pids: UInt32 {
-    get {_pids ?? 0}
-    set {_pids = newValue}
+    get {_storage._pids ?? 0}
+    set {_uniqueStorage()._pids = newValue}
   }
   /// Returns true if `pids` has been explicitly set.
-  public var hasPids: Bool {self._pids != nil}
+  public var hasPids: Bool {_storage._pids != nil}
   /// Clears the value of `pids`. Subsequent reads from it will return its default value.
-  public mutating func clearPids() {self._pids = nil}
+  public mutating func clearPids() {_uniqueStorage()._pids = nil}
 
   public var openFds: UInt32 {
-    get {_openFds ?? 0}
-    set {_openFds = newValue}
+    get {_storage._openFds ?? 0}
+    set {_uniqueStorage()._openFds = newValue}
   }
   /// Returns true if `openFds` has been explicitly set.
-  public var hasOpenFds: Bool {self._openFds != nil}
+  public var hasOpenFds: Bool {_storage._openFds != nil}
   /// Clears the value of `openFds`. Subsequent reads from it will return its default value.
-  public mutating func clearOpenFds() {self._openFds = nil}
+  public mutating func clearOpenFds() {_uniqueStorage()._openFds = nil}
 
   public var disk: Agentvmm_Host_V1_DiskAccounting {
-    get {_disk ?? Agentvmm_Host_V1_DiskAccounting()}
-    set {_disk = newValue}
+    get {_storage._disk ?? Agentvmm_Host_V1_DiskAccounting()}
+    set {_uniqueStorage()._disk = newValue}
   }
   /// Returns true if `disk` has been explicitly set.
-  public var hasDisk: Bool {self._disk != nil}
+  public var hasDisk: Bool {_storage._disk != nil}
   /// Clears the value of `disk`. Subsequent reads from it will return its default value.
-  public mutating func clearDisk() {self._disk = nil}
+  public mutating func clearDisk() {_uniqueStorage()._disk = nil}
 
-  public var unavailableReason: String = String()
+  public var unavailableReason: String {
+    get {_storage._unavailableReason}
+    set {_uniqueStorage()._unavailableReason = newValue}
+  }
 
   public var sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp {
-    get {_sampledAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
-    set {_sampledAt = newValue}
+    get {_storage._sampledAt ?? SwiftProtobuf.Google_Protobuf_Timestamp()}
+    set {_uniqueStorage()._sampledAt = newValue}
   }
   /// Returns true if `sampledAt` has been explicitly set.
-  public var hasSampledAt: Bool {self._sampledAt != nil}
+  public var hasSampledAt: Bool {_storage._sampledAt != nil}
   /// Clears the value of `sampledAt`. Subsequent reads from it will return its default value.
-  public mutating func clearSampledAt() {self._sampledAt = nil}
+  public mutating func clearSampledAt() {_uniqueStorage()._sampledAt = nil}
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
 
-  fileprivate var _memoryBytes: UInt64? = nil
-  fileprivate var _pids: UInt32? = nil
-  fileprivate var _openFds: UInt32? = nil
-  fileprivate var _disk: Agentvmm_Host_V1_DiskAccounting? = nil
-  fileprivate var _sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+  fileprivate var _storage = _StorageClass.defaultInstance
 }
 
 /// ResourceReference identifies an owned object and its generation for impact or error reporting.
@@ -5138,7 +5187,7 @@ nonisolated extension Agentvmm_Host_V1_Usage: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentvmm_Host_V1_DiskAccounting: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".DiskAccounting"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}used_bytes\0\u{3}committed_bytes\0\u{3}capacity_bytes\0\u{3}import_reservation_bytes\0\u{3}system_reserve_bytes\0\u{3}metadata_reserve_bytes\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}used_bytes\0\u{3}committed_bytes\0\u{3}capacity_bytes\0\u{3}import_reservation_bytes\0\u{3}system_reserve_bytes\0\u{3}metadata_reserve_bytes\0\u{3}image_runtime_bytes\0\u{3}build_cache_bytes\0\u{3}private_bytes\0\u{3}other_bytes\0\u{3}breakdown_sampled_at\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -5152,6 +5201,11 @@ nonisolated extension Agentvmm_Host_V1_DiskAccounting: SwiftProtobuf.Message, Sw
       case 4: try { try decoder.decodeSingularUInt64Field(value: &self._importReservationBytes) }()
       case 5: try { try decoder.decodeSingularUInt64Field(value: &self._systemReserveBytes) }()
       case 6: try { try decoder.decodeSingularUInt64Field(value: &self._metadataReserveBytes) }()
+      case 7: try { try decoder.decodeSingularUInt64Field(value: &self._imageRuntimeBytes) }()
+      case 8: try { try decoder.decodeSingularUInt64Field(value: &self._buildCacheBytes) }()
+      case 9: try { try decoder.decodeSingularUInt64Field(value: &self._privateBytes) }()
+      case 10: try { try decoder.decodeSingularUInt64Field(value: &self._otherBytes) }()
+      case 11: try { try decoder.decodeSingularMessageField(value: &self._breakdownSampledAt) }()
       default: break
       }
     }
@@ -5180,6 +5234,21 @@ nonisolated extension Agentvmm_Host_V1_DiskAccounting: SwiftProtobuf.Message, Sw
     try { if let v = self._metadataReserveBytes {
       try visitor.visitSingularUInt64Field(value: v, fieldNumber: 6)
     } }()
+    try { if let v = self._imageRuntimeBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 7)
+    } }()
+    try { if let v = self._buildCacheBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 8)
+    } }()
+    try { if let v = self._privateBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 9)
+    } }()
+    try { if let v = self._otherBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 10)
+    } }()
+    try { if let v = self._breakdownSampledAt {
+      try visitor.visitSingularMessageField(value: v, fieldNumber: 11)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -5190,6 +5259,11 @@ nonisolated extension Agentvmm_Host_V1_DiskAccounting: SwiftProtobuf.Message, Sw
     if lhs._importReservationBytes != rhs._importReservationBytes {return false}
     if lhs._systemReserveBytes != rhs._systemReserveBytes {return false}
     if lhs._metadataReserveBytes != rhs._metadataReserveBytes {return false}
+    if lhs._imageRuntimeBytes != rhs._imageRuntimeBytes {return false}
+    if lhs._buildCacheBytes != rhs._buildCacheBytes {return false}
+    if lhs._privateBytes != rhs._privateBytes {return false}
+    if lhs._otherBytes != rhs._otherBytes {return false}
+    if lhs._breakdownSampledAt != rhs._breakdownSampledAt {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -5199,56 +5273,102 @@ nonisolated extension Agentvmm_Host_V1_LayerResources: SwiftProtobuf.Message, Sw
   public static let protoMessageName: String = _protobuf_package + ".LayerResources"
   public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}memory_bytes\0\u{1}pids\0\u{3}open_fds\0\u{1}disk\0\u{3}unavailable_reason\0\u{3}sampled_at\0")
 
+  fileprivate class _StorageClass {
+    var _memoryBytes: UInt64? = nil
+    var _pids: UInt32? = nil
+    var _openFds: UInt32? = nil
+    var _disk: Agentvmm_Host_V1_DiskAccounting? = nil
+    var _unavailableReason: String = String()
+    var _sampledAt: SwiftProtobuf.Google_Protobuf_Timestamp? = nil
+
+      // This property is used as the initial default value for new instances of the type.
+      // The type itself is protecting the reference to its storage via CoW semantics.
+      // This will force a copy to be made of this reference when the first mutation occurs;
+      // hence, it is safe to mark this as `nonisolated(unsafe)`.
+      static nonisolated(unsafe) let defaultInstance = _StorageClass()
+
+    private init() {}
+
+    init(copying source: _StorageClass) {
+      _memoryBytes = source._memoryBytes
+      _pids = source._pids
+      _openFds = source._openFds
+      _disk = source._disk
+      _unavailableReason = source._unavailableReason
+      _sampledAt = source._sampledAt
+    }
+  }
+
+  fileprivate mutating func _uniqueStorage() -> _StorageClass {
+    if !isKnownUniquelyReferenced(&_storage) {
+      _storage = _StorageClass(copying: _storage)
+    }
+    return _storage
+  }
+
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
-    while let fieldNumber = try decoder.nextFieldNumber() {
-      // The use of inline closures is to circumvent an issue where the compiler
-      // allocates stack space for every case branch when no optimizations are
-      // enabled. https://github.com/apple/swift-protobuf/issues/1034
-      switch fieldNumber {
-      case 1: try { try decoder.decodeSingularUInt64Field(value: &self._memoryBytes) }()
-      case 2: try { try decoder.decodeSingularUInt32Field(value: &self._pids) }()
-      case 3: try { try decoder.decodeSingularUInt32Field(value: &self._openFds) }()
-      case 4: try { try decoder.decodeSingularMessageField(value: &self._disk) }()
-      case 5: try { try decoder.decodeSingularStringField(value: &self.unavailableReason) }()
-      case 6: try { try decoder.decodeSingularMessageField(value: &self._sampledAt) }()
-      default: break
+    _ = _uniqueStorage()
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      while let fieldNumber = try decoder.nextFieldNumber() {
+        // The use of inline closures is to circumvent an issue where the compiler
+        // allocates stack space for every case branch when no optimizations are
+        // enabled. https://github.com/apple/swift-protobuf/issues/1034
+        switch fieldNumber {
+        case 1: try { try decoder.decodeSingularUInt64Field(value: &_storage._memoryBytes) }()
+        case 2: try { try decoder.decodeSingularUInt32Field(value: &_storage._pids) }()
+        case 3: try { try decoder.decodeSingularUInt32Field(value: &_storage._openFds) }()
+        case 4: try { try decoder.decodeSingularMessageField(value: &_storage._disk) }()
+        case 5: try { try decoder.decodeSingularStringField(value: &_storage._unavailableReason) }()
+        case 6: try { try decoder.decodeSingularMessageField(value: &_storage._sampledAt) }()
+        default: break
+        }
       }
     }
   }
 
   public func traverse<V: SwiftProtobuf.Visitor>(visitor: inout V) throws {
-    // The use of inline closures is to circumvent an issue where the compiler
-    // allocates stack space for every if/case branch local when no optimizations
-    // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
-    // https://github.com/apple/swift-protobuf/issues/1182
-    try { if let v = self._memoryBytes {
-      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
-    } }()
-    try { if let v = self._pids {
-      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 2)
-    } }()
-    try { if let v = self._openFds {
-      try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
-    } }()
-    try { if let v = self._disk {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
-    } }()
-    if !self.unavailableReason.isEmpty {
-      try visitor.visitSingularStringField(value: self.unavailableReason, fieldNumber: 5)
+    try withExtendedLifetime(_storage) { (_storage: _StorageClass) in
+      // The use of inline closures is to circumvent an issue where the compiler
+      // allocates stack space for every if/case branch local when no optimizations
+      // are enabled. https://github.com/apple/swift-protobuf/issues/1034 and
+      // https://github.com/apple/swift-protobuf/issues/1182
+      try { if let v = _storage._memoryBytes {
+        try visitor.visitSingularUInt64Field(value: v, fieldNumber: 1)
+      } }()
+      try { if let v = _storage._pids {
+        try visitor.visitSingularUInt32Field(value: v, fieldNumber: 2)
+      } }()
+      try { if let v = _storage._openFds {
+        try visitor.visitSingularUInt32Field(value: v, fieldNumber: 3)
+      } }()
+      try { if let v = _storage._disk {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 4)
+      } }()
+      if !_storage._unavailableReason.isEmpty {
+        try visitor.visitSingularStringField(value: _storage._unavailableReason, fieldNumber: 5)
+      }
+      try { if let v = _storage._sampledAt {
+        try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
+      } }()
     }
-    try { if let v = self._sampledAt {
-      try visitor.visitSingularMessageField(value: v, fieldNumber: 6)
-    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_LayerResources, rhs: Agentvmm_Host_V1_LayerResources) -> Bool {
-    if lhs._memoryBytes != rhs._memoryBytes {return false}
-    if lhs._pids != rhs._pids {return false}
-    if lhs._openFds != rhs._openFds {return false}
-    if lhs._disk != rhs._disk {return false}
-    if lhs.unavailableReason != rhs.unavailableReason {return false}
-    if lhs._sampledAt != rhs._sampledAt {return false}
+    if lhs._storage !== rhs._storage {
+      let storagesAreEqual: Bool = withExtendedLifetime((lhs._storage, rhs._storage)) { (_args: (_StorageClass, _StorageClass)) in
+        let _storage = _args.0
+        let rhs_storage = _args.1
+        if _storage._memoryBytes != rhs_storage._memoryBytes {return false}
+        if _storage._pids != rhs_storage._pids {return false}
+        if _storage._openFds != rhs_storage._openFds {return false}
+        if _storage._disk != rhs_storage._disk {return false}
+        if _storage._unavailableReason != rhs_storage._unavailableReason {return false}
+        if _storage._sampledAt != rhs_storage._sampledAt {return false}
+        return true
+      }
+      if !storagesAreEqual {return false}
+    }
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

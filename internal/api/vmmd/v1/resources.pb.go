@@ -1837,14 +1837,19 @@ func (x *Usage) GetNetworkTxBytes() uint64 {
 }
 
 type DiskAccounting struct {
-	state                  protoimpl.MessageState `protogen:"open.v1"`
-	UsedBytes              uint64                 `protobuf:"varint,1,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
-	CapacityBytes          uint64                 `protobuf:"varint,2,opt,name=capacity_bytes,json=capacityBytes,proto3" json:"capacity_bytes,omitempty"`
-	ImportReservationBytes uint64                 `protobuf:"varint,3,opt,name=import_reservation_bytes,json=importReservationBytes,proto3" json:"import_reservation_bytes,omitempty"`
-	SystemReserveBytes     uint64                 `protobuf:"varint,4,opt,name=system_reserve_bytes,json=systemReserveBytes,proto3" json:"system_reserve_bytes,omitempty"`
-	MetadataReserveBytes   uint64                 `protobuf:"varint,5,opt,name=metadata_reserve_bytes,json=metadataReserveBytes,proto3" json:"metadata_reserve_bytes,omitempty"`
-	unknownFields          protoimpl.UnknownFields
-	sizeCache              protoimpl.SizeCache
+	state                      protoimpl.MessageState `protogen:"open.v1"`
+	UsedBytes                  uint64                 `protobuf:"varint,1,opt,name=used_bytes,json=usedBytes,proto3" json:"used_bytes,omitempty"`
+	CapacityBytes              uint64                 `protobuf:"varint,2,opt,name=capacity_bytes,json=capacityBytes,proto3" json:"capacity_bytes,omitempty"`
+	ImportReservationBytes     uint64                 `protobuf:"varint,3,opt,name=import_reservation_bytes,json=importReservationBytes,proto3" json:"import_reservation_bytes,omitempty"`
+	SystemReserveBytes         uint64                 `protobuf:"varint,4,opt,name=system_reserve_bytes,json=systemReserveBytes,proto3" json:"system_reserve_bytes,omitempty"`
+	MetadataReserveBytes       uint64                 `protobuf:"varint,5,opt,name=metadata_reserve_bytes,json=metadataReserveBytes,proto3" json:"metadata_reserve_bytes,omitempty"`
+	ImageRuntimeBytes          *uint64                `protobuf:"varint,6,opt,name=image_runtime_bytes,json=imageRuntimeBytes,proto3,oneof" json:"image_runtime_bytes,omitempty"`
+	BuildCacheBytes            *uint64                `protobuf:"varint,7,opt,name=build_cache_bytes,json=buildCacheBytes,proto3,oneof" json:"build_cache_bytes,omitempty"`
+	PrivateBytes               *uint64                `protobuf:"varint,8,opt,name=private_bytes,json=privateBytes,proto3,oneof" json:"private_bytes,omitempty"`
+	OtherBytes                 *uint64                `protobuf:"varint,9,opt,name=other_bytes,json=otherBytes,proto3,oneof" json:"other_bytes,omitempty"`
+	BreakdownSampledAtUnixNano int64                  `protobuf:"varint,10,opt,name=breakdown_sampled_at_unix_nano,json=breakdownSampledAtUnixNano,proto3" json:"breakdown_sampled_at_unix_nano,omitempty"`
+	unknownFields              protoimpl.UnknownFields
+	sizeCache                  protoimpl.SizeCache
 }
 
 func (x *DiskAccounting) Reset() {
@@ -1908,6 +1913,41 @@ func (x *DiskAccounting) GetSystemReserveBytes() uint64 {
 func (x *DiskAccounting) GetMetadataReserveBytes() uint64 {
 	if x != nil {
 		return x.MetadataReserveBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetImageRuntimeBytes() uint64 {
+	if x != nil && x.ImageRuntimeBytes != nil {
+		return *x.ImageRuntimeBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetBuildCacheBytes() uint64 {
+	if x != nil && x.BuildCacheBytes != nil {
+		return *x.BuildCacheBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetPrivateBytes() uint64 {
+	if x != nil && x.PrivateBytes != nil {
+		return *x.PrivateBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetOtherBytes() uint64 {
+	if x != nil && x.OtherBytes != nil {
+		return *x.OtherBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetBreakdownSampledAtUnixNano() int64 {
+	if x != nil {
+		return x.BreakdownSampledAtUnixNano
 	}
 	return 0
 }
@@ -2738,14 +2778,25 @@ const file_internal_vmmd_v1_resources_proto_rawDesc = "" +
 	"\x12unavailable_reason\x18\t \x01(\tR\x11unavailableReason\x12(\n" +
 	"\x10network_rx_bytes\x18\n" +
 	" \x01(\x04R\x0enetworkRxBytes\x12(\n" +
-	"\x10network_tx_bytes\x18\v \x01(\x04R\x0enetworkTxBytes\"\xf8\x01\n" +
+	"\x10network_tx_bytes\x18\v \x01(\x04R\x0enetworkTxBytes\"\xc2\x04\n" +
 	"\x0eDiskAccounting\x12\x1d\n" +
 	"\n" +
 	"used_bytes\x18\x01 \x01(\x04R\tusedBytes\x12%\n" +
 	"\x0ecapacity_bytes\x18\x02 \x01(\x04R\rcapacityBytes\x128\n" +
 	"\x18import_reservation_bytes\x18\x03 \x01(\x04R\x16importReservationBytes\x120\n" +
 	"\x14system_reserve_bytes\x18\x04 \x01(\x04R\x12systemReserveBytes\x124\n" +
-	"\x16metadata_reserve_bytes\x18\x05 \x01(\x04R\x14metadataReserveBytes\"#\n" +
+	"\x16metadata_reserve_bytes\x18\x05 \x01(\x04R\x14metadataReserveBytes\x123\n" +
+	"\x13image_runtime_bytes\x18\x06 \x01(\x04H\x00R\x11imageRuntimeBytes\x88\x01\x01\x12/\n" +
+	"\x11build_cache_bytes\x18\a \x01(\x04H\x01R\x0fbuildCacheBytes\x88\x01\x01\x12(\n" +
+	"\rprivate_bytes\x18\b \x01(\x04H\x02R\fprivateBytes\x88\x01\x01\x12$\n" +
+	"\vother_bytes\x18\t \x01(\x04H\x03R\n" +
+	"otherBytes\x88\x01\x01\x12B\n" +
+	"\x1ebreakdown_sampled_at_unix_nano\x18\n" +
+	" \x01(\x03R\x1abreakdownSampledAtUnixNanoB\x16\n" +
+	"\x14_image_runtime_bytesB\x14\n" +
+	"\x12_build_cache_bytesB\x10\n" +
+	"\x0e_private_bytesB\x0e\n" +
+	"\f_other_bytes\"#\n" +
 	"\x0fContainerIDList\x12\x10\n" +
 	"\x03ids\x18\x01 \x03(\tR\x03ids\"\x93\x01\n" +
 	"\x11ContainerSelector\x12'\n" +
@@ -2940,6 +2991,7 @@ func file_internal_vmmd_v1_resources_proto_init() {
 		(*VolumeMount_HostShare)(nil),
 	}
 	file_internal_vmmd_v1_resources_proto_msgTypes[10].OneofWrappers = []any{}
+	file_internal_vmmd_v1_resources_proto_msgTypes[13].OneofWrappers = []any{}
 	file_internal_vmmd_v1_resources_proto_msgTypes[15].OneofWrappers = []any{
 		(*ContainerSelector_AllContainers)(nil),
 		(*ContainerSelector_ContainerIds)(nil),

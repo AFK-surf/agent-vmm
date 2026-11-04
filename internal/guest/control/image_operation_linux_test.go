@@ -30,9 +30,10 @@ import (
 
 type operationNamespaces struct {
 	namespaces.Store
-	mu         sync.Mutex
-	labels     map[string]map[string]string
-	labelReads int
+	mu           sync.Mutex
+	labels       map[string]map[string]string
+	labelReads   int
+	beforeLabels func(string)
 }
 
 func (store *operationNamespaces) List(context.Context) ([]string, error) {
@@ -46,6 +47,9 @@ func (store *operationNamespaces) List(context.Context) ([]string, error) {
 }
 
 func (store *operationNamespaces) Labels(_ context.Context, namespace string) (map[string]string, error) {
+	if store.beforeLabels != nil {
+		store.beforeLabels(namespace)
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.labelReads++
@@ -116,7 +120,7 @@ func operationFixture(t *testing.T) (*Server, *operationNamespaces, *operationLe
 	t.Cleanup(func() { _ = client.Close() })
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "original-copy", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, InputSha256: strings.Repeat("a", 64), ImageReference: "image:test"}
 	request := &vmmdv1.ImageOperationRequest{RequestId: receipt.RequestId, Kind: receipt.Kind, InputSha256: receipt.InputSha256, ActorNamespaceId: "owner"}
-	return &Server{runtime: &Runtime{client: client, imageOperationWriterID: "same-boot:41:100", logger: slog.Default().With("component", "guest-control")}}, metadata, leaseStore, receipt, request
+	return &Server{runtime: &Runtime{client: client, inventory: newRuntimeInventoryIndex(), imageOperationWriterID: "same-boot:41:100", logger: slog.Default().With("component", "guest-control")}}, metadata, leaseStore, receipt, request
 }
 
 func TestImageOperationDurableIdentityAndTerminalStates(t *testing.T) {

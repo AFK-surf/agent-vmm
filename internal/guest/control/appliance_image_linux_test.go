@@ -93,7 +93,7 @@ func TestSystemImagePruningUsesNamespaceRetentionAndRetriesFailures(t *testing.T
 		t.Fatal(err)
 	}
 	client := systemImageClient(t, fixture)
-	runtime := &Runtime{client: client, inventory: index, logger: slog.Default().With("component", "guest-control")}
+	runtime := &Runtime{client: client, inventory: index, materializationSlot: semaphore.NewWeighted(1), logger: slog.Default().With("component", "guest-control")}
 	if err := runtime.pruneSystemImages(ctx, "system.a", "current", ""); err == nil {
 		t.Fatal("delete failure was ignored")
 	}
@@ -104,6 +104,9 @@ func TestSystemImagePruningUsesNamespaceRetentionAndRetriesFailures(t *testing.T
 		t.Fatal(err)
 	}
 	if err := runtime.pruneSystemImages(ctx, "system.a", "current", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := runtime.collectRuntimeImages(ctx); err != nil {
 		t.Fatal(err)
 	}
 	fixture.mu.Lock()
@@ -132,13 +135,16 @@ func TestSystemImagePruningUsesNamespaceRetentionAndRetriesFailures(t *testing.T
 
 type systemImageFixture struct {
 	imagesapi.UnimplementedImagesServer
-	mu                  sync.Mutex
-	images              map[string]map[string]*imagesapi.Image
-	containers          map[string]*containersapi.Container
-	tasksAbsent         bool
-	failDelete          bool
-	failDeleteNamespace string
-	beforeGet           func(string)
+	mu                       sync.Mutex
+	images                   map[string]map[string]*imagesapi.Image
+	containers               map[string]*containersapi.Container
+	tasksAbsent              bool
+	failDelete               bool
+	deleteAttempts           int
+	lostCreateReplyNamespace string
+	lostUpdateReplyNamespace string
+	failDeleteNamespace      string
+	beforeGet                func(string)
 }
 
 func imageNamespace(ctx context.Context) string {
@@ -165,6 +171,9 @@ func (f *systemImageFixture) Create(ctx context.Context, request *imagesapi.Crea
 		return nil, status.Error(codes.AlreadyExists, "exists")
 	}
 	f.images[namespace][request.Image.Name] = request.Image
+	if f.lostCreateReplyNamespace == namespace {
+		return nil, status.Error(codes.Unavailable, "reply lost after create commit")
+	}
 	return &imagesapi.CreateImageResponse{Image: request.Image}, nil
 }
 
@@ -176,6 +185,9 @@ func (f *systemImageFixture) Update(ctx context.Context, request *imagesapi.Upda
 		return nil, status.Error(codes.NotFound, "absent")
 	}
 	f.images[namespace][request.Image.Name] = request.Image
+	if f.lostUpdateReplyNamespace == namespace {
+		return nil, status.Error(codes.Unavailable, "reply lost after update commit")
+	}
 	return &imagesapi.UpdateImageResponse{Image: request.Image}, nil
 }
 
@@ -197,6 +209,7 @@ func (f *systemImageFixture) Get(ctx context.Context, request *imagesapi.GetImag
 func (f *systemImageFixture) Delete(ctx context.Context, request *imagesapi.DeleteImageRequest) (*emptypb.Empty, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.deleteAttempts++
 	if f.failDelete || f.failDeleteNamespace == imageNamespace(ctx) {
 		return nil, status.Error(codes.Unavailable, "retry")
 	}
@@ -321,8 +334,12 @@ func TestPermanentSystemImageReleasePreservesOtherNamespace(t *testing.T) {
 	fixture.mu.Lock()
 	fixture.failDeleteNamespace = runtimeContainerdNamespace
 	fixture.mu.Unlock()
-	if err := runtime.releaseSystemInstallationImagesMaterializerHeld(ctx, "installation"); err == nil {
-		t.Fatal("cleanup failure accepted")
+	if err := runtime.releaseSystemInstallationImagesMaterializerHeld(ctx, "installation"); err != nil {
+		t.Fatal(err)
+	}
+	// Logical release does not wait for the physical GC worker.
+	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err == nil {
+		t.Fatal("GC failure ignored")
 	}
 	fixture.mu.Lock()
 	fixture.failDeleteNamespace = ""
@@ -331,6 +348,9 @@ func TestPermanentSystemImageReleasePreservesOtherNamespace(t *testing.T) {
 		if err := runtime.releaseSystemInstallationImagesMaterializerHeld(ctx, "installation"); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := runtime.pruneUnreferencedRuntimeImages(ctx, 32); err != nil {
+		t.Fatal(err)
 	}
 	fixture.mu.Lock()
 	defer fixture.mu.Unlock()

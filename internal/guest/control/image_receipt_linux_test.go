@@ -128,7 +128,7 @@ func TestRetainedBuildSurvivesSourceReleaseAndScopesCollection(t *testing.T) {
 	if imageOperationReceipt(record, "build").RequestId != "build" || imageOperationReceipt(secondRecord, "build").RequestId != "second-build" {
 		t.Fatal("same-content build replaced original operation proof")
 	}
-	copyReceipt := &vmmdv1.ImageOperationReceipt{RequestId: "copy", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, InputSha256: "input", ImageReference: reference}
+	copyReceipt := &vmmdv1.ImageOperationReceipt{RequestId: "copy", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, InputSha256: "input", ImageReference: reference, ManifestDigest: target.String()}
 	run, _, err := runtime.acceptImageOperation(ctx, "target", copyReceipt, record.Name, func() {})
 	if err != nil {
 		t.Fatal(err)
@@ -298,8 +298,8 @@ func TestCopyReceiptHandsSourceRetentionToTargetGrant(t *testing.T) {
 	facts.mu.Lock()
 	reads := facts.labelReads
 	facts.mu.Unlock()
-	if reads != 2 {
-		t.Fatalf("two physical candidates scanned image receipts %d times", reads)
+	if reads != 0 {
+		t.Fatalf("ordinary GC scanned image receipts %d times", reads)
 	}
 	if fixture.images[runtimeContainerdNamespace][runtimeImageReference(target)] == nil || fixture.images[runtimeContainerdNamespace][runtimeImageReference(unrelated)] != nil {
 		t.Fatal("copy pin was not specific to its digest")

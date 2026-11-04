@@ -6,7 +6,9 @@ CONSTANTS EnforceReferenceFence, EnforceGlobalSlot, EnforceCriticalGate,
 
 \* Production refinement: content/snapshots are the one private-containerd-
 \* namespace materialization per digest. retainedRefs are logical namespace
-\* image grants; activeRefs are owner-labelled runtime containers with
+\* image grants and accepted-source receipt pins, read atomically by
+\* Runtime.pruneRuntimeImageReferences through runtimeInventoryIndex.
+\* ActiveRefs are owner-labelled runtime containers with
 \* independent overlay upper snapshots. Runtime image-record deletion followed
 \* by containerd snapshot/content GC refines the atomic GC transition below.
 

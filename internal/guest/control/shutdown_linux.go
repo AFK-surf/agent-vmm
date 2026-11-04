@@ -14,6 +14,8 @@ import (
 const defaultContainerStopTimeout = 10 * time.Second
 
 func (s *Server) stopWriters(ctx context.Context) error {
+	s.runtime.stopRuntimeGC()
+	s.runtime.stopDiskSampler()
 	err := errors.Join(s.settleImageOperations(ctx), s.appliances.shutdown(ctx), s.runtime.stopWorkloadTasks(ctx), s.runtime.cleanupTasks(ctx))
 	if err != nil {
 		return err

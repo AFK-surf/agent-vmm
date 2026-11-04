@@ -4305,6 +4305,11 @@ type DiskAccounting struct {
 	ImportReservationBytes *uint64                `protobuf:"varint,4,opt,name=import_reservation_bytes,json=importReservationBytes,proto3,oneof" json:"import_reservation_bytes,omitempty"`
 	SystemReserveBytes     *uint64                `protobuf:"varint,5,opt,name=system_reserve_bytes,json=systemReserveBytes,proto3,oneof" json:"system_reserve_bytes,omitempty"`
 	MetadataReserveBytes   *uint64                `protobuf:"varint,6,opt,name=metadata_reserve_bytes,json=metadataReserveBytes,proto3,oneof" json:"metadata_reserve_bytes,omitempty"`
+	ImageRuntimeBytes      *uint64                `protobuf:"varint,7,opt,name=image_runtime_bytes,json=imageRuntimeBytes,proto3,oneof" json:"image_runtime_bytes,omitempty"`
+	BuildCacheBytes        *uint64                `protobuf:"varint,8,opt,name=build_cache_bytes,json=buildCacheBytes,proto3,oneof" json:"build_cache_bytes,omitempty"`
+	PrivateBytes           *uint64                `protobuf:"varint,9,opt,name=private_bytes,json=privateBytes,proto3,oneof" json:"private_bytes,omitempty"`
+	OtherBytes             *uint64                `protobuf:"varint,10,opt,name=other_bytes,json=otherBytes,proto3,oneof" json:"other_bytes,omitempty"`
+	BreakdownSampledAt     *timestamppb.Timestamp `protobuf:"bytes,11,opt,name=breakdown_sampled_at,json=breakdownSampledAt,proto3" json:"breakdown_sampled_at,omitempty"`
 	unknownFields          protoimpl.UnknownFields
 	sizeCache              protoimpl.SizeCache
 }
@@ -4379,6 +4384,41 @@ func (x *DiskAccounting) GetMetadataReserveBytes() uint64 {
 		return *x.MetadataReserveBytes
 	}
 	return 0
+}
+
+func (x *DiskAccounting) GetImageRuntimeBytes() uint64 {
+	if x != nil && x.ImageRuntimeBytes != nil {
+		return *x.ImageRuntimeBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetBuildCacheBytes() uint64 {
+	if x != nil && x.BuildCacheBytes != nil {
+		return *x.BuildCacheBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetPrivateBytes() uint64 {
+	if x != nil && x.PrivateBytes != nil {
+		return *x.PrivateBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetOtherBytes() uint64 {
+	if x != nil && x.OtherBytes != nil {
+		return *x.OtherBytes
+	}
+	return 0
+}
+
+func (x *DiskAccounting) GetBreakdownSampledAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.BreakdownSampledAt
+	}
+	return nil
 }
 
 // LayerResources reports sampled resource facts for one implementation layer and preserves
@@ -5676,7 +5716,7 @@ const file_host_v1_resources_proto_rawDesc = "" +
 	"\x10network_rx_bytes\x18\t \x01(\x04R\x0enetworkRxBytes\x12(\n" +
 	"\x10network_tx_bytes\x18\n" +
 	" \x01(\x04R\x0enetworkTxBytes\x12-\n" +
-	"\x12unavailable_reason\x18\v \x01(\tR\x11unavailableReason\"\xc6\x03\n" +
+	"\x12unavailable_reason\x18\v \x01(\tR\x11unavailableReason\"\x9a\x06\n" +
 	"\x0eDiskAccounting\x12\"\n" +
 	"\n" +
 	"used_bytes\x18\x01 \x01(\x04H\x00R\tusedBytes\x88\x01\x01\x12,\n" +
@@ -5684,13 +5724,24 @@ const file_host_v1_resources_proto_rawDesc = "" +
 	"\x0ecapacity_bytes\x18\x03 \x01(\x04H\x02R\rcapacityBytes\x88\x01\x01\x12=\n" +
 	"\x18import_reservation_bytes\x18\x04 \x01(\x04H\x03R\x16importReservationBytes\x88\x01\x01\x125\n" +
 	"\x14system_reserve_bytes\x18\x05 \x01(\x04H\x04R\x12systemReserveBytes\x88\x01\x01\x129\n" +
-	"\x16metadata_reserve_bytes\x18\x06 \x01(\x04H\x05R\x14metadataReserveBytes\x88\x01\x01B\r\n" +
+	"\x16metadata_reserve_bytes\x18\x06 \x01(\x04H\x05R\x14metadataReserveBytes\x88\x01\x01\x123\n" +
+	"\x13image_runtime_bytes\x18\a \x01(\x04H\x06R\x11imageRuntimeBytes\x88\x01\x01\x12/\n" +
+	"\x11build_cache_bytes\x18\b \x01(\x04H\aR\x0fbuildCacheBytes\x88\x01\x01\x12(\n" +
+	"\rprivate_bytes\x18\t \x01(\x04H\bR\fprivateBytes\x88\x01\x01\x12$\n" +
+	"\vother_bytes\x18\n" +
+	" \x01(\x04H\tR\n" +
+	"otherBytes\x88\x01\x01\x12L\n" +
+	"\x14breakdown_sampled_at\x18\v \x01(\v2\x1a.google.protobuf.TimestampR\x12breakdownSampledAtB\r\n" +
 	"\v_used_bytesB\x12\n" +
 	"\x10_committed_bytesB\x11\n" +
 	"\x0f_capacity_bytesB\x1b\n" +
 	"\x19_import_reservation_bytesB\x17\n" +
 	"\x15_system_reserve_bytesB\x19\n" +
-	"\x17_metadata_reserve_bytes\"\xb8\x02\n" +
+	"\x17_metadata_reserve_bytesB\x16\n" +
+	"\x14_image_runtime_bytesB\x14\n" +
+	"\x12_build_cache_bytesB\x10\n" +
+	"\x0e_private_bytesB\x0e\n" +
+	"\f_other_bytes\"\xb8\x02\n" +
 	"\x0eLayerResources\x12&\n" +
 	"\fmemory_bytes\x18\x01 \x01(\x04H\x00R\vmemoryBytes\x88\x01\x01\x12\x17\n" +
 	"\x04pids\x18\x02 \x01(\rH\x01R\x04pids\x88\x01\x01\x12\x1e\n" +
@@ -6064,28 +6115,29 @@ var file_host_v1_resources_proto_depIdxs = []int32{
 	18, // 52: agentvmm.host.v1.HealthStatus.state:type_name -> agentvmm.host.v1.HealthState
 	56, // 53: agentvmm.host.v1.HealthStatus.components:type_name -> agentvmm.host.v1.ComponentHealth
 	72, // 54: agentvmm.host.v1.Usage.sampled_at:type_name -> google.protobuf.Timestamp
-	59, // 55: agentvmm.host.v1.LayerResources.disk:type_name -> agentvmm.host.v1.DiskAccounting
-	72, // 56: agentvmm.host.v1.LayerResources.sampled_at:type_name -> google.protobuf.Timestamp
-	62, // 57: agentvmm.host.v1.ContainerSelector.container_ids:type_name -> agentvmm.host.v1.ContainerIDList
-	63, // 58: agentvmm.host.v1.NetworkLink.source:type_name -> agentvmm.host.v1.ContainerSelector
-	63, // 59: agentvmm.host.v1.NetworkLink.destination:type_name -> agentvmm.host.v1.ContainerSelector
-	61, // 60: agentvmm.host.v1.CleanupImpact.resource:type_name -> agentvmm.host.v1.ResourceReference
-	19, // 61: agentvmm.host.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
-	65, // 62: agentvmm.host.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
-	61, // 63: agentvmm.host.v1.OperationError.resource:type_name -> agentvmm.host.v1.ResourceReference
-	61, // 64: agentvmm.host.v1.Operation.resource:type_name -> agentvmm.host.v1.ResourceReference
-	20, // 65: agentvmm.host.v1.Operation.state:type_name -> agentvmm.host.v1.OperationState
-	72, // 66: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
-	72, // 67: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
-	67, // 68: agentvmm.host.v1.Operation.error:type_name -> agentvmm.host.v1.OperationError
-	21, // 69: agentvmm.host.v1.LocalDisposalPlan.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
-	72, // 70: agentvmm.host.v1.LocalEnvironmentSummary.state_observed_at:type_name -> google.protobuf.Timestamp
-	72, // 71: agentvmm.host.v1.LocalEnvironmentSummary.sampled_at:type_name -> google.protobuf.Timestamp
-	72, // [72:72] is the sub-list for method output_type
-	72, // [72:72] is the sub-list for method input_type
-	72, // [72:72] is the sub-list for extension type_name
-	72, // [72:72] is the sub-list for extension extendee
-	0,  // [0:72] is the sub-list for field type_name
+	72, // 55: agentvmm.host.v1.DiskAccounting.breakdown_sampled_at:type_name -> google.protobuf.Timestamp
+	59, // 56: agentvmm.host.v1.LayerResources.disk:type_name -> agentvmm.host.v1.DiskAccounting
+	72, // 57: agentvmm.host.v1.LayerResources.sampled_at:type_name -> google.protobuf.Timestamp
+	62, // 58: agentvmm.host.v1.ContainerSelector.container_ids:type_name -> agentvmm.host.v1.ContainerIDList
+	63, // 59: agentvmm.host.v1.NetworkLink.source:type_name -> agentvmm.host.v1.ContainerSelector
+	63, // 60: agentvmm.host.v1.NetworkLink.destination:type_name -> agentvmm.host.v1.ContainerSelector
+	61, // 61: agentvmm.host.v1.CleanupImpact.resource:type_name -> agentvmm.host.v1.ResourceReference
+	19, // 62: agentvmm.host.v1.CleanupPlan.kind:type_name -> agentvmm.host.v1.CleanupKind
+	65, // 63: agentvmm.host.v1.CleanupPlan.impacts:type_name -> agentvmm.host.v1.CleanupImpact
+	61, // 64: agentvmm.host.v1.OperationError.resource:type_name -> agentvmm.host.v1.ResourceReference
+	61, // 65: agentvmm.host.v1.Operation.resource:type_name -> agentvmm.host.v1.ResourceReference
+	20, // 66: agentvmm.host.v1.Operation.state:type_name -> agentvmm.host.v1.OperationState
+	72, // 67: agentvmm.host.v1.Operation.started_at:type_name -> google.protobuf.Timestamp
+	72, // 68: agentvmm.host.v1.Operation.updated_at:type_name -> google.protobuf.Timestamp
+	67, // 69: agentvmm.host.v1.Operation.error:type_name -> agentvmm.host.v1.OperationError
+	21, // 70: agentvmm.host.v1.LocalDisposalPlan.target_kind:type_name -> agentvmm.host.v1.LocalDisposalTargetKind
+	72, // 71: agentvmm.host.v1.LocalEnvironmentSummary.state_observed_at:type_name -> google.protobuf.Timestamp
+	72, // 72: agentvmm.host.v1.LocalEnvironmentSummary.sampled_at:type_name -> google.protobuf.Timestamp
+	73, // [73:73] is the sub-list for method output_type
+	73, // [73:73] is the sub-list for method input_type
+	73, // [73:73] is the sub-list for extension type_name
+	73, // [73:73] is the sub-list for extension extendee
+	0,  // [0:73] is the sub-list for field type_name
 }
 
 func init() { file_host_v1_resources_proto_init() }

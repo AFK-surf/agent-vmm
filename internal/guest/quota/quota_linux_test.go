@@ -4,6 +4,7 @@ package quota
 
 import (
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -164,5 +165,12 @@ func TestProjectQuotaIsAHardIndependentWriteBoundary(t *testing.T) {
 	}
 	for index := range workloads {
 		runHelper("workload-" + strconv.Itoa(index+1))
+	}
+}
+
+func TestNextQuotaMissingDeviceIsUnavailable(t *testing.T) {
+	_, _, err := Next(filepath.Join(t.TempDir(), "missing-device"), 10000)
+	if err == nil || errors.Is(err, io.EOF) {
+		t.Fatalf("missing quota device became empty usage: %v", err)
 	}
 }

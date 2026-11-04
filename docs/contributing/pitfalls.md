@@ -108,6 +108,10 @@ Linux fallocate reserves physical backing for unwritten extents that SEEK_HOLE c
 Preserve fallocate restoration without zero writes. The Darwin repair loop would rewrite the entire Linux disk.
 Skip disk restoration and serial rotation while the VMM instance lock proves that the VM runs.
 
+Ext4 can report `ENOENT` when `Q_GETNEXTQUOTA` reaches the last allocated project.
+Confirm ordinary quota access before treating this result as the end of a usage sample.
+A missing device or disabled quotas must leave usage unknown.
+
 ## Appliance lifecycle
 
 Keep the launch request and boot nonce stable for retries of one launch.

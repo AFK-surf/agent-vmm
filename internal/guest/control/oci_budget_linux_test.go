@@ -759,7 +759,7 @@ func TestControlSystemQuotaUsesPeerUsageAndKeepsMetadataAvailable(t *testing.T) 
 		t.Fatal(err)
 	}
 	defer metadataClient.Close()
-	metadataRuntime := &Runtime{client: metadataClient, imageOperationWriterID: "fixture-owner-ended", logger: slog.Default().With("component", "guest-control")}
+	metadataRuntime := &Runtime{client: metadataClient, inventory: newRuntimeInventoryIndex(), imageOperationWriterID: "fixture-owner-ended", logger: slog.Default().With("component", "guest-control")}
 	receipt := &vmmdv1.ImageOperationReceipt{RequestId: "pressure-stop", Kind: vmmdv1.ImageOperationKind_IMAGE_OPERATION_KIND_COPY, State: vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_STOPPED, WriterSettled: true}
 	if err := metadataRuntime.saveImageOperation(context.Background(), "system.third", receipt, ""); err != nil {
 		t.Fatalf("pressure prevented stopped receipt: %v", err)

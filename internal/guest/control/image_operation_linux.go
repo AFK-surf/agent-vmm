@@ -80,7 +80,27 @@ func (r *Runtime) saveImageOperation(ctx context.Context, namespace string, rece
 	if err != nil {
 		return err
 	}
-	return r.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, record)
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return err
+	}
+	inventory.mu.Lock()
+	defer inventory.mu.Unlock()
+	if sourceImage != "" && !receipt.WriterSettled {
+		inventory.setImagePinLocked(key, receipt.ManifestDigest)
+	}
+	// A transport error can hide a committed receipt. Keep its pin until the
+	// exact writer is positively settled or the daemon-fenced cold rebuild.
+	if err := r.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, record); err != nil {
+		return err
+	}
+	if receipt.WriterSettled {
+		inventory.setImagePinLocked(key, "")
+	}
+	if receipt.WriterSettled {
+		inventory.notifyGC()
+	}
+	return nil
 }
 
 func operationIdentityMatches(receipt *vmmdv1.ImageOperationReceipt, request *vmmdv1.ImageOperationRequest) bool {
@@ -107,6 +127,7 @@ func (s *Server) ObserveImageOperation(ctx context.Context, request *vmmdv1.Imag
 		return nil, status.Error(codes.Aborted, "image operation identity differs from accepted input")
 	}
 	if receipt.WriterSettled {
+		s.runtime.releaseImagePin(key)
 		return receipt, nil
 	}
 	var run *imageOperationRun
@@ -277,6 +298,43 @@ func (r *Runtime) cleanupImageOperationLease(ctx context.Context, namespace, req
 	return err
 }
 
+func decodeImageReceiptLabel(text string) (imageReceiptLabel, *vmmdv1.ImageOperationReceipt, error) {
+	var record imageReceiptLabel
+	if err := json.Unmarshal([]byte(text), &record); err != nil {
+		return record, nil, err
+	}
+	bytes, err := base64.StdEncoding.DecodeString(record.Receipt)
+	if err != nil {
+		return record, nil, err
+	}
+	receipt := new(vmmdv1.ImageOperationReceipt)
+	if err := proto.Unmarshal(bytes, receipt); err != nil {
+		return record, nil, err
+	}
+	return record, receipt, nil
+}
+
+func imageReceiptSourcePin(text string) (string, error) {
+	var label imageReceiptLabel
+	if err := json.Unmarshal([]byte(text), &label); err != nil {
+		return "", err
+	}
+	if label.SourceImage == "" {
+		return "", nil
+	}
+	_, receipt, err := decodeImageReceiptLabel(text)
+	if err != nil {
+		return "", err
+	}
+	if receipt.WriterSettled {
+		return "", nil
+	}
+	if receipt.ManifestDigest == "" {
+		return "", errors.New("accepted image source has no digest")
+	}
+	return receipt.ManifestDigest, nil
+}
+
 func (r *Runtime) unsettledImageReferences(ctx context.Context) ([]imageReceiptLabel, error) {
 	labels, err := r.client.NamespaceService().Labels(ctx, runtimeContainerdNamespace)
 	if err != nil {
@@ -332,6 +390,7 @@ func (s *Server) ForgetImageOperation(ctx context.Context, request *vmmdv1.Image
 	if !receipt.WriterSettled || !operationIdentityMatches(receipt, request) {
 		return nil, status.Error(codes.FailedPrecondition, "image operation is unsettled or its identity differs")
 	}
+	s.runtime.releaseImagePin(key)
 	if err := s.runtime.client.NamespaceService().SetLabel(ctx, runtimeContainerdNamespace, key, ""); err != nil {
 		return nil, rpcError(err)
 	}

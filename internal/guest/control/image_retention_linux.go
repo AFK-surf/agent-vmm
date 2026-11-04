@@ -36,6 +36,17 @@ func (r *Runtime) retainBuiltImage(ctx context.Context, scope, namespace string,
 		return err
 	}
 	defer unlock()
+	pinKey := imagePublicationKey(retainedImageOwner(scope), retainedImageReference(scope, receipt.ImageReference, receipt.ManifestDigest, receipt.RequestId), receipt.ManifestDigest)
+	newPin, err := r.pinImagePublication(retainedImageOwner(scope), retainedImageReference(scope, receipt.ImageReference, receipt.ManifestDigest, receipt.RequestId), receipt.ManifestDigest)
+	if err != nil {
+		return err
+	}
+	attempted := false
+	defer func() {
+		if !attempted && newPin {
+			r.releaseImagePin(pinKey)
+		}
+	}()
 	source, err := r.client.ImageService().Get(namespaceContext(ctx, namespace), receipt.ImageReference)
 	if err != nil {
 		return err
@@ -54,6 +65,7 @@ func (r *Runtime) retainBuiltImage(ctx context.Context, scope, namespace string,
 	if err := setImageOperationReceipt(&record, "build", receipt); err != nil {
 		return err
 	}
+	attempted = true
 	_, err = r.client.ImageService().Create(runtimeContext(ctx), record)
 	if errdefs.IsAlreadyExists(err) {
 		prior, readErr := r.client.ImageService().Get(runtimeContext(ctx), record.Name)
@@ -69,13 +81,21 @@ func (r *Runtime) retainBuiltImage(ctx context.Context, scope, namespace string,
 	if err != nil {
 		return err
 	}
+	return r.indexRetainedImage(scope, record)
+}
+
+func (r *Runtime) indexRetainedImage(scope string, record coreimages.Image) error {
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return err
 	}
 	inventory.ensureNamespace(retainedImageOwner(scope))
 	inventory.addRuntimeImage(record.Name)
-	return inventory.addImage(retainedImageOwner(scope), record.Name, record.Target.Digest.String())
+	if err := inventory.addImage(retainedImageOwner(scope), record.Name, record.Target.Digest.String()); err != nil {
+		return err
+	}
+	r.releaseImagePin(imagePublicationKey(retainedImageOwner(scope), record.Name, record.Target.Digest.String()))
+	return nil
 }
 
 func (r *Runtime) retainedImage(ctx context.Context, scope, reference, manifest, buildID string) (coreimages.Image, error) {
@@ -90,6 +110,9 @@ func (r *Runtime) retainedImage(ctx context.Context, scope, reference, manifest,
 	if record.Labels[retainedScopeLabel] != scope || record.Labels[retainedReferenceLabel] != reference || record.Target.Digest.String() != manifest || receipt == nil || receipt.RequestId != buildID ||
 		receipt.State != vmmdv1.ImageOperationState_IMAGE_OPERATION_STATE_SUCCEEDED || !receipt.WriterSettled {
 		return coreimages.Image{}, errors.New("retained image has no settled successful receipt")
+	}
+	if err := r.indexRetainedImage(scope, record); err != nil {
+		return coreimages.Image{}, err
 	}
 	return record, nil
 }

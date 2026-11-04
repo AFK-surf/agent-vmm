@@ -168,6 +168,11 @@ func guestLayerResources(response *vmmdv1.GetUsageResponse) *hostv1.LayerResourc
 		result.Disk = &hostv1.DiskAccounting{
 			UsedBytes: &used, CapacityBytes: &capacity, ImportReservationBytes: &imports,
 			SystemReserveBytes: &reserve, MetadataReserveBytes: &metadata,
+			ImageRuntimeBytes: disk.ImageRuntimeBytes, BuildCacheBytes: disk.BuildCacheBytes,
+			PrivateBytes: disk.PrivateBytes, OtherBytes: disk.OtherBytes,
+		}
+		if disk.BreakdownSampledAtUnixNano != 0 {
+			result.Disk.BreakdownSampledAt = timestamppb.New(time.Unix(0, disk.BreakdownSampledAtUnixNano))
 		}
 	}
 	result.UnavailableReason = strings.Join(unavailable, "; ")

@@ -40,6 +40,7 @@ func (r *Runtime) reclaimOCIMaterializerHeld(ctx context.Context, limit int, rea
 	return removed + caches, err
 }
 
+// OCIContentLifecycle.GC: logical grants and accepted-source pins retain material.
 // Logical image records are retention grants. The rebuildable index selects a
 // bounded page of physical runtime images. Each candidate is checked again
 // under the import lock. A synchronous delete lets containerd remove only
@@ -63,6 +64,17 @@ func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, limit int)
 	}
 	r.gcMu.Unlock()
 
+	return r.pruneRuntimeImageReferences(ctx, references)
+}
+
+func (r *Runtime) pruneRuntimeImageReferences(ctx context.Context, references []string) (int, error) {
+	inventory, err := r.requireRuntimeInventory()
+	if err != nil {
+		return 0, err
+	}
+	if err := r.ensureSourceImagePins(ctx); err != nil {
+		return 0, err
+	}
 	deleted := 0
 	for _, reference := range references {
 		image, err := r.client.ImageService().Get(runtimeContext(ctx), reference)
@@ -72,6 +84,9 @@ func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, limit int)
 		}
 		if err != nil {
 			return deleted, err
+		}
+		if image.Name != runtimeImageReference(image.Target.Digest) {
+			continue
 		}
 		retained, err := r.runtimeImageRetained(ctx, image.Target.Digest)
 		if err == nil && !retained {
@@ -92,21 +107,12 @@ func (r *Runtime) pruneUnreferencedRuntimeImages(ctx context.Context, limit int)
 }
 
 func (r *Runtime) runtimeImageRetained(ctx context.Context, wanted digest.Digest) (bool, error) {
+	if err := r.ensureSourceImagePins(ctx); err != nil {
+		return false, err
+	}
 	inventory, err := r.requireRuntimeInventory()
 	if err != nil {
 		return false, err
 	}
-	if inventory.imageDigestReferenced(wanted.String()) {
-		return true, nil
-	}
-	references, err := r.unsettledImageReferences(ctx)
-	if err != nil {
-		return false, err
-	}
-	for _, reference := range references {
-		if reference.Digest == wanted.String() {
-			return true, nil
-		}
-	}
-	return false, nil
+	return inventory.imageDigestReferenced(wanted.String()), nil
 }
