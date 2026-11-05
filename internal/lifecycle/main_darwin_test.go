@@ -226,7 +226,7 @@ func TestRepairInstallsDefinitionsBeforeLoadingServices(t *testing.T) {
 	if !regular(value.hostPlist) {
 		t.Fatal("service definitions were not installed")
 	}
-	want := []string{"bootout", "print", "bootout", "print", "bootstrap", "enable"}
+	want := []string{"bootout", "print", "bootout", "print", "enable", "bootstrap"}
 	if len(commands) != len(want) {
 		t.Fatalf("commands=%v", commands)
 	}
@@ -262,7 +262,7 @@ func TestRepairWaitsForBootoutToConvergeBeforeBootstrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := strings.Join(commands, ","); got != "bootout,print,print,print,bootout,print,bootstrap,enable" {
+	if got := strings.Join(commands, ","); got != "bootout,print,print,print,bootout,print,enable,bootstrap" {
 		t.Fatalf("launchctl order=%s", got)
 	}
 }
@@ -403,6 +403,33 @@ func TestLaunchctlServiceAbsentClassifiesHeadlessGUIDomain(t *testing.T) {
 	}
 	if launchctlServiceAbsent("bootstrap", "Domain does not support specified action") {
 		t.Fatal("only print may prove that a service is absent")
+	}
+}
+
+func TestRepairEnablesDisabledServiceBeforeBootstrap(t *testing.T) {
+	t.Parallel()
+	value := testPaths(t.TempDir())
+	if err := os.MkdirAll(value.resources, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(value.app, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	disabled := true
+	if err := repairWith(value, func(arguments ...string) error {
+		switch arguments[0] {
+		case "print":
+			return errHostServiceNotFound
+		case "enable":
+			disabled = false
+		case "bootstrap":
+			if disabled {
+				return errors.New("Bootstrap failed: 5: Input/output error")
+			}
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("repair of a disabled service: %v", err)
 	}
 }
 

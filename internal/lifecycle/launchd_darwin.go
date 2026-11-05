@@ -120,17 +120,19 @@ func repairWithOptionsContextObserved(ctx context.Context, value paths, run func
 	} else if os.Geteuid() == 0 {
 		_ = os.Remove(value.daemonPlist)
 	}
-	if err := run(ctx, "bootstrap", value.serviceDomain(), value.hostPlist); err != nil {
-		if contextErr := ctx.Err(); contextErr != nil {
-			return fmt.Errorf("host service load was interrupted: %w", contextErr)
-		}
-		return fmt.Errorf("host service could not be loaded: %w", err)
-	}
+	// launchd keeps a disabled override across removal of the definition and refuses
+	// to bootstrap a disabled service, so enable must come first.
 	if err := run(ctx, "enable", value.serviceDomain()+"/"+hostLabel); err != nil {
 		if contextErr := ctx.Err(); contextErr != nil {
 			return fmt.Errorf("host service enable was interrupted: %w", contextErr)
 		}
 		return fmt.Errorf("host service could not be enabled: %w", err)
+	}
+	if err := run(ctx, "bootstrap", value.serviceDomain(), value.hostPlist); err != nil {
+		if contextErr := ctx.Err(); contextErr != nil {
+			return fmt.Errorf("host service load was interrupted: %w", contextErr)
+		}
+		return fmt.Errorf("host service could not be loaded: %w", err)
 	}
 	if err := ctx.Err(); err != nil {
 		return err
