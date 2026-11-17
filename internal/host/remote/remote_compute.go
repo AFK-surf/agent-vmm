@@ -241,6 +241,8 @@ func connectorFailure(code string) (string, string) {
 		return code, "The controller does not support this Host protocol."
 	case "CONTROLLER_AUTH_FAILED":
 		return code, "Controller authentication failed."
+	case "DATA_WORKER_UNAVAILABLE":
+		return code, "The local data worker is unavailable; retrying."
 	case "CONNECTION_ENDED", "CONNECTION_FAILED":
 		return code, "Controller connection ended; retrying."
 	default:

@@ -4,14 +4,47 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 )
 
-const endpointRefreshWindow = 6 * time.Minute
+const (
+	endpointRefreshWindow = 6 * time.Minute
+	// One local status request per interval for each connected registration
+	// bounds how long the controller can route peers to a replaced worker.
+	endpointIdentityInterval = 5 * time.Second
+)
+
+// watchEndpointIdentity returns when the data worker reports an endpoint that
+// differs from the current observation. A failed read does not end the
+// connection: the Host is restarting the worker, and only its new identity
+// requires a new observation.
+func watchEndpointIdentity(ctx context.Context, state *endpointObservationState, worker *dataworker.Supervisor, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-ticker.C:
+		}
+		statusContext, cancel := context.WithTimeout(ctx, interval)
+		current, err := worker.Status(statusContext)
+		cancel()
+		if err != nil {
+			continue
+		}
+		observed := state.Load()
+		if string(observed.GetEndpointNodeId()) != current.EndpointID || observed.GetEndpointGeneration() != current.EndpointGeneration {
+			return fmt.Errorf("data worker endpoint changed to generation %d", current.EndpointGeneration)
+		}
+	}
+}
 
 type endpointObservationRenewer func(context.Context) (*trustv1.EndpointObservation, error)
 

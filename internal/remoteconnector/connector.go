@@ -22,7 +22,12 @@ import (
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
-var errConnectorConfiguration = errors.New("connector configuration is invalid")
+var (
+	errConnectorConfiguration = errors.New("connector configuration is invalid")
+	// The Host restarts its data worker after an unexpected exit, so an
+	// unreachable worker socket is a retryable local condition.
+	errDataWorkerUnavailable = errors.New("data worker is unavailable")
+)
 
 func Run(ctx context.Context, config Config) error {
 	if config.Logger == nil {
@@ -78,12 +83,13 @@ func runAttempt(ctx context.Context, config Config, observations *endpointObserv
 		if err != nil {
 			return false, fmt.Errorf("%w: attach data worker: %w", errConnectorConfiguration, err)
 		}
+		state, err := worker.Status(ctx)
+		if err != nil {
+			return false, fmt.Errorf("%w: %w", errDataWorkerUnavailable, err)
+		}
 		current := observations.Load()
-		if current == nil || current.GetExpiresAt() == nil || time.Until(current.GetExpiresAt().AsTime()) <= endpointRefreshWindow {
-			state, err := worker.Status(ctx)
-			if err != nil {
-				return false, fmt.Errorf("%w: data worker status: %w", errConnectorConfiguration, err)
-			}
+		if current == nil || string(current.GetEndpointNodeId()) != state.EndpointID || current.GetEndpointGeneration() != state.EndpointGeneration ||
+			current.GetExpiresAt() == nil || time.Until(current.GetExpiresAt().AsTime()) <= endpointRefreshWindow {
 			observation, err := signEndpointObservation(ctx, config.trustSocket(), state.EndpointID, state.EndpointGeneration)
 			if err != nil {
 				return false, fmt.Errorf("%w: endpoint observation: %w", errConnectorConfiguration, err)
@@ -205,6 +211,11 @@ func connectAttempt(ctx context.Context, config Config, worker *dataworker.Super
 			}, endpointRefreshWindow)
 			if err != nil && connectionContext.Err() == nil {
 				stopConnection(fmt.Errorf("endpoint observation renewal failed: %w", err))
+			}
+		}()
+		go func() {
+			if err := watchEndpointIdentity(connectionContext, observations, worker, endpointIdentityInterval); err != nil {
+				stopConnection(err)
 			}
 		}()
 	}
@@ -374,6 +385,8 @@ func connectorFailure(err error) (hostv1.ConnectorPhase, string, string) {
 	switch {
 	case remoteProtocolFailure(err) != nil:
 		return hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT, "REMOTE_PROTOCOL_UNSUPPORTED", "The controller does not support this Host protocol."
+	case errors.Is(err, errDataWorkerUnavailable):
+		return hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT, "DATA_WORKER_UNAVAILABLE", "The local data worker is unavailable; retrying."
 	case errors.Is(err, errConnectorConfiguration):
 		return hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, "CONNECTOR_CONFIG_INVALID", "Connector configuration must be repaired."
 	case errors.Is(err, ErrCredentialUnavailable):

@@ -23,6 +23,7 @@ flowchart LR
 The appliance owns MCP tools, token-scoped allocations, and cleanup policy.
 The connector maps one authenticated controller registration to its own allocations.
 The data worker owns peer transport and endpoint keys. The Host owns trust and route authorization.
+The Host restarts an exited data worker on the same sockets. Each worker start has a new endpoint key and generation.
 
 ## Local listeners
 
@@ -68,6 +69,7 @@ Linux Host restart adopts the running Guest. It preserves workloads unless their
 | Appliance revoke | That installation's authority and runtime publication | Data needed for explicit removal or recovery |
 | Appliance remove | Confirmed installation domain and data | Other installations and the shared VM |
 | Explicit VM stop | Every workload in the VM | Durable configurations, volumes, and desired state |
+| Data worker exit | Peer connections, pairing sessions, the endpoint identity of that worker, and the current controller connection | Controller registration, allocations, workloads, and route authority |
 
 A failed appliance activation affects that installation. It does not authorize changes to sibling workloads.
 A version difference alone does not authorize deletion, re-enrollment, or workload termination.

@@ -3,12 +3,15 @@ package remoteconnector
 import (
 	"bytes"
 	"context"
+	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -125,5 +128,35 @@ func TestEndpointObservationContractRequiresValidInitialAndImmutableRenewalTuple
 		return equalExpiry, nil
 	}, 11*time.Minute); err == nil {
 		t.Fatal("renewal with unchanged expiry accepted")
+	}
+}
+
+func TestEndpointIdentityWatchEndsOnlyOnChangedIdentity(t *testing.T) {
+	sent := newEndpointObservationState(&trustv1.EndpointObservation{EndpointNodeId: []byte("endpoint-a"), EndpointGeneration: 1})
+	unavailable, err := dataworker.Attach(filepath.Join(t.TempDir(), "missing.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := watchEndpointIdentity(ctx, sent, unavailable, 10*time.Millisecond); err != nil {
+		t.Fatalf("restarting worker ended the connection: %v", err)
+	}
+	var endpoint atomic.Pointer[dataworker.Status]
+	endpoint.Store(&dataworker.Status{EndpointID: "endpoint-a", EndpointGeneration: 1})
+	worker, err := dataworker.Attach(startStatusWorker(t, &endpoint))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel = context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	if err := watchEndpointIdentity(ctx, sent, worker, 10*time.Millisecond); err != nil {
+		t.Fatalf("unchanged worker ended the connection: %v", err)
+	}
+	endpoint.Store(&dataworker.Status{EndpointID: "endpoint-b", EndpointGeneration: 2})
+	ctx, cancel = context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := watchEndpointIdentity(ctx, sent, worker, 10*time.Millisecond); err == nil {
+		t.Fatal("replaced worker kept the connection")
 	}
 }

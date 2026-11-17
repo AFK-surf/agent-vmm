@@ -50,6 +50,9 @@ No fixed IP, public DNS server, certificate bypass, or persistent route cache su
 A successful TLS probe does not prove enrollment or command admission.
 
 Authentication and configuration failures remain observable and retry under the connector's owner policy.
+`DATA_WORKER_UNAVAILABLE` means that the local data worker did not answer. The connector retries.
+The Host restarts an exited worker with a backoff from 1 to 30 seconds.
+The connector reads the worker endpoint every 5 seconds. When the endpoint changes, the connector reconnects with a new endpoint observation.
 Only explicit credential revocation ends that registration's connector authority.
 Read [the remote protocol](../protocols/remote.md) before resolving an unknown result.
 

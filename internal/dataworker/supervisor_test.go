@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
 	"time"
 
@@ -24,37 +25,48 @@ func TestSupervisorRequiresAbsoluteBoundaries(t *testing.T) {
 	}
 }
 
-func TestSupervisorStartsProbesDrainsAndStopsChild(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("Unix sockets")
-	}
+// fakeWorker writes a worker that reports a new generation on every start and
+// records its PID next to its control socket.
+func fakeWorker(t *testing.T) (directory, script string) {
+	t.Helper()
 	directory, err := os.MkdirTemp("/tmp", "avd-")
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(directory) })
-	socket := filepath.Join(directory, "worker.sock")
-	script := filepath.Join(directory, "worker")
+	script = filepath.Join(directory, "worker")
 	body := `#!/bin/sh
 exec python3 - "$2" <<'PY'
-import json, os, signal, socket, sys
+import json, os, signal, socket, sys, time
 path=sys.argv[1]
+generation=time.time_ns()
 def interrupt(*_):
  open(path+'.interrupted','w').close(); os._exit(0)
 signal.signal(signal.SIGINT, interrupt)
 try: os.unlink(path)
 except FileNotFoundError: pass
 s=socket.socket(socket.AF_UNIX); s.bind(path); s.listen()
+with open(path+'.pid.tmp','w') as f: f.write(str(os.getpid()))
+os.rename(path+'.pid.tmp', path+'.pid')
 accepting=True
 while True:
  c,_=s.accept(); req=json.loads(c.makefile().readline())
  if req['command']=='drain': accepting=False
- c.sendall((json.dumps({'endpoint_id':'ep','endpoint_generation':1,'accepting':accepting,'active_streams':0,'bytes_in':0,'bytes_out':0})+'\n').encode()); c.close()
+ c.sendall((json.dumps({'endpoint_id':'ep-%d'%generation,'endpoint_generation':generation,'accepting':accepting,'active_streams':0,'bytes_in':0,'bytes_out':0})+'\n').encode()); c.close()
 PY
 `
 	if err := os.WriteFile(script, []byte(body), 0o700); err != nil {
 		t.Fatal(err)
 	}
+	return directory, script
+}
+
+func TestSupervisorStartsProbesDrainsAndStopsChild(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix sockets")
+	}
+	directory, script := fakeWorker(t)
+	socket := filepath.Join(directory, "worker.sock")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	supervisor, err := Start(ctx, script, socket, filepath.Join(directory, "service.sock"), filepath.Join(directory, "mesh.sock"))
@@ -75,6 +87,77 @@ PY
 	}
 	if _, err := os.Stat(socket + ".interrupted"); err != nil {
 		t.Fatalf("worker was not interrupted: %v", err)
+	}
+}
+
+func TestSupervisorRestartsKilledWorkerUntilClose(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix sockets")
+	}
+	directory, script := fakeWorker(t)
+	socket := filepath.Join(directory, "worker.sock")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	supervisor, err := Start(ctx, script, socket, filepath.Join(directory, "service.sock"), filepath.Join(directory, "mesh.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	killWorker := func() {
+		t.Helper()
+		pid, err := os.ReadFile(socket + ".pid")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Remove(socket + ".pid"); err != nil {
+			t.Fatal(err)
+		}
+		value, err := strconv.Atoi(string(pid))
+		if err != nil {
+			t.Fatal(err)
+		}
+		process, err := os.FindProcess(value)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := process.Kill(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, err := supervisor.Status(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	killWorker()
+	deadline := time.Now().Add(10 * time.Second)
+	after, err := supervisor.Status(ctx)
+	for err != nil || after.EndpointGeneration == before.EndpointGeneration {
+		if time.Now().After(deadline) {
+			t.Fatalf("killed worker was not replaced: before=%+v after=%+v err=%v", before, after, err)
+		}
+		time.Sleep(50 * time.Millisecond)
+		after, err = supervisor.Status(ctx)
+	}
+	if after.EndpointID == before.EndpointID || after.EndpointGeneration <= before.EndpointGeneration {
+		t.Fatalf("replacement kept the old endpoint: before=%+v after=%+v", before, after)
+	}
+	// Close during the supervisor's own readiness poll stops the replacement
+	// before it is adopted. Let that poll (every 25 ms) finish first.
+	time.Sleep(250 * time.Millisecond)
+	if err := os.Remove(socket + ".pid"); err != nil {
+		t.Fatal(err)
+	}
+	closeCtx, closeCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer closeCancel()
+	if err := supervisor.Close(closeCtx); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(socket + ".interrupted"); err != nil {
+		t.Fatalf("replacement worker was not interrupted: %v", err)
+	}
+	// A restart would start after the one-second minimum backoff.
+	time.Sleep(3 * time.Second)
+	if _, err := os.Stat(socket + ".pid"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("worker started after Close: %v", err)
 	}
 }
 

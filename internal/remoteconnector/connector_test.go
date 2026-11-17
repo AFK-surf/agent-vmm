@@ -9,6 +9,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/json"
 	"encoding/pem"
 	"errors"
 	connectorv1 "github.com/AFK-surf/agent-vmm/internal/api/connector/v1"
@@ -21,6 +22,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -28,6 +30,7 @@ import (
 	remotev1 "github.com/AFK-surf/agent-vmm/api/remote/v1"
 	trustv1 "github.com/AFK-surf/agent-vmm/api/trust/v1"
 	controllerremote "github.com/AFK-surf/agent-vmm/controller/remote"
+	"github.com/AFK-surf/agent-vmm/internal/dataworker"
 	"google.golang.org/genproto/googleapis/rpc/errdetails"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -154,6 +157,12 @@ type fakeEnrollmentTrust struct {
 
 func (server *fakeEnrollmentTrust) GetDeviceIdentity(context.Context, *trustv1.GetDeviceIdentityRequest) (*trustv1.DeviceIdentity, error) {
 	return server.identity, nil
+}
+
+func (server *fakeEnrollmentTrust) SignEndpointObservation(_ context.Context, request *trustv1.SignEndpointObservationRequest) (*trustv1.EndpointObservation, error) {
+	observation := proto.Clone(request.GetUnsignedObservation()).(*trustv1.EndpointObservation)
+	observation.DeviceSignature = make([]byte, 64)
+	return observation, nil
 }
 
 func (server *fakeEnrollmentTrust) InstallManagedTrust(_ context.Context, request *trustv1.InstallManagedTrustRequest) (*trustv1.InstallManagedTrustResponse, error) {
@@ -393,6 +402,7 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnContextCancellati
 		rejectError error
 		store       CredentialStore
 		state       hostv1.RemoteRegistrationState
+		worker      bool
 		phase       hostv1.ConnectorPhase
 		code        string
 	}{
@@ -400,6 +410,7 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnContextCancellati
 		{name: "permission denied", reject: codes.PermissionDenied, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
 		{name: "credential unavailable", store: &unavailableCredentials{}, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_CONFIG_ERROR, code: "CREDENTIAL_UNAVAILABLE"},
 		{name: "revoked", state: hostv1.RemoteRegistrationState_REMOTE_REGISTRATION_STATE_REVOKED, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_AUTH_FAILED, code: "CONTROLLER_AUTH_FAILED"},
+		{name: "data worker unavailable", worker: true, phase: hostv1.ConnectorPhase_CONNECTOR_PHASE_RETRY_WAIT, code: "DATA_WORKER_UNAVAILABLE"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -414,7 +425,12 @@ func TestRunRetriesAuthenticationAndConfigurationAndStopsOnlyOnContextCancellati
 			if store == nil {
 				store = &memoryCredentials{value: []byte("credential-one")}
 			}
-			config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), Transport: ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}}
+			transport := ExternalTransport{Endpoint: endpoint, Credentials: store, Roots: roots}
+			if test.worker {
+				directory := t.TempDir()
+				transport.Worker = &WorkerSockets{Socket: filepath.Join(directory, "worker.sock"), ServiceTunnelSocket: filepath.Join(directory, "service.sock"), MeshControlSocket: filepath.Join(directory, "mesh.sock")}
+			}
+			config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, local), Transport: transport}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			done := make(chan error, 1)
@@ -674,6 +690,102 @@ func TestReconnectBackoffResetsOnlyAfterAStableConnection(t *testing.T) {
 	}
 	if wait := backoff.next(true, MaxReconnectDelay); wait != time.Second {
 		t.Fatalf("wait after a stable connection = %s, want 1s", wait)
+	}
+}
+
+// helloController records each hello and keeps the stream open until the
+// connector ends it.
+type helloController struct {
+	remotev1.UnimplementedRemoteControllerServiceServer
+	hellos chan *remotev1.HostHello
+}
+
+func (server *helloController) Connect(stream grpc.BidiStreamingServer[remotev1.ConnectRequest, remotev1.ConnectResponse]) error {
+	session, err := controllerremote.AcceptControl(stream, "registration-a")
+	if err != nil {
+		return err
+	}
+	if err := session.Ready(); err != nil {
+		return err
+	}
+	server.hellos <- session.Hello()
+	<-stream.Context().Done()
+	return status.Error(codes.Unavailable, "controller disconnected")
+}
+
+// startStatusWorker serves the data worker status command with the current
+// endpoint identity.
+func startStatusWorker(t *testing.T, endpoint *atomic.Pointer[dataworker.Status]) string {
+	t.Helper()
+	directory, err := os.MkdirTemp("/tmp", "avm-worker-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(directory) })
+	socket := filepath.Join(directory, "worker.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() {
+		for {
+			connection, err := listener.Accept()
+			if err != nil {
+				return
+			}
+			_ = json.NewEncoder(connection).Encode(endpoint.Load())
+			_ = connection.Close()
+		}
+	}()
+	return socket
+}
+
+func TestConnectorReconnectsWithObservationOfReplacedDataWorker(t *testing.T) {
+	var endpoint atomic.Pointer[dataworker.Status]
+	endpoint.Store(&dataworker.Status{EndpointID: "endpoint-a", EndpointGeneration: 1, Accepting: true})
+	workerSocket := startStatusWorker(t, &endpoint)
+	controller := &helloController{hellos: make(chan *remotev1.HostHello, 4)}
+	address, roots := startTLSServer(t, "localhost", controller)
+	transport := ExternalTransport{Endpoint: address, Credentials: &memoryCredentials{value: []byte("credential-one")}, Roots: roots,
+		Worker: &WorkerSockets{Socket: workerSocket, ServiceTunnelSocket: workerSocket, MeshControlSocket: workerSocket}}
+	registration := testRegistration()
+	registration.EnrollmentState = hostv1.RemoteEnrollmentState_REMOTE_ENROLLMENT_STATE_READY
+	config := Config{RegistrationID: "registration-a", RemoteComputeSocket: startLocalServer(t, &fakeLocal{registration: registration}), Transport: transport}
+	configureEnrollmentTrust(t, &config)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, config) }()
+	next := func() *trustv1.EndpointObservation {
+		t.Helper()
+		select {
+		case hello := <-controller.hellos:
+			return hello.GetEndpointObservation()
+		case <-time.After(15 * time.Second):
+			t.Fatal("connector did not reconnect")
+			return nil
+		}
+	}
+	if observation := next(); string(observation.GetEndpointNodeId()) != "endpoint-a" || observation.GetEndpointGeneration() != 1 {
+		t.Fatalf("first observation = %v", observation)
+	}
+	// The Host replaced the worker while the controller stream stays open. The
+	// sent observation is still unexpired but names an endpoint that no longer
+	// exists, so the connector must reconnect well before renewal.
+	endpoint.Store(&dataworker.Status{EndpointID: "endpoint-b", EndpointGeneration: 2, Accepting: true})
+	for {
+		observation := next()
+		if string(observation.GetEndpointNodeId()) == "endpoint-b" && observation.GetEndpointGeneration() == 2 {
+			break
+		}
+		if string(observation.GetEndpointNodeId()) != "endpoint-a" {
+			t.Fatalf("unexpected observation = %v", observation)
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
 	}
 }
 
