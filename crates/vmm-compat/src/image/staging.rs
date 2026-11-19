@@ -31,12 +31,29 @@ impl Drop for Staged {
     }
 }
 
+pub(super) struct BuildPublication<'a> {
+    pub context: &'a crate::RuntimeContext,
+    pub output: &'a vmm_core::RetainedImage,
+    pub cancelled: tokio::sync::watch::Receiver<bool>,
+    pub deadline: i64,
+}
+
 impl VerifiedArchive {
     pub async fn install(
         self,
         core: &Core,
         scope: &str,
         driver: Arc<dyn ImageStaging>,
+    ) -> Result<ImageArtifact> {
+        self.install_with_build(core, scope, driver, None).await
+    }
+
+    pub(super) async fn install_with_build(
+        self,
+        core: &Core,
+        scope: &str,
+        driver: Arc<dyn ImageStaging>,
+        build: Option<BuildPublication<'_>>,
     ) -> Result<ImageArtifact> {
         let reference = self.header().image_reference.clone();
         let digest = self.manifest_digest();
@@ -53,7 +70,28 @@ impl VerifiedArchive {
         .await
         .map_err(|_| Error::Interrupted)??;
         let result = if staged.source.manifest_digest == digest {
-            core.import_image(scope, &reference, &staged.source).await
+            match build {
+                Some(build) => {
+                    let ctx = build.context;
+                    core.publish_build(
+                        &ctx.session,
+                        ctx.remote.as_ref().map(|r| r.registration_id.as_str()),
+                        &staged.source,
+                        build.output,
+                        || {
+                            if *build.cancelled.borrow()
+                                || crate::execution::now().map_err(|_| Error::Interrupted)?
+                                    >= build.deadline
+                            {
+                                return Err(Error::Interrupted);
+                            }
+                            Ok(())
+                        },
+                    )
+                    .await
+                }
+                None => core.import_image(scope, &reference, &staged.source).await,
+            }
         } else {
             Err(Error::Fenced)
         };

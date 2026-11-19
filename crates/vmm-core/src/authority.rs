@@ -6,7 +6,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest as _, Sha256};
 use uuid::Uuid;
 
-fn insert_registration(db: &Connection, id: &str) -> Result<()> {
+pub(crate) fn insert_registration(db: &Connection, id: &str) -> Result<()> {
     if id.is_empty() {
         return Err(Error::Invalid("registration id"));
     }
@@ -141,7 +141,7 @@ pub(crate) fn admit_existing(db: &Connection, scope: &Scope) -> Result<()> {
         ScopeState::Active => Ok(()),
         ScopeState::Draining
             if db.query_row(
-                "SELECT disposal_request IS NULL FROM scopes WHERE id=?",
+                "SELECT disposal_request IS NULL AND NOT EXISTS (SELECT 1 FROM registration_revocations WHERE registration=scopes.registration) FROM scopes WHERE id=?",
                 [&scope.id],
                 |r| r.get(0),
             )? =>
@@ -185,9 +185,25 @@ impl Store {
         self.read(|db| registration(db, id))
     }
     pub fn connect(&self, id: &str, epoch: u64) -> Result<Channel> {
+        self.connect_with_policy(id, epoch, None)
+    }
+    pub fn connect_with_policy(
+        &self,
+        id: &str,
+        epoch: u64,
+        pool_revision: Option<u64>,
+    ) -> Result<Channel> {
         self.write(|db| {
             let previous = registration(db, id)?;
-            if crate::operator_disposal::accepted_request(db, id)?.is_some() {
+            if let Some(managed) = crate::registration_policy::load(db, id)?
+                && (!managed.phase.accepts_connection()
+                    || pool_revision != Some(managed.pool_revision))
+            {
+                return Err(Error::Fenced);
+            }
+            if crate::operator_disposal::accepted_request(db, id)?.is_some()
+                || crate::registration_retirement::revoking(db, id)?
+            {
                 return Err(Error::Fenced);
             }
             if epoch <= previous.connection_epoch {
@@ -220,7 +236,10 @@ impl Store {
     }
     pub fn set_admission(&self, id: &str, draining: bool) -> Result<()> {
         self.write(|db| {
-            if !draining && crate::operator_disposal::accepted_request(db, id)?.is_some() {
+            if !draining
+                && (crate::operator_disposal::accepted_request(db, id)?.is_some()
+                    || crate::registration_retirement::revoking(db, id)?)
+            {
                 return Err(Error::Fenced);
             }
             if db.execute(
@@ -352,6 +371,17 @@ impl Store {
                 params![id, private_registration, encode(&appliance)?],
             )?;
             Ok(appliance)
+        })
+    }
+    /// Read an installation together with the private registration it owns.
+    pub fn appliance(&self, id: &str) -> Result<Option<Appliance>> {
+        self.read(|db| {
+            let data: Option<String> = db
+                .query_row("SELECT data FROM appliances WHERE id=?", [id], |row| {
+                    row.get(0)
+                })
+                .optional()?;
+            data.as_deref().map(decode).transpose()
         })
     }
     pub fn transition_appliance(

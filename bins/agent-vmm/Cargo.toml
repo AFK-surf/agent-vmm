@@ -25,6 +25,7 @@ uzers = "0.12"
 vmm-lifecycle = { path = "../../crates/vmm-lifecycle" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
+agent-vmm-host = { path = "../agent-vmm-host" }
 flate2 = "1"
 tar = "0.4"
 

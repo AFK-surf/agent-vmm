@@ -27,6 +27,14 @@ use vmm_dom0::{
 use vmm_guest_proto::rpc::{WorkspaceTarget, WorkspaceWriteRequest};
 use vmm_l4hctl::{DiskExtent, DiskInfo, HypervisorCtl, MockHypervisorCtl};
 
+struct HostControl(std::path::PathBuf);
+#[async_trait::async_trait]
+impl vmm_dom0::remote::Connect for HostControl {
+    async fn connect(&self) -> std::io::Result<tokio::net::UnixStream> {
+        tokio::net::UnixStream::connect(&self.0).await
+    }
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
     let dir = tempfile::tempdir()?;
@@ -57,6 +65,7 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
     cfg.boot_port = port;
     cfg.boot_timeout = Duration::from_secs(8);
     cfg.helper_image = Some([7; 32]);
+    cfg.builder_image = Some([7; 32]);
     let dns = vmm_dom0::dns::DnsServer::bind(SocketAddrV4::new(cfg.gateway, 0)).await?;
     cfg.dns_port = dns.port()?;
     let dns_endpoint = SocketAddrV4::new(cfg.gateway, cfg.dns_port);
@@ -98,6 +107,34 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
         core.reconcile_after_restart().await?.adopted,
         vec![vm.clone()]
     );
+    let control_path = root.join("control.sock");
+    let listener = tokio::net::UnixListener::bind(&control_path)?;
+    let authority = backend.clone();
+    let control = tokio::spawn(async move {
+        while let Ok((stream, _)) = listener.accept().await {
+            let backend = authority.clone();
+            tokio::spawn(async move {
+                vmm_dom0::remote::serve_host_connection(stream, &backend)
+                    .await
+                    .unwrap();
+            });
+        }
+    });
+    let remote = vmm_dom0::remote::RemoteDom0Client::unix(&control_path);
+    let endpoint = remote.open_guest_runtime(&vm.boot).await?;
+    assert_eq!(endpoint.address, remote.guest_address(&vm.boot).await?);
+    let client = vmm_guest_proto::client::Client::new(endpoint.address.into(), endpoint.token);
+    let health = tokio::task::spawn_blocking(move || client.health([7; 16]))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(health.instance_id, vm.boot.instance_id);
+    let mut stale = vm.boot.clone();
+    stale.boot_token_hash[0] ^= 1;
+    assert!(matches!(
+        remote.open_guest_runtime(&stale).await,
+        Err(Error::Fenced)
+    ));
     let exec = backend
         .runtime(&vm.boot)?
         .call(|client| {
@@ -162,6 +199,10 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
         None
     };
     core.stop(&vm.boot, true).await?;
+    assert!(matches!(
+        remote.open_guest_runtime(&vm.boot).await,
+        Err(Error::Fenced)
+    ));
     if let Some(mut active) = active {
         assert_eq!(
             tokio::time::timeout(Duration::from_secs(1), active.read(&mut [0]))
@@ -170,12 +211,50 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
             0
         );
     }
-    let ws = backend
-        .resolve_workspace("a", Some("data"), AccessMode::ReadOnly)
-        .await?;
-    assert_eq!(ws.stat("x").await?.size, 5);
+    let lease = vmm_dom0::remote::RemoteWorkspace::acquire(
+        &HostControl(control_path.clone()),
+        "a",
+        Some("data"),
+        AccessMode::ReadOnly,
+    )
+    .await?;
+    assert_ne!(lease.boot, vm.boot);
+    let ep = remote.open_guest_runtime(&lease.boot).await?;
+    let client = vmm_guest_proto::client::Client::new(ep.address.into(), ep.token);
+    let alias = lease.alias.clone();
+    let entry = tokio::task::spawn_blocking(move || {
+        client.workspace_stat(WorkspaceTarget {
+            volume: Some(alias),
+            path: "x".into(),
+        })
+    })
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(entry.size, 5);
     assert_eq!(firewall.0.lock().unwrap()[&SLOT].mode, EgressMode::DenyAll);
-    ws.close().await?;
+    let helper = lease.boot.clone();
+    drop(lease);
+    tokio::time::timeout(Duration::from_secs(5), async {
+        loop {
+            if matches!(remote.open_guest_runtime(&helper).await, Err(Error::Fenced)) {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("disconnected host lease retained its helper");
+    // The boot fence precedes guest shutdown. Wait for the hypervisor to
+    // finish reclaiming the helper before inspecting its shutdown record.
+    tokio::time::timeout(Duration::from_secs(5), async {
+        while !ctl.lock().unwrap().list_vms().unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .expect("disconnected host lease retained its VM");
+
     {
         let record = observed.lock().unwrap();
         assert_eq!(record.boots.len(), 3);
@@ -206,12 +285,7 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
     );
     core.discard_volume("a", "__default_workspace").await?;
     let build = backend
-        .begin_build(
-            &support::scope("a"),
-            [7; 32],
-            EgressMode::PublicInternet,
-            4 << 20,
-        )
+        .begin_build(&support::scope("a"), EgressMode::PublicInternet, 4 << 20)
         .await?;
     assert_eq!(firewall.0.lock().unwrap()[&SLOT].mode, EgressMode::DenyAll);
     assert_eq!(
@@ -219,8 +293,22 @@ async fn real_guest_workspace_helper_and_reclamation() -> Result<()> {
         build.boot.instance_id
     );
     build.close().await?;
+    let discarded = ctl.lock().unwrap().discards().len();
+    let build = vmm_dom0::remote::RemoteBuild::acquire(
+        &HostControl(control_path.clone()),
+        &support::scope("a"),
+        EgressMode::DenyAll,
+        4 << 20,
+    )
+    .await?;
+    assert!(remote.open_guest_runtime(&build.boot).await.is_ok());
+    let retired = build.boot.clone();
+    build.close().await?;
+    assert!(remote.open_guest_runtime(&retired).await.is_err());
+    control.abort();
     core.remove_image_reference("a", "cue", [7; 32]).await?;
-    assert_eq!(ctl.lock().unwrap().discards().len(), 6);
+    assert!(backend.image_installed([7; 32])?);
+    assert_eq!(ctl.lock().unwrap().discards().len(), discarded + 2);
     assert!(ctl.lock().unwrap().list_vms().unwrap().is_empty());
     dns_task.abort();
     guests.abort();
@@ -249,6 +337,7 @@ async fn verify_route(
     let route = ServiceRoute {
         revision: 2,
         binding: RouteBinding {
+            expires_at_unix_seconds: None,
             virtual_service_name: "local-api".into(),
             id: "connection".into(),
             source: boot.clone(),

@@ -6,6 +6,7 @@ use zeroize::Zeroizing;
 
 pub struct Secrets {
     pub credentials: Arc<dyn CredentialStore>,
+    pub(crate) roots: Box<dyn crate::identity::DeviceRoots>,
     pub tokens: TokenAuthority,
 }
 struct KeychainSigningKeys(Arc<dyn Keychain>);
@@ -68,7 +69,17 @@ impl Secrets {
                 Arc::new(keys)
             }
         };
+        let roots: Box<dyn crate::identity::DeviceRoots> = match selection.backend {
+            StorageMode::File => Box::new(vmm_signing::FileIdentityStore::new(
+                instance.join("device-root.key"),
+            )),
+            #[cfg(target_os = "macos")]
+            StorageMode::Keychain => Box::new(crate::apple_roots::AppleRoots(selection.namespace)),
+            #[cfg(not(target_os = "macos"))]
+            StorageMode::Keychain => return Err(io::Error::other("Keychain unavailable")),
+        };
         Ok(Self {
+            roots,
             credentials: Arc::from(credentials),
             tokens: TokenAuthority::new(keys),
         })

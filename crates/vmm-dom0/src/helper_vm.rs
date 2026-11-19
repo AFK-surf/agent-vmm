@@ -41,6 +41,7 @@ impl MountLocks {
 }
 
 pub struct Workspace {
+    boot: BootIdentity,
     guest: Dom0Runtime,
     name: String,
     access: AccessMode,
@@ -72,6 +73,9 @@ impl Drop for Workspace {
     }
 }
 impl Workspace {
+    pub(crate) fn binding(&self) -> (&BootIdentity, &str) {
+        (&self.boot, &self.name)
+    }
     /// Borrows the selected Guest client and mount alias for a synchronous
     /// streaming adapter. The caller holds this lease through the last frame.
     pub fn blocking_client(
@@ -217,7 +221,8 @@ impl LocalDom0Backend {
                 return Err(Error::Conflict("workload mounted volume read-only"));
             }
             return Ok(Workspace {
-                guest: self.runtime(&b.identity)?,
+                guest: Dom0Runtime::from_client(self.bound_guest_client(b.identity.clone())),
+                boot: b.identity,
                 name: m.volume_id.clone(),
                 access,
                 lease: Some(Lease {
@@ -238,9 +243,10 @@ impl LocalDom0Backend {
         if access == AccessMode::ReadOnly {
             self.initialize_for_read(&vol, &id).await?;
         }
-        let (boot, guest) = self.helper(scope_id, &vol, id, access.clone()).await?;
+        let (boot, _) = self.helper(scope_id, &vol, id, access.clone()).await?;
         Ok(Workspace {
-            guest,
+            guest: Dom0Runtime::from_client(self.bound_guest_client(boot.clone())),
+            boot: boot.clone(),
             name: vol.volume_id,
             access,
             lease: Some(Lease {

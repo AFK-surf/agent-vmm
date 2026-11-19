@@ -42,9 +42,8 @@ impl AgentRuntimeService for RuntimeService {
         req: Request<h::PullImageRequest>,
     ) -> Result<Response<Self::PullImageStream>, Status> {
         let ctx = RuntimeContext::from_request(&self.core, &req)?;
-        self.images
-            .pull_image(&ctx, req.into_inner())
-            .await
+        self.imports
+            .pull(ctx, self.containers.clone(), req.into_inner())
             .map(Response::new)
     }
     async fn import_image(
@@ -67,11 +66,9 @@ impl AgentRuntimeService for RuntimeService {
             Ok(h::ImageOrigin::CurrentAllocation) => {
                 self.containers.list_grants(&ctx).await.map(Response::new)
             }
-            Ok(h::ImageOrigin::ControllerRetained) => self
-                .images
-                .list_images(&ctx, request)
-                .await
-                .map(Response::new),
+            Ok(h::ImageOrigin::ControllerRetained) => {
+                crate::image::retained::list(&ctx).map(Response::new)
+            }
             Err(_) => Err(crate::error::invalid_field(
                 "origin",
                 "invalid image origin",
@@ -90,9 +87,7 @@ impl AgentRuntimeService for RuntimeService {
                 .delete_grant(ctx, request)
                 .await
                 .map(Response::new),
-            Ok(h::ImageOrigin::ControllerRetained) => self
-                .images
-                .delete_image(&ctx, request)
+            Ok(h::ImageOrigin::ControllerRetained) => crate::image::retained::delete(ctx, request)
                 .await
                 .map(Response::new),
             Err(_) => Err(crate::error::invalid_field(
@@ -284,8 +279,7 @@ impl AgentRuntimeService for RuntimeService {
         req: Request<h::CopyImageRequest>,
     ) -> Result<Response<h::CopyImageResponse>, Status> {
         let ctx = RuntimeContext::from_request(&self.core, &req)?;
-        self.images
-            .copy_image(&ctx, req.into_inner())
+        crate::image::copy::copy(&ctx, req.into_inner())
             .await
             .map(Response::new)
     }
@@ -294,6 +288,12 @@ impl AgentRuntimeService for RuntimeService {
         req: Request<h::ObserveImageOperationRequest>,
     ) -> Result<Response<h::ObserveImageOperationResponse>, Status> {
         let ctx = RuntimeContext::from_request(&self.core, &req)?;
+        if req.get_ref().kind() == h::ImageOperationKind::Copy {
+            let receipt = crate::image::copy::observe(&ctx, req.into_inner())?;
+            return Ok(Response::new(h::ObserveImageOperationResponse {
+                receipt: Some(receipt),
+            }));
+        }
         self.images
             .observe_image_operation(&ctx, req.into_inner())
             .await
@@ -304,6 +304,12 @@ impl AgentRuntimeService for RuntimeService {
         req: Request<h::CancelImageOperationRequest>,
     ) -> Result<Response<h::CancelImageOperationResponse>, Status> {
         let ctx = RuntimeContext::from_request(&self.core, &req)?;
+        if req.get_ref().kind() == h::ImageOperationKind::Copy {
+            let receipt = crate::image::copy::cancel(&ctx, req.into_inner())?;
+            return Ok(Response::new(h::CancelImageOperationResponse {
+                receipt: Some(receipt),
+            }));
+        }
         self.images
             .cancel_image_operation(&ctx, req.into_inner())
             .await

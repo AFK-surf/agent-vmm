@@ -1,6 +1,7 @@
 use agent_vmm_host::{control::serve_local, host::HostState};
 use agent_vmm_proto::host::v1::{
-    GetLocalDiskSummaryRequest, GetVmRequest, operator_service_client::OperatorServiceClient,
+    GetLocalDiskSummaryRequest, ListLocalEnvironmentPageRequest,
+    operator_service_client::OperatorServiceClient,
 };
 use std::{
     fs,
@@ -77,12 +78,10 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
         .unwrap();
         let mut client = OperatorServiceClient::new(channel);
         let boot = client
-            .get_vm(GetVmRequest {})
+            .list_local_environment_page(ListLocalEnvironmentPageRequest::default())
             .await
             .unwrap()
             .into_inner()
-            .vm
-            .unwrap()
             .boot_id;
         let token = staging.join("11111111111111111111111111111111");
         assert_sample(&mut client, &boot, 0, 0).await;

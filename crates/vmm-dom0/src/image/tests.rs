@@ -34,7 +34,7 @@ fn blob(t: &mut Builder<Vec<u8>>, data: &[u8]) -> serde_json::Value {
     );
     descriptor(data)
 }
-fn fixture(docker: bool) -> (Vec<u8>, Digest) {
+pub(crate) fn fixture(docker: bool) -> (Vec<u8>, Digest) {
     let mut lower = Builder::new(Vec::new());
     file(&mut lower, "gone", b"lower");
     file(&mut lower, "opaque/old", b"old");
@@ -96,7 +96,8 @@ fn layered_archives_preserve_identity_metadata_and_links() -> Result<()> {
         let archive_file = temp.path().join("image.tar");
         std::fs::write(&archive_file, archive)?;
         for formatter in [temp.path().join("unavailable"), PathBuf::from("mkfs.erofs")] {
-            let mut built = build_with(&archive_file, Some(digest), temp.path(), &formatter)?;
+            let mut built =
+                build_with(&archive_file, Some(digest), temp.path(), &formatter, false)?;
             assert_eq!(built.defaults.entrypoint.unwrap(), ["/bin/sh"]);
             assert_eq!(built.defaults.cmd.unwrap(), ["run"]);
             assert_eq!(built.defaults.env.unwrap(), ["A=B"]);
@@ -152,6 +153,40 @@ fn docker_config_must_match_expected_digest() -> Result<()> {
     assert!(matches!(
         build(&file, digest, tmp.path()),
         Err(Error::Invalid("Docker config digest"))
+    ));
+    Ok(())
+}
+
+#[test]
+fn trusted_builder_requires_oci_and_the_first_release_manifest() -> Result<()> {
+    let dir = tempfile::tempdir()?;
+    let image = dir.path().join("builder.tar");
+    let (docker, digest) = fixture(true);
+    std::fs::write(&image, docker)?;
+    assert!(build_trusted_builder(&image, digest, dir.path()).is_err());
+    let (oci, digest) = fixture(false);
+    std::fs::write(&image, &oci)?;
+    build_trusted_builder(&image, digest, dir.path())?;
+    let mut changed = Builder::new(Vec::new());
+    for entry in tar::Archive::new(oci.as_slice()).entries()? {
+        let mut entry = entry?;
+        let path = entry.path()?.into_owned();
+        let mut data = Vec::new();
+        entry.read_to_end(&mut data)?;
+        if path == Path::new("index.json") {
+            let mut index: serde_json::Value = serde_json::from_slice(&data)?;
+            index["manifests"]
+                .as_array_mut()
+                .unwrap()
+                .insert(0, descriptor(b"other manifest"));
+            data = serde_json::to_vec(&index)?;
+        }
+        file(&mut changed, path.to_str().unwrap(), &data);
+    }
+    std::fs::write(&image, changed.into_inner()?)?;
+    assert!(matches!(
+        build_trusted_builder(&image, digest, dir.path()),
+        Err(Error::Invalid("builder manifest digest"))
     ));
     Ok(())
 }

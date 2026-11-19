@@ -10,13 +10,38 @@ use prost::Message;
 use rusqlite::{Connection, params};
 use std::collections::HashMap;
 use tonic::{Code, Status};
-use uuid::Uuid;
 use vmm_core::ImageArtifact;
+use vmm_core::Store;
+
+pub(crate) fn resolve(
+    ctx: &RuntimeContext,
+    input: &str,
+) -> vmm_core::Result<(String, ImageArtifact)> {
+    let store = &ctx.core.store;
+    match store.resolve_image(&ctx.scope.id, input) {
+        Ok(image) => Ok((input.into(), image)),
+        Err(vmm_core::Error::Missing(kind)) => {
+            let normalized = input
+                .parse::<oci_spec::distribution::Reference>()
+                .map_err(|_| vmm_core::Error::Missing(kind))?
+                .whole();
+            if normalized == input {
+                return Err(vmm_core::Error::Missing(kind));
+            }
+            let image = store.resolve_image(&ctx.scope.id, &normalized)?;
+            Ok((normalized, image))
+        }
+        Err(error) => Err(error),
+    }
+}
 
 pub(crate) fn initialize(db: &Connection) -> Result<(), Status> {
     db.execute_batch("CREATE TABLE IF NOT EXISTS image_grants(scope TEXT NOT NULL,reference TEXT NOT NULL,digest BLOB NOT NULL,generation TEXT NOT NULL,logical_bytes INTEGER,PRIMARY KEY(scope,reference))").map_err(db_error)?;
     if !db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('image_grants') WHERE name='logical_bytes')", [], |r| r.get::<_, bool>(0)).map_err(db_error)? {
         db.execute_batch("ALTER TABLE image_grants ADD COLUMN logical_bytes INTEGER").map_err(db_error)?;
+    }
+    if !db.query_row("SELECT EXISTS(SELECT 1 FROM pragma_table_info('image_grants') WHERE name='core_generation')", [], |r| r.get::<_, bool>(0)).map_err(db_error)? {
+        db.execute_batch("ALTER TABLE image_grants ADD COLUMN core_generation TEXT").map_err(db_error)?;
     }
     Ok(())
 }
@@ -24,23 +49,27 @@ pub(crate) fn initialize(db: &Connection) -> Result<(), Status> {
 impl Containers {
     pub(super) fn image_grant(
         &self,
+        store: &Store,
         scope: &str,
         reference: &str,
         image: &ImageArtifact,
         bytes: Option<u64>,
         new: bool,
     ) -> Result<h::Image, Status> {
+        let metadata = store
+            .image_grant_metadata(scope, reference, image.manifest_digest)
+            .map_err(core_status)?;
         let logical = bytes
             .map(i64::try_from)
             .transpose()
             .map_err(|_| Status::out_of_range("logical image size"))?;
         let (generation_id, logical_bytes) = self.db()?.query_row(
-            "INSERT INTO image_grants(scope,reference,digest,generation,logical_bytes) VALUES(?1,?2,?3,?4,?5)
+            "INSERT INTO image_grants(scope,reference,digest,generation,logical_bytes,core_generation) VALUES(?1,?2,?3,?4,?5,?4)
              ON CONFLICT(scope,reference) DO UPDATE SET
-             generation=CASE WHEN ?6 OR digest!=excluded.digest THEN excluded.generation ELSE generation END,
-             logical_bytes=CASE WHEN ?6 OR digest!=excluded.digest THEN excluded.logical_bytes ELSE COALESCE(excluded.logical_bytes,logical_bytes) END,
-             digest=excluded.digest RETURNING generation,COALESCE(logical_bytes,0)",
-            params![scope,reference,image.manifest_digest,Uuid::new_v4().to_string(),logical,new],
+             generation=CASE WHEN ?6 OR digest!=excluded.digest OR (core_generation IS NOT NULL AND core_generation!=excluded.core_generation) THEN excluded.generation ELSE generation END,
+             logical_bytes=CASE WHEN ?6 OR digest!=excluded.digest OR (core_generation IS NOT NULL AND core_generation!=excluded.core_generation) THEN excluded.logical_bytes ELSE COALESCE(excluded.logical_bytes,logical_bytes) END,
+             core_generation=excluded.core_generation,digest=excluded.digest RETURNING generation,COALESCE(logical_bytes,0)",
+            params![scope,reference,image.manifest_digest,metadata.generation,logical,new],
             |r| Ok((r.get(0)?, r.get::<_,i64>(1)?))
         ).map_err(db_error)?;
         Ok(h::Image {
@@ -50,6 +79,13 @@ impl Containers {
                 .map_err(|_| Status::data_loss("invalid stored image size"))?,
             platforms: vec!["linux/arm64".into()],
             generation_id,
+            build_receipt: metadata
+                .build_receipt
+                .as_deref()
+                .map(h::ImageOperationReceipt::decode)
+                .transpose()
+                .map_err(|_| Status::data_loss("invalid stored build receipt"))?,
+            copy_receipt: metadata.copy_receipt.map(super::copy::receipt),
             ..Default::default()
         })
     }
@@ -79,7 +115,8 @@ impl Containers {
             .list_images(scope, None, usize::MAX)
             .map_err(core_status)?
         {
-            let mut image = self.image_grant(scope, &reference, &artifact, None, false)?;
+            let mut image =
+                self.image_grant(&ctx.core.store, scope, &reference, &artifact, None, false)?;
             image.used_by_container_ids = users.remove(&reference).unwrap_or_default();
             images.push(image);
         }
@@ -109,12 +146,8 @@ impl Containers {
             async move {
                 let _guard = containers.definitions.lock().await;
                 let scope = &ctx.scope.id;
-                let reference = &req.reference;
-                let image = ctx
-                    .core
-                    .store
-                    .resolve_image(scope, reference)
-                    .map_err(core_status)?;
+                let (reference, image) = resolve(&ctx, &req.reference).map_err(core_status)?;
+                let reference = &reference;
                 if image.manifest_digest != expected {
                     return Err(host_status(
                         Code::Aborted,
@@ -123,7 +156,7 @@ impl Containers {
                     ));
                 }
                 if containers
-                    .image_grant(scope, reference, &image, None, false)?
+                    .image_grant(&ctx.core.store, scope, reference, &image, None, false)?
                     .generation_id
                     != req.expected_generation_id
                 {

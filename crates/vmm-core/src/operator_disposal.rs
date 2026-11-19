@@ -23,6 +23,10 @@ fn check_external_disposal(db: &Connection, id: &str, request: &str) -> Result<b
     if private {
         return Err(Error::Conflict("private appliance registration"));
     }
+    let cleaning: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM environment_cleanups c JOIN scopes s ON s.id=c.scope WHERE s.registration=? AND c.complete=0)",[id],|r|r.get(0))?;
+    if cleaning {
+        return Err(Error::Conflict("environment cleanup already accepted"));
+    }
     if let Some(previous) = accepted_request(db, id)? {
         return if previous == request {
             Ok(true)
@@ -53,7 +57,7 @@ impl Store {
                 [id], |row| Ok((row.get(0)?, row.get(1)?)),
             ).optional()?.ok_or(Error::Missing("registration"))?;
             if private { return Err(Error::Conflict("private appliance registration")); }
-            if retired { return Err(Error::Draining); }
+            if retired || crate::registration_retirement::revoking(db,id)? { return Err(Error::Draining); }
             Ok(())
         })
     }
@@ -139,6 +143,7 @@ impl Store {
             return Err(Error::Invalid("request_id"));
         }
         self.write(|db| {
+            Self::check_cleanup_owner(db, id)?;
             let mut scope = crate::authority::load_scope(db, id)?;
             if scope.origin != Origin::Local {
                 return Err(Error::Conflict(

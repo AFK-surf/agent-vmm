@@ -10,6 +10,7 @@ use crate::{
     tunnel::Tunnels,
     unix_millis,
 };
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::{future::pending, sync::Arc, time::Duration};
 use tokio::{
     sync::mpsc,
@@ -39,6 +40,8 @@ pub struct Observation {
 }
 
 pub struct Connector {
+    endpoint: Option<tokio::sync::watch::Receiver<crate::trust::EndpointObservation>>,
+    ready_epoch: AtomicU64,
     pub(crate) core: Core,
     pub(crate) gateway: Gateway,
     pub(crate) config: ConnectorConfig,
@@ -47,10 +50,28 @@ pub struct Connector {
 impl Connector {
     pub fn new(core: Core, gateway: Gateway, config: ConnectorConfig) -> Self {
         Self {
+            endpoint: None,
+            ready_epoch: AtomicU64::new(0),
             core,
             gateway,
             config,
         }
+    }
+
+    pub fn with_endpoint(
+        mut self,
+        endpoint: tokio::sync::watch::Receiver<crate::trust::EndpointObservation>,
+    ) -> Self {
+        self.endpoint = Some(endpoint);
+        self
+    }
+
+    pub fn pool_revision(&self) -> u64 {
+        self.config.connection.policy_revision
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.ready_epoch.load(Ordering::Acquire) != 0
     }
 
     /// Runs until rejected credentials or an incompatible protocol require action, or the
@@ -91,13 +112,19 @@ impl Connector {
             .checked_add(1)
             .ok_or(Error::Invalid("connection epoch exhausted"))?;
         let lease = ChannelLease {
+            ready_epoch: &self.ready_epoch,
             store,
-            channel: store.connect(registration, epoch)?,
+            channel: store.connect_with_policy(
+                registration,
+                epoch,
+                Some(self.config.connection.policy_revision),
+            )?,
         };
         let channel = &lease.channel;
         let inventory = store.remote_inventory(channel, INVENTORY_LIMIT)?;
         let mut instance = [0; 16];
         getrandom::fill(&mut instance).map_err(|_| Error::Random)?;
+        let mut endpoint = self.endpoint.clone();
         let hello = HostHello {
             protocol_version: "4".into(),
             connector_release: env!("CARGO_PKG_VERSION").into(),
@@ -114,7 +141,7 @@ impl Connector {
             inventory_watermark: inventory.watermark,
             supported_features: vec![OBSERVATION_FEATURE.into()],
             observation: Some(self.observation(1, inventory.watermark)),
-            endpoint_observation: None,
+            endpoint_observation: endpoint.as_mut().map(|rx| rx.borrow_and_update().clone()),
         };
 
         let (outbound, requests) = mpsc::channel(16);
@@ -142,6 +169,7 @@ impl Connector {
             return Err(Error::Disconnected);
         }
 
+        self.ready_epoch.store(epoch, Ordering::Release);
         let mut command_state = Commands::default();
         let mut tunnels = Tunnels::new(self, channel);
         let commands = async {
@@ -179,7 +207,26 @@ impl Connector {
             }
             pending::<Result<()>>().await
         };
-        tokio::try_join!(commands, observations).map(|((), ())| ())
+        let renew_endpoint = async {
+            let Some(mut rx) = endpoint else {
+                return pending::<Result<()>>().await;
+            };
+            loop {
+                rx.changed().await.map_err(|_| Error::Disconnected)?;
+                let observation = rx.borrow_and_update().clone();
+                send(
+                    &outbound,
+                    connect_request::Payload::EndpointObservationRenewal(
+                        remote::EndpointObservationRenewal {
+                            connection_epoch: epoch,
+                            endpoint_observation: Some(observation),
+                        },
+                    ),
+                )
+                .await?;
+            }
+        };
+        tokio::try_join!(commands, observations, renew_endpoint).map(|((), (), ())| ())
     }
 
     fn capacity(&self) -> remote::Capacity {
@@ -262,12 +309,19 @@ pub(crate) async fn send(
 }
 
 struct ChannelLease<'a> {
+    ready_epoch: &'a AtomicU64,
     store: &'a Store,
     channel: Channel,
 }
 
 impl Drop for ChannelLease<'_> {
     fn drop(&mut self) {
+        let _ = self.ready_epoch.compare_exchange(
+            self.channel.connection_epoch,
+            0,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        );
         let _ = self.store.disconnect(&self.channel);
     }
 }

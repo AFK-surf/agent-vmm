@@ -76,11 +76,8 @@ pub(crate) fn definition(
         return Err(Status::invalid_argument("invalid workdir or user"));
     }
     let env = environment(&r.env)?;
-    let image = ctx
-        .core
-        .store
-        .resolve_image(&ctx.scope.id, &r.image)
-        .map_err(core_status)?;
+    let (image_reference, image) =
+        crate::image::grant::resolve(ctx, &r.image).map_err(core_status)?;
     let generation = Uuid::new_v4().to_string();
     let mut mounts = vec![];
     let mut host_shares = vec![];
@@ -135,7 +132,7 @@ pub(crate) fn definition(
             sandbox_id: r.container_id.clone(),
             generation_id: generation.clone(),
         },
-        image_reference: r.image.clone(),
+        image_reference,
         manifest_digest: image.manifest_digest,
         read_only_root: r.read_only_root,
         pids_max: r.limits.as_ref().and_then(|l| l.pids).map(u64::from),

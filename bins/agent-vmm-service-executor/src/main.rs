@@ -4,6 +4,9 @@
 //! every value comes from the protected owner file and from fixed constants.
 
 #[cfg(target_os = "macos")]
+const HOST_BUNDLE_IDENTIFIER: &str = "com.afk-surf.agent-vmm-host";
+
+#[cfg(target_os = "macos")]
 mod config;
 #[cfg(target_os = "macos")]
 mod executor;

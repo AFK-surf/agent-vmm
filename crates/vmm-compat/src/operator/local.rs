@@ -1,16 +1,23 @@
 //! The local management socket stays available while the runtime backend is offline.
-use super::{BOOT_ID, DiskSample, LocalDisposals, LocalInventory, RegistrationControl, h};
+use super::{DiskSample, LocalDisposals, LocalInventory, RegistrationControl, h};
 use std::{collections::HashSet, sync::Arc, time::SystemTime};
 use tokio::sync::Notify;
 use tonic::{Request, Response, Status};
 use vmm_core::{Core, Store, backend::Dom0Backend};
 
 pub struct LocalOperator {
-    inventory: LocalInventory,
+    pub(super) inventory: LocalInventory,
     registrations: Arc<dyn RegistrationControl>,
     disposals: LocalDisposals,
-    backend: Option<Arc<dyn Dom0Backend>>,
-    wake: Notify,
+    pub backend: Option<Arc<dyn Dom0Backend>>,
+    pub containers: Option<crate::Containers>,
+    pub guest: Option<Arc<dyn crate::guest::GuestDriver>>,
+    pub vm_control: Option<Arc<dyn super::VmControl>>,
+    pub(super) vm_ops: Arc<super::vm::VmOperations>,
+    pub management: Option<Arc<dyn super::RegistrationManagement>>,
+    pub trust: Option<Arc<dyn super::DeviceTrust>>,
+    pub(super) wake: Notify,
+    pub appliances: Option<super::ApplianceOperations>,
     pub mcp: Option<Arc<super::McpManagement>>,
     disk_sample: Option<Arc<dyn Fn() -> vmm_core::Result<DiskSample> + Send + Sync>>,
 }
@@ -23,12 +30,22 @@ impl LocalOperator {
         backend: Option<Arc<dyn Dom0Backend>>,
     ) -> Result<Self, Status> {
         Ok(Self {
+            vm_ops: Arc::new(super::vm::VmOperations::open(path)?),
+            vm_control: backend.clone().map(|b| {
+                Arc::new(super::vm::NativeVmControl(Core::new(store.clone(), b)))
+                    as Arc<dyn super::VmControl>
+            }),
             disposals: LocalDisposals::open(path, store.clone(), registrations.clone())?,
             inventory: LocalInventory::new(store),
             registrations,
             backend,
+            containers: None,
+            guest: None,
+            management: None,
+            trust: None,
             wake: Notify::new(),
             mcp: None,
+            appliances: None,
             disk_sample: None,
         })
     }
@@ -43,7 +60,9 @@ impl LocalOperator {
 
     pub async fn drive_disposals(&self, core: &Core) {
         let mut after = String::new();
+        let mut cleanup_cursor = String::new();
         loop {
+            let _ = core.project_host_sockets().await;
             if let Ok(page) = self.disposals.pending(&after) {
                 for id in &page {
                     let _ = tokio::time::timeout(
@@ -58,6 +77,20 @@ impl LocalOperator {
                     .cloned()
                     .unwrap_or_default();
             }
+            if let Ok(page) = core.store.pending_cleanups(&cleanup_cursor) {
+                for id in &page {
+                    let _ = tokio::time::timeout(
+                        std::time::Duration::from_secs(120),
+                        core.drive_cleanup(id),
+                    )
+                    .await;
+                }
+                cleanup_cursor = page
+                    .last()
+                    .filter(|_| page.len() == 32)
+                    .cloned()
+                    .unwrap_or_default();
+            }
             tokio::select! {
                 _ = self.wake.notified()=>{},
                 _ = tokio::time::sleep(std::time::Duration::from_secs(15))=>{},
@@ -65,21 +98,17 @@ impl LocalOperator {
         }
     }
 
-    fn vm_state(&self) -> h::VmState {
-        if self.backend.is_some() {
-            h::VmState::Running
-        } else {
-            h::VmState::Stopped
-        }
-    }
     async fn vm(&self, _: h::GetVmRequest) -> Result<h::GetVmResponse, Status> {
         Ok(h::GetVmResponse {
-            vm: Some(h::Vm {
-                boot_id: BOOT_ID.clone(),
-                state: self.vm_state() as i32,
-                ..Default::default()
-            }),
+            vm: Some(self.snapshot().await?),
         })
+    }
+    async fn impact(
+        &self,
+        _: h::GetVmImpactSummaryRequest,
+    ) -> Result<h::GetVmImpactSummaryResponse, Status> {
+        let vm = self.vm(h::GetVmRequest {}).await?.vm;
+        Ok(self.inventory.impact(vm))
     }
     async fn health(
         &self,
@@ -134,7 +163,8 @@ impl LocalOperator {
                 }
             }
         }
-        self.inventory.environments(req, self.vm_state(), &active)
+        self.inventory
+            .environments(req, self.snapshot().await?.state(), &active)
     }
     async fn registrations(
         &self,
@@ -159,7 +189,7 @@ impl LocalOperator {
         } else {
             None
         };
-        Ok(self.inventory.disk(self.vm_state(), sample))
+        Ok(self.inventory.disk(self.snapshot().await?.state(), sample))
     }
     fn mcp(&self) -> Result<Arc<super::McpManagement>, Status> {
         self.mcp
@@ -208,8 +238,21 @@ impl LocalOperator {
         &self,
         req: h::GetOperationRequest,
     ) -> Result<h::GetOperationResponse, Status> {
+        if let Some(op) = self
+            .inventory
+            .store
+            .cleanup_operation(&req.operation_id)
+            .map_err(crate::error::core_status)?
+        {
+            return Ok(h::GetOperationResponse {
+                operation: Some(super::cleanup::operation(op)),
+            });
+        }
         Ok(h::GetOperationResponse {
-            operation: Some(self.disposals.operation(&req.operation_id)?),
+            operation: Some(match self.vm_ops.operation(&req.operation_id)? {
+                Some(op) => op,
+                None => self.disposals.operation(&req.operation_id)?,
+            }),
         })
     }
 }
@@ -264,6 +307,63 @@ where
             .path()
             .strip_prefix("/agentvmm.host.v1.OperatorService/")
         {
+            Some("GetRemoteRegistration") => unary!(
+                get_registration,
+                h::GetRemoteRegistrationRequest,
+                h::GetRemoteRegistrationResponse
+            ),
+            Some("ApplyRemoteRegistration") => unary!(
+                apply_registration,
+                h::ApplyRemoteRegistrationRequest,
+                h::ApplyRemoteRegistrationResponse
+            ),
+            Some("SetRemoteRegistrationState") => unary!(
+                set_registration,
+                h::SetRemoteRegistrationStateRequest,
+                h::SetRemoteRegistrationStateResponse
+            ),
+            Some("BeginRemoteRevocation") => unary!(
+                begin_revocation,
+                h::BeginRemoteRevocationRequest,
+                h::BeginRemoteRevocationResponse
+            ),
+            Some("CompleteRemoteRevocation") => unary!(
+                complete_revocation,
+                h::CompleteRemoteRevocationRequest,
+                h::CompleteRemoteRevocationResponse
+            ),
+            Some("GetDeviceIdentity") => unary!(
+                device_identity,
+                h::GetDeviceIdentityRequest,
+                h::GetDeviceIdentityResponse
+            ),
+            Some("SignRegistrationRecovery") => unary!(
+                sign_recovery,
+                h::SignRegistrationRecoveryRequest,
+                h::SignRegistrationRecoveryResponse
+            ),
+            Some("SetHostSocket") => unary!(
+                set_socket,
+                h::SetHostSocketRequest,
+                h::SetHostSocketResponse
+            ),
+            Some("RemoveHostSocket") => unary!(
+                remove_socket,
+                h::RemoveHostSocketRequest,
+                h::RemoveHostSocketResponse
+            ),
+            Some("ListHostSockets") => unary!(
+                list_sockets,
+                h::ListHostSocketsRequest,
+                h::ListHostSocketsResponse
+            ),
+            Some("Logs") => {
+                let handler = super::logs::OperatorLogs(self.0.clone());
+                Box::pin(async move {
+                    let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
+                    Ok(grpc.server_streaming(handler, req).await)
+                })
+            }
             Some("CreateMCPToken") => unary!(
                 issue_token,
                 h::CreateMcpTokenRequest,
@@ -274,6 +374,33 @@ where
                 h::RotateMcpTokenKeyRequest,
                 h::RotateMcpTokenKeyResponse
             ),
+            Some("GetVMImpactSummary") => unary!(
+                impact,
+                h::GetVmImpactSummaryRequest,
+                h::GetVmImpactSummaryResponse
+            ),
+            Some("PlanResetEnvironment") => unary!(
+                plan_reset,
+                h::PlanResetEnvironmentRequest,
+                h::PlanResetEnvironmentResponse
+            ),
+            Some("PlanDiscardEnvironment") => unary!(
+                plan_discard,
+                h::PlanDiscardEnvironmentRequest,
+                h::PlanDiscardEnvironmentResponse
+            ),
+            Some("ExecuteCleanup") => unary!(
+                execute_cleanup,
+                h::ExecuteCleanupRequest,
+                h::ExecuteCleanupResponse
+            ),
+            Some("GetEnvironment") => unary!(
+                environment,
+                h::OperatorServiceGetEnvironmentRequest,
+                h::OperatorServiceGetEnvironmentResponse
+            ),
+            Some("StartVM") => unary!(start_vm, h::StartVmRequest, h::StartVmResponse),
+            Some("StopVM") => unary!(stop_vm, h::StopVmRequest, h::StopVmResponse),
             Some("GetVM") => unary!(vm, h::GetVmRequest, h::GetVmResponse),
             Some("GetSystemHealthSummary") => unary!(
                 health,

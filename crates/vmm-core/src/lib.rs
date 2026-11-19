@@ -1,11 +1,25 @@
+mod cleanup;
+pub use cleanup::{CleanupInventory, CleanupKind, CleanupOperation, CleanupResource};
 mod authority;
 pub mod backend;
 pub mod fake;
+mod host_socket;
+pub use host_socket::HostSocketApproval;
+mod image_copy;
+pub use image_copy::{CopyAuthority, CopySource, ImageCopyReceipt, ImageGrantMetadata};
 mod lifecycle;
 mod list;
+pub mod mesh;
 mod model;
 mod operator_disposal;
 mod receipt;
+mod registration_policy;
+mod registration_retirement;
+pub use registration_policy::{
+    ManagedConnection, ManagedPhase, ManagedPool, ManagedRegistration, RegistrationChange,
+};
+mod retained_image;
+pub use retained_image::RetainedImage;
 mod remote;
 mod route;
 mod storage;
@@ -58,3 +72,6 @@ impl Core {
         Self { store, backend }
     }
 }
+
+mod host_vm;
+pub use host_vm::HostVmObservation;

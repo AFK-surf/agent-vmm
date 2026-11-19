@@ -37,6 +37,7 @@ pub struct Options {
     pub slot_address: fn(u32) -> Option<Ipv4Addr>,
     pub boot_timeout: Duration,
     pub helper_image: Option<Digest>,
+    pub builder_image: Option<Digest>,
     pub host_shares: BTreeMap<String, PathBuf>,
 }
 
@@ -54,6 +55,7 @@ impl Options {
             slot_address: boot::slot_address,
             boot_timeout: Duration::from_secs(60),
             helper_image: None,
+            builder_image: None,
             host_shares: BTreeMap::new(),
         }
     }
@@ -70,6 +72,8 @@ pub struct LocalDom0Backend {
     pub(crate) effects: Mutex<()>,
     pub(crate) routes: Mutex<crate::policy::Routes>,
     pub(crate) shares: crate::host_share::Shares,
+    pub(crate) remote_image_upload: tokio::sync::Semaphore,
+    pub(crate) remote_mounts: tokio::sync::Semaphore,
     pub(crate) mounts: crate::helper_vm::MountLocks,
     pub(crate) recovery: Mutex<crate::build_vm::Recovery>,
     _instance: std::fs::File,
@@ -143,6 +147,9 @@ impl LocalDom0Backend {
                 ..Default::default()
             }),
             shares: Default::default(),
+            // Leave control capacity for individual Guest handshakes while mount leases are held.
+            remote_image_upload: tokio::sync::Semaphore::new(1),
+            remote_mounts: tokio::sync::Semaphore::new(32),
             mounts: Default::default(),
             _instance: instance,
         })
@@ -178,22 +185,56 @@ impl LocalDom0Backend {
         }
         Ok(first)
     }
-    pub(crate) fn client(&self, b: &SavedBoot) -> Result<Dom0Runtime> {
+    fn endpoint(&self, b: &SavedBoot) -> Result<crate::remote::GuestEndpoint> {
         let token = secret_text(
             self.sealer
                 .open(b.identity.instance_id.as_bytes(), &b.encrypted_token)?,
         )?;
-        Ok(Dom0Runtime::new(
-            SocketAddrV4::new(self.slot(b)?, self.cfg.rpc_port).into(),
+        Ok(crate::remote::GuestEndpoint {
+            address: SocketAddrV4::new(self.slot(b)?, self.cfg.rpc_port),
             token,
-        ))
+        })
     }
-    pub fn runtime(&self, boot: &BootIdentity) -> Result<Dom0Runtime> {
+    fn live_boot(&self, boot: &BootIdentity) -> Result<SavedBoot> {
         let b = self.catalog().boot(boot)?;
         if b.retiring || b.retired || self.present(&b, &self.inventory()?)?.is_none() {
             return Err(Error::Fenced);
         }
-        self.client(&b)
+        Ok(b)
+    }
+    pub(crate) fn client(&self, saved: &SavedBoot) -> Result<Dom0Runtime> {
+        let endpoint = self.endpoint(saved)?;
+        Ok(Dom0Runtime::new(endpoint.address.into(), endpoint.token))
+    }
+    pub fn runtime(&self, boot: &BootIdentity) -> Result<Dom0Runtime> {
+        self.client(&self.live_boot(boot)?)
+    }
+    pub fn guest_address(&self, boot: &BootIdentity) -> Result<SocketAddrV4> {
+        Ok(SocketAddrV4::new(
+            self.slot(&self.live_boot(boot)?)?,
+            self.cfg.rpc_port,
+        ))
+    }
+    pub fn open_guest_runtime(&self, boot: &BootIdentity) -> Result<crate::remote::GuestEndpoint> {
+        self.endpoint(&self.live_boot(boot)?)
+    }
+    pub fn bound_guest_client(
+        self: &Arc<Self>,
+        boot: BootIdentity,
+    ) -> vmm_guest_proto::client::Client {
+        use vmm_guest_proto::client::{Client, ClientError, GuestStream};
+        let backend = self.clone();
+        Client::bound(boot.instance_id.clone(), move |timeout| {
+            let dial_error = |error| ClientError::Io(std::io::Error::other(error));
+            let address = backend.guest_address(&boot).map_err(dial_error)?;
+            let stream = std::net::TcpStream::connect_timeout(&address.into(), timeout)?;
+            stream.set_nodelay(true)?;
+            let endpoint = backend.open_guest_runtime(&boot).map_err(dial_error)?;
+            if address != endpoint.address {
+                return Err(dial_error(Error::Fenced));
+            }
+            Ok((GuestStream::Tcp(stream), endpoint.token))
+        })
     }
     pub(crate) fn disk(&self, id: &str, read_only: bool) -> Result<DiskVolume> {
         Ok(DiskVolume {
@@ -217,6 +258,9 @@ impl Dom0Backend for LocalDom0Backend {
     }
     async fn discard_image_artifact(&self, d: Digest) -> Result<u64> {
         let _lock = self.effects.lock().await;
+        if self.cfg.builder_image == Some(d) || self.cfg.helper_image == Some(d) {
+            return Ok(0);
+        }
         self.pool.discard(&image_id(d))
     }
     async fn allocate_volume(&self, v: &Volume) -> Result<()> {

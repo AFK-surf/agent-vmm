@@ -1,4 +1,6 @@
 //! External control connections and their operator policy share one admission lock.
+mod management;
+mod policy;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{
     collections::HashMap,
@@ -36,11 +38,13 @@ impl Drop for Active {
 struct State {
     database: Connection,
     active: HashMap<String, Active>,
+    runtime: Option<management::ConnectorRuntime>,
 }
 pub struct ExternalRegistrations {
     core: Arc<Store>,
     state: Mutex<State>,
     credentials: Arc<dyn CredentialStore>,
+    disk_capacity: u64,
 }
 fn unavailable(_: rusqlite::Error) -> Status {
     Status::unavailable("registration policy unavailable")
@@ -73,15 +77,18 @@ impl ExternalRegistrations {
         path: &Path,
         core: Arc<Store>,
         credentials: Arc<dyn CredentialStore>,
+        disk_capacity: u64,
     ) -> Result<Self, Status> {
         let database = Connection::open(path).map_err(unavailable)?;
         database.execute_batch("CREATE TABLE IF NOT EXISTS external_registration_policy(id TEXT PRIMARY KEY,revision INTEGER NOT NULL CHECK(revision>0),display_name TEXT NOT NULL)").map_err(unavailable)?;
         Ok(Self {
             core,
             credentials,
+            disk_capacity,
             state: Mutex::new(State {
                 database,
                 active: HashMap::new(),
+                runtime: None,
             }),
         })
     }
@@ -90,6 +97,24 @@ impl ExternalRegistrations {
             .lock()
             .map_err(|_| Status::unavailable("registration admission unavailable"))
     }
+    pub(crate) fn with_recoverable<T>(
+        &self,
+        id: &str,
+        sign: impl FnOnce() -> Result<T, Status>,
+    ) -> Result<T, Status> {
+        let _admission = self.lock()?;
+        match self.core.check_external_connector(id) {
+            Ok(()) | Err(vmm_core::Error::Missing("registration")) => sign(),
+            Err(
+                vmm_core::Error::Conflict("private appliance registration")
+                | vmm_core::Error::Draining,
+            ) => Err(Status::failed_precondition(
+                "the original local registration is not recoverable",
+            )),
+            Err(error) => Err(vmm_compat::error::core_status(error)),
+        }
+    }
+
     /// Install the validated policy and replace only this registration's connector.
     pub fn attach(
         &self,
@@ -117,7 +142,8 @@ impl ExternalRegistrations {
 }
 impl RegistrationControl for ExternalRegistrations {
     fn metadata(&self, id: &str) -> Result<(u64, String), Status> {
-        self.lock()?.metadata(id)
+        let state = self.lock()?;
+        self.current_metadata(&state, id)
     }
     fn isolate(
         &self,
@@ -126,7 +152,7 @@ impl RegistrationControl for ExternalRegistrations {
         fence: &mut dyn FnMut() -> Result<(), Status>,
     ) -> Result<(), Status> {
         let mut state = self.lock()?;
-        if state.metadata(id)?.0 != revision {
+        if self.current_metadata(&state, id)?.0 != revision {
             return Err(Status::aborted("registration policy changed"));
         }
         let reconnect = state

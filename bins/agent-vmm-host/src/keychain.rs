@@ -8,7 +8,7 @@ use security_framework::{
 use vmm_signing::{Error, Keychain, Result};
 use zeroize::Zeroizing;
 const SERVICE: &str = "com.afk-surf.agent-vmm-host";
-const GROUP: &str = "D9AAN3VJK8.com.afk-surf.agent-vmm-host";
+pub(crate) const GROUP: &str = "D9AAN3VJK8.com.afk-surf.agent-vmm-host";
 
 pub(crate) struct PlatformKeys(pub String);
 impl PlatformKeys {

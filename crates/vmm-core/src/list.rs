@@ -35,6 +35,20 @@ impl Store {
         )
     }
 
+    /// Bounded inventory generations for whole-host impact observations, including private owners.
+    pub fn registration_inventory_watermarks(&self, limit: usize) -> Result<Vec<(String, u64)>> {
+        self.page(
+            "SELECT id,inventory_watermark FROM registrations ORDER BY id LIMIT ?",
+            [sql_limit(limit)],
+            |row| {
+                let watermark: i64 = row.get(1)?;
+                let watermark =
+                    u64::try_from(watermark).map_err(|_| Error::Invalid("inventory watermark"))?;
+                Ok((row.get(0)?, watermark))
+            },
+        )
+    }
+
     /// Return at most one indexed page of registration IDs, including cursor positions
     /// occupied by private appliances. The operator filters those positions from its response.
     pub fn operator_registration_page(
@@ -45,7 +59,8 @@ impl Store {
         self.page(
             "SELECT r.id,r.epoch,r.connected,r.draining,
              EXISTS(SELECT 1 FROM appliances a WHERE a.registration=r.id),
-             EXISTS(SELECT 1 FROM operator_registration_disposals d WHERE d.registration=r.id)
+             EXISTS(SELECT 1 FROM operator_registration_disposals d WHERE d.registration=r.id
+                    UNION ALL SELECT 1 FROM managed_registrations m WHERE m.id=r.id AND json_extract(m.data,'$.phase')='Revoked')
              FROM registrations r WHERE r.id>? ORDER BY r.id LIMIT ?",
             params![after, sql_limit(limit)],
             |row| Ok((registration_from_row(row)?, row.get(4)?, row.get(5)?)),

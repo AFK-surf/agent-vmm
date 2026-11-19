@@ -98,8 +98,16 @@ pub struct DataNode {
 
 impl DataNode {
     pub async fn bind() -> Result<Self> {
+        Self::bind_protocols(&ALPNS).await
+    }
+
+    pub async fn bind_service() -> Result<Self> {
+        Self::bind_protocols(&[SERVICE_TUNNEL_ALPN]).await
+    }
+
+    async fn bind_protocols(protocols: &[&[u8]]) -> Result<Self> {
         let endpoint = Endpoint::builder(presets::N0)
-            .alpns(ALPNS.iter().map(|alpn| alpn.to_vec()).collect())
+            .alpns(protocols.iter().map(|alpn| alpn.to_vec()).collect())
             .bind()
             .await
             .context("bind iroh endpoint")?;
@@ -184,7 +192,10 @@ impl DataNode {
                 _ = tasks.join_next(), if !tasks.is_empty() => {},
                 incoming = self.endpoint.accept() => {
                     let Some(incoming) = incoming else {break};
-                    if !self.accounting.accepting() { continue; }
+                    if !self.accounting.accepting() || tasks.len() >= MAX_STREAMS {
+                        incoming.refuse();
+                        continue;
+                    }
                     let tx = tx.clone();
                     let node = self.clone();
                     let pairing = pairing.clone();

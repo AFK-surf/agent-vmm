@@ -5,31 +5,11 @@ use tonic::{Status, Streaming};
 
 #[async_trait]
 pub trait ImageRuntime: Send + Sync {
-    async fn pull_image(
-        &self,
-        ctx: &RuntimeContext,
-        req: h::PullImageRequest,
-    ) -> Result<Output<h::PullImageResponse>, Status>;
-    async fn list_images(
-        &self,
-        ctx: &RuntimeContext,
-        req: h::ListImagesRequest,
-    ) -> Result<h::ListImagesResponse, Status>;
-    async fn delete_image(
-        &self,
-        ctx: &RuntimeContext,
-        req: h::DeleteImageRequest,
-    ) -> Result<h::DeleteImageResponse, Status>;
     async fn build_image(
         &self,
         ctx: &RuntimeContext,
         req: Streaming<h::BuildImageRequest>,
     ) -> Result<Output<h::BuildImageResponse>, Status>;
-    async fn copy_image(
-        &self,
-        ctx: &RuntimeContext,
-        req: h::CopyImageRequest,
-    ) -> Result<h::CopyImageResponse, Status>;
     async fn observe_image_operation(
         &self,
         ctx: &RuntimeContext,

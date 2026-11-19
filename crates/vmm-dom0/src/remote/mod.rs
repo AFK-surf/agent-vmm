@@ -1,4 +1,9 @@
+mod build;
+pub use build::RemoteBuild;
+mod image;
+pub use image::RemoteImageStage;
 mod wire;
+mod workspace;
 use async_trait::async_trait;
 use serde::{Serialize, de::DeserializeOwned};
 use std::{
@@ -17,7 +22,15 @@ use tokio_rustls::{
 };
 use vmm_core::{backend::*, *};
 use wire::{Fault, Request, Start};
+pub use workspace::RemoteWorkspace;
 use zeroize::Zeroizing;
+
+/// Credentials for one framed Guest RPC handshake, returned only to the host.
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct GuestEndpoint {
+    pub address: std::net::SocketAddrV4,
+    pub token: vmm_guest_proto::Secret,
+}
 
 const MAX_FRAME: usize = 32 << 20;
 
@@ -44,8 +57,24 @@ async fn write<S: AsyncWrite + Unpin, T: Serialize>(s: &mut S, t: &T) -> Result<
 /// One request on an authenticated stream (Unix socket, mutually authenticated
 /// TLS, or a carrier transport that enforces equivalent peer identity).
 pub async fn serve_connection<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    backend: &dyn Dom0Backend,
+) -> Result<()> {
+    serve(stream, backend, None).await
+}
+
+/// Serve a connection accepted from VMADDR_CID_HOST on the carrier control listener.
+pub async fn serve_host_connection<S: AsyncRead + AsyncWrite + Unpin>(
+    stream: S,
+    backend: &Arc<crate::backend::LocalDom0Backend>,
+) -> Result<()> {
+    serve(stream, backend.as_ref(), Some(backend)).await
+}
+
+async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     mut stream: S,
     backend: &dyn Dom0Backend,
+    host: Option<&Arc<crate::backend::LocalDom0Backend>>,
 ) -> Result<()> {
     let (version, r): (u32, Request) =
         tokio::time::timeout(Duration::from_secs(30), read(&mut stream))
@@ -53,6 +82,34 @@ pub async fn serve_connection<S: AsyncRead + AsyncWrite + Unpin>(
             .map_err(|_| Error::Interrupted)??;
     if version != 1 {
         return Err(Error::Invalid("dom0 protocol version"));
+    }
+    if let Request::AcquireBuild(scope, network, quota, id) = r {
+        return build::serve(stream, host, *scope, network, quota, &id).await;
+    }
+    if let Request::SettleBuild(id) = r {
+        let result = match host {
+            Some(local) => local.settle_build(&id).await.map_err(Fault::from),
+            None => Err(Fault::Fenced),
+        };
+        return write(&mut stream, &result).await;
+    }
+    if let Request::StageImage(digest, size) = r {
+        return image::serve(stream, host, digest, size).await;
+    }
+    if let Request::AcquireWorkspace(scope, volume, access) = r {
+        return workspace::serve(stream, host, scope, volume, access).await;
+    }
+    if let Request::OpenGuestRuntime(boot) = r {
+        let response = host
+            .ok_or(Fault::Fenced)
+            .and_then(|local| local.open_guest_runtime(&boot).map_err(Fault::from));
+        return write(&mut stream, &response).await;
+    }
+    if let Request::GuestAddress(boot) = r {
+        let response = host
+            .ok_or(Fault::Fenced)
+            .and_then(|local| local.guest_address(&boot).map_err(Fault::from));
+        return write(&mut stream, &response).await;
     }
     let response = wire::dispatch(backend, r).await.map_err(Fault::from);
     write(&mut stream, &response).await
@@ -73,6 +130,15 @@ enum Endpoint {
 #[derive(Clone)]
 pub struct RemoteDom0Client(Endpoint);
 impl RemoteDom0Client {
+    pub async fn settle_build(&self, id: &str) -> Result<()> {
+        self.rpc(Request::SettleBuild(id.into())).await
+    }
+    pub async fn open_guest_runtime(&self, boot: &BootIdentity) -> Result<GuestEndpoint> {
+        self.rpc(Request::OpenGuestRuntime(boot.clone())).await
+    }
+    pub async fn guest_address(&self, boot: &BootIdentity) -> Result<std::net::SocketAddrV4> {
+        self.rpc(Request::GuestAddress(boot.clone())).await
+    }
     pub fn transport(connector: Arc<dyn Connect>) -> Self {
         Self(Endpoint::Transport(connector))
     }

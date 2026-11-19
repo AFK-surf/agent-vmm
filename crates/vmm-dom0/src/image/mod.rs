@@ -148,11 +148,24 @@ fn decompressed(file: File) -> Result<Box<dyn Read>> {
     }
 }
 
-fn layers_and_config(src: &Content<'_>, expected: Digest) -> Result<(Config, Vec<File>)> {
+fn layers_and_config(
+    src: &Content<'_>,
+    expected: Digest,
+    trusted_builder: bool,
+) -> Result<(Config, Vec<File>)> {
+    if trusted_builder {
+        let layout: serde_json::Value = json(src.open(Path::new("oci-layout"))?)?;
+        if layout["imageLayoutVersion"] != "1.0.0" {
+            return Err(Error::Invalid("builder OCI layout"));
+        }
+    }
     let index = src.open(Path::new("index.json"));
     if let Ok(index) = index {
         let index: Index = json(index)?;
         let digest = format!("sha256:{}", hex::encode(expected));
+        if trusted_builder && index.manifests.first().is_none_or(|d| d.digest != digest) {
+            return Err(Error::Invalid("builder manifest digest"));
+        }
         let desc = index
             .manifests
             .iter()
@@ -168,7 +181,7 @@ fn layers_and_config(src: &Content<'_>, expected: Digest) -> Result<(Config, Vec
                 .collect::<Result<_>>()?,
         ));
     }
-    if matches!(src, Content::Layout(_)) {
+    if trusted_builder || matches!(src, Content::Layout(_)) {
         return Err(Error::Invalid("OCI index"));
     }
     let list: Vec<Docker> = json(src.open(Path::new("manifest.json"))?)?;
@@ -210,14 +223,34 @@ impl<R: Read> Read for Hashed<R> {
 /// Staging is on the image-build filesystem. No layer file or symlink is
 /// extracted into dom0's filesystem namespace.
 pub fn build(source: &Path, expected: Digest, staging: &Path) -> Result<BuiltImage> {
-    build_with(source, Some(expected), staging, Path::new("mkfs.erofs"))
+    build_with(
+        source,
+        Some(expected),
+        staging,
+        Path::new("mkfs.erofs"),
+        false,
+    )
+}
+
+pub(crate) fn build_trusted_builder(
+    source: &Path,
+    expected: Digest,
+    staging: &Path,
+) -> Result<BuiltImage> {
+    build_with(
+        source,
+        Some(expected),
+        staging,
+        Path::new("mkfs.erofs"),
+        true,
+    )
 }
 
 pub(crate) fn build_directory(dir: &Path, staging: &Path) -> Result<BuiltImage> {
     if !dir.is_dir() {
         return Err(Error::Invalid("trusted image directory"));
     }
-    build_with(dir, None, staging, Path::new("mkfs.erofs"))
+    build_with(dir, None, staging, Path::new("mkfs.erofs"), false)
 }
 
 fn build_with(
@@ -225,6 +258,7 @@ fn build_with(
     expected: Option<Digest>,
     staging: &Path,
     formatter: &Path,
+    trusted_builder: bool,
 ) -> Result<BuiltImage> {
     let temp = TempDir::new_in(staging)?;
     let mut output = NamedTempFile::new_in(staging)?;
@@ -241,7 +275,7 @@ fn build_with(
         } else {
             Content::Tar(unpack_outer(File::open(source)?, temp.path())?)
         };
-        let (config, layers) = layers_and_config(&src, expected)?;
+        let (config, layers) = layers_and_config(&src, expected, trusted_builder)?;
         if layers.len() != config.rootfs.diff_ids.len() {
             return Err(Error::Invalid("layer count"));
         }
@@ -300,4 +334,4 @@ fn build_with(
 }
 
 #[cfg(test)]
-mod tests;
+pub(crate) mod tests;

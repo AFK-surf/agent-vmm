@@ -41,6 +41,10 @@ async fn core_lifecycle_over_daemon_socket() -> Result<()> {
     core.define_sandbox(&def).await?;
     let vm = core.start(&def.key).await?;
     assert_eq!(client.list_live_vms().await?[0].incarnation, vm);
+    assert!(matches!(
+        client.open_guest_runtime(&vm.boot).await,
+        Err(Error::Fenced)
+    ));
     client
         .workspace(
             &vm.boot,

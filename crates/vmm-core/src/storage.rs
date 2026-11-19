@@ -82,6 +82,17 @@ impl Core {
         reference: &str,
         source: &ImageSource,
     ) -> Result<ImageArtifact> {
+        self.publish_image(scope, reference, source, |_| Ok(()))
+            .await
+    }
+
+    pub(crate) async fn publish_image(
+        &self,
+        scope: &str,
+        reference: &str,
+        source: &ImageSource,
+        published: impl FnOnce(&rusqlite::Transaction<'_>) -> Result<()> + Send,
+    ) -> Result<ImageArtifact> {
         let _guard = self.store.effects.lock().await;
         let digest = source.manifest_digest;
         if reference.is_empty() || source.physical_bytes == 0 {
@@ -120,7 +131,7 @@ impl Core {
         if image.manifest_digest != digest {
             return Err(Error::Fenced);
         }
-        self.store.write(|db| {
+        let result = self.store.write(|db| {
             active(db, scope)?;
             db.execute(
                 "UPDATE images SET artifact=?,phase='ready' WHERE digest=?",
@@ -130,8 +141,13 @@ impl Core {
                 "INSERT INTO image_refs VALUES(?,?,?) ON CONFLICT DO NOTHING",
                 params![scope, reference, digest],
             )?;
+            published(db)?;
             Ok(image)
-        })
+        });
+        if result.is_err() {
+            self.collect_image(digest).await?;
+        }
+        result
     }
 
     pub async fn remove_image_reference(
@@ -159,7 +175,7 @@ impl Core {
         let disposable = self
             .store
             .write(|db| Ok(db.execute("UPDATE images SET phase='discarding' WHERE digest=?1 AND NOT EXISTS
-            (SELECT 1 FROM image_refs WHERE digest=?1) AND NOT EXISTS(SELECT 1 FROM sandboxes WHERE digest=?1)", [digest])? == 1))?;
+            (SELECT 1 FROM image_refs WHERE digest=?1) AND NOT EXISTS(SELECT 1 FROM retained_images WHERE digest=?1) AND NOT EXISTS(SELECT 1 FROM sandboxes WHERE digest=?1)", [digest])? == 1))?;
         if !disposable {
             return Ok(0);
         }

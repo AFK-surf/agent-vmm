@@ -6,11 +6,15 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+http-auth = { version = "0.1", default-features = false }
+oci-spec = { version = "0.10", default-features = false, features = ["distribution"] }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
 vmm-mcp = { path = "../vmm-mcp" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 url = "2"
 hex = "0.4"
+rustix = { version = "1", features = ["fs"] }
 rusqlite = { version = "0.39", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
@@ -28,6 +32,7 @@ tokio = { version = "1", features = ["rt", "fs", "io-util", "sync", "net", "proc
 tonic = "0.14"
 tonic-prost = "0.14"
 tonic-types = "0.14"
+vmm-signing = { path = "../vmm-signing" }
 vmm-core = { path = "../vmm-core" }
 zeroize = "1"
 

@@ -4,10 +4,17 @@ use zeroize::Zeroizing;
 
 pub const MAX_CREDENTIAL_BYTES: usize = 4096;
 
+pub const MAX_BOOTSTRAP_BYTES: usize = 1 << 20;
+
 pub trait CredentialStore: Send + Sync {
     fn load(&self, account: &str) -> Result<Zeroizing<Vec<u8>>>;
     fn replace(&self, account: &str, value: &[u8]) -> Result<()>;
     fn delete(&self, account: &str) -> Result<()>;
+    fn load_bootstrap(&self, bootstrap: &str) -> Result<Zeroizing<Vec<u8>>>;
+    fn store_bootstrap(&self, bootstrap: &str, value: &[u8]) -> Result<()>;
+    fn delete_bootstrap(&self, bootstrap: &str) -> Result<()> {
+        self.delete(&format!("appliance-bootstrap/{bootstrap}"))
+    }
 }
 
 fn name(account: &str) -> String {
@@ -16,7 +23,10 @@ fn name(account: &str) -> String {
 }
 
 fn check_size(value: &[u8]) -> Result<()> {
-    if value.is_empty() || value.len() > MAX_CREDENTIAL_BYTES {
+    check_bound(value, MAX_CREDENTIAL_BYTES)
+}
+fn check_bound(value: &[u8], max: usize) -> Result<()> {
+    if value.is_empty() || value.len() > max {
         return Err(Error::CredentialSize);
     }
     Ok(())
@@ -42,6 +52,18 @@ impl<K: Keychain> CredentialStore for KeychainCredentialStore<K> {
     fn replace(&self, account: &str, value: &[u8]) -> Result<()> {
         check_size(value)?;
         self.0.replace(&name(account), value)
+    }
+    fn load_bootstrap(&self, bootstrap: &str) -> Result<Zeroizing<Vec<u8>>> {
+        let raw = self
+            .0
+            .load(&name(&format!("appliance-bootstrap/{bootstrap}")))?;
+        check_bound(&raw, MAX_BOOTSTRAP_BYTES)?;
+        Ok(raw)
+    }
+    fn store_bootstrap(&self, bootstrap: &str, value: &[u8]) -> Result<()> {
+        check_bound(value, MAX_BOOTSTRAP_BYTES)?;
+        self.0
+            .replace(&name(&format!("appliance-bootstrap/{bootstrap}")), value)
     }
     fn delete(&self, account: &str) -> Result<()> {
         self.0.delete(&name(account))
@@ -82,6 +104,24 @@ mod files {
         fn replace(&self, account: &str, value: &[u8]) -> Result<()> {
             check_size(value)?;
             write_private(&self.directory.join(name(account)), value, false)
+        }
+        fn load_bootstrap(&self, bootstrap: &str) -> Result<Zeroizing<Vec<u8>>> {
+            private_read_bounded(
+                &self
+                    .directory
+                    .join(name(&format!("appliance-bootstrap/{bootstrap}"))),
+                MAX_BOOTSTRAP_BYTES,
+            )
+        }
+        fn store_bootstrap(&self, bootstrap: &str, value: &[u8]) -> Result<()> {
+            check_bound(value, MAX_BOOTSTRAP_BYTES)?;
+            write_private(
+                &self
+                    .directory
+                    .join(name(&format!("appliance-bootstrap/{bootstrap}"))),
+                value,
+                false,
+            )
         }
         fn delete(&self, account: &str) -> Result<()> {
             match fs::remove_file(self.directory.join(name(account))) {
@@ -231,6 +271,9 @@ mod files {
     }
 
     fn private_read(path: &Path) -> Result<Zeroizing<Vec<u8>>> {
+        private_read_bounded(path, MAX_CREDENTIAL_BYTES)
+    }
+    fn private_read_bounded(path: &Path, max: usize) -> Result<Zeroizing<Vec<u8>>> {
         let fd = open(
             path,
             OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::CLOEXEC,
@@ -246,9 +289,8 @@ mod files {
             return Err(Error::Unavailable);
         }
         let mut data = Zeroizing::new(Vec::new());
-        file.take(MAX_CREDENTIAL_BYTES as u64 + 1)
-            .read_to_end(&mut data)?;
-        check_size(&data)?;
+        file.take(max as u64 + 1).read_to_end(&mut data)?;
+        check_bound(&data, max)?;
         Ok(data)
     }
 

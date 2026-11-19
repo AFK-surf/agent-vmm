@@ -17,6 +17,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     protos.sort();
     let descriptor = std::path::PathBuf::from(std::env::var("OUT_DIR")?).join("agent-vmm.bin");
     tonic_prost_build::configure()
+        .codec_path("crate::wire::WireCodec")
         .file_descriptor_set_path(descriptor)
         .extern_path(".google.rpc", "crate::google::rpc")
         // The RemoteController RPC is itself named `Connect`, so omit tonic's

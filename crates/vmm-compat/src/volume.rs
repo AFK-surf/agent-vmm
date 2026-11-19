@@ -94,24 +94,27 @@ impl RuntimeContext {
     }
 
     pub fn list_volumes(&self) -> Result<host::ListVolumesResponse, Status> {
-        let volumes = self
-            .core
-            .store
-            .list_volumes(&self.scope.id, None, usize::MAX)
-            .map_err(core_status)?;
-        let sandboxes = self
-            .core
-            .store
-            .list_sandboxes(&self.scope.id, None, usize::MAX)
-            .map_err(core_status)?;
         Ok(host::ListVolumesResponse {
-            volumes: volumes
-                .into_iter()
-                .filter(|v| v.volume_id != crate::workspace::DEFAULT_VOLUME)
-                .map(|v| project(v, &sandboxes))
-                .collect(),
+            volumes: list_volumes(&self.core.store, &self.scope.id)?,
         })
     }
+}
+
+pub(crate) fn list_volumes(
+    store: &vmm_core::Store,
+    scope_id: &str,
+) -> Result<Vec<host::Volume>, Status> {
+    let volumes = store
+        .list_volumes(scope_id, None, usize::MAX)
+        .map_err(core_status)?;
+    let sandboxes = store
+        .list_sandboxes(scope_id, None, usize::MAX)
+        .map_err(core_status)?;
+    Ok(volumes
+        .into_iter()
+        .filter(|v| v.volume_id != crate::workspace::DEFAULT_VOLUME)
+        .map(|v| project(v, &sandboxes))
+        .collect())
 }
 
 fn project(volume: Volume, sandboxes: &[Sandbox]) -> host::Volume {

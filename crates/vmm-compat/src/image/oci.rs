@@ -8,44 +8,44 @@ use std::{
 };
 use tonic::Status;
 
-const META_LIMIT: u64 = 16 << 20;
-const MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
+pub(super) const META_LIMIT: u64 = 16 << 20;
+pub(super) const MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";
 const CONFIG: &str = "application/vnd.oci.image.config.v1+json";
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Descriptor {
-    media_type: String,
-    digest: String,
+pub(super) struct Descriptor {
+    pub(super) media_type: String,
+    pub(super) digest: String,
     size: u64,
-    platform: Option<Platform>,
+    pub(super) platform: Option<Platform>,
 }
 #[derive(Deserialize)]
-struct Platform {
+pub(super) struct Platform {
     os: String,
     architecture: String,
     #[serde(default)]
     variant: String,
 }
 impl Platform {
-    fn supported(&self) -> bool {
+    pub(super) fn supported(&self) -> bool {
         self.os == "linux" && self.architecture == "arm64" && self.variant.is_empty()
     }
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Index {
+pub(super) struct Index {
     schema_version: u32,
-    manifests: Vec<Descriptor>,
+    pub(super) manifests: Vec<Descriptor>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct Manifest {
+pub(super) struct Manifest {
     schema_version: u32,
-    media_type: String,
-    config: Descriptor,
-    layers: Vec<Descriptor>,
+    pub(super) media_type: String,
+    pub(super) config: Descriptor,
+    pub(super) layers: Vec<Descriptor>,
 }
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,7 +71,7 @@ pub(super) fn digest(value: &str) -> Result<[u8; 32], Status> {
     Ok(bytes)
 }
 
-fn visit(
+pub(super) fn visit(
     file: &mut File,
     mut inspect: impl FnMut(&str, &mut tar::Entry<'_, &mut File>) -> Result<(), Status>,
 ) -> Result<(), Status> {
@@ -102,7 +102,10 @@ fn visit(
     Ok(())
 }
 
-fn metadata(file: &mut File, names: &[(&str, u64)]) -> Result<HashMap<String, Vec<u8>>, Status> {
+pub(super) fn metadata(
+    file: &mut File,
+    names: &[(&str, u64)],
+) -> Result<HashMap<String, Vec<u8>>, Status> {
     let mut found = HashMap::new();
     visit(file, |path, entry| {
         if let Some((_, limit)) = names.iter().find(|(target, _)| *target == path) {
@@ -125,6 +128,14 @@ fn metadata(file: &mut File, names: &[(&str, u64)]) -> Result<HashMap<String, Ve
 }
 
 pub(super) fn validate(path: &Path, identity: [u8; 32]) -> Result<u64, Status> {
+    validate_platform(path, identity, false)
+}
+
+pub(super) fn validate_built(path: &Path, identity: [u8; 32]) -> Result<u64, Status> {
+    validate_platform(path, identity, true)
+}
+
+fn validate_platform(path: &Path, identity: [u8; 32], built: bool) -> Result<u64, Status> {
     let mut file = File::open(path).map_err(|_| Status::internal("staged archive unavailable"))?;
     let manifest_path = format!("blobs/sha256/{}", hex::encode(identity));
     let bytes = metadata(
@@ -146,7 +157,10 @@ pub(super) fn validate(path: &Path, identity: [u8; 32]) -> Result<u64, Status> {
     let raw = &bytes[&manifest_path];
     if choices.next().is_some()
         || selected.media_type != MANIFEST
-        || !selected.platform.as_ref().is_some_and(Platform::supported)
+        || !selected
+            .platform
+            .as_ref()
+            .map_or(built, Platform::supported)
         || selected.size != raw.len() as u64
         || <[u8; 32]>::from(Sha256::digest(raw)) != identity
     {
@@ -174,9 +188,12 @@ pub(super) fn validate(path: &Path, identity: [u8; 32]) -> Result<u64, Status> {
 
     let mut expected = HashMap::new();
     for layer in manifest.layers {
-        if !layer
+        if !(layer
             .media_type
             .starts_with("application/vnd.oci.image.layer.v1.tar")
+            || layer
+                .media_type
+                .starts_with("application/vnd.oci.image.layer.nondistributable.v1.tar"))
             || layer.size == 0
         {
             return Err(invalid());

@@ -36,7 +36,10 @@ fn render(template: &str, params: &Params<'_>) -> String {
 }
 
 pub fn host(params: &Params<'_>) -> String {
-    let rendered = render(HOST_TEMPLATE, params);
+    let mut rendered = render(HOST_TEMPLATE, params);
+    if params.label != crate::HOST_BUNDLE_IDENTIFIER {
+        rendered = rendered.replacen("  </array>", "    <string>--mcp-port</string>\n    <string>0</string>\n  </array>", 1);
+    }
     if params.disable_pairing {
         return rendered.replacen("  </array>", "    <string>--disable-personal-mesh-pairing</string>\n  </array>", 1);
     }
@@ -61,6 +64,11 @@ mod tests {
         assert!(rendered.contains("<string>Background</string>") && rendered.contains("<string>/Library/Logs/AgentVMM/host.stderr.log</string>"));
         assert!(!rendered.contains("__"));
 
+        assert!(!rendered.contains("--mcp-port"));
+        let isolated = host(&Params { label: "test.agent-vmm-host", ..params });
+        let args = isolated.split_once("<key>ProgramArguments</key>").unwrap().1.split_once("</array>").unwrap().0;
+        assert!(args.contains("<string>--mcp-port</string>\n    <string>0</string>"));
+        assert!(args.contains("<string>--disable-personal-mesh-pairing</string>"));
         let agent = carrier(&Params { daemon: false, disable_pairing: false, ..params });
         assert!(agent.contains("/Contents/Helpers/agent-vmm-carrier</string>") && agent.contains("<string>Interactive</string>"));
         assert!(agent.contains("<string>/Users/a&amp;b/Library/Logs/AgentVMM/carrier.stdout.log</string>") && !agent.contains("UserName"));

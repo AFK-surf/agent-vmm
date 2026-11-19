@@ -20,7 +20,7 @@ use vmm_compat::session::RuntimeAuth;
 
 const MAX_MESSAGE: usize = 16 << 20;
 
-async fn stop_server(
+pub(crate) async fn stop_server(
     server: impl Future<Output = Result<(), Error>>,
     stop: tokio::sync::oneshot::Sender<()>,
     shutdown: impl Future<Output = ()>,
@@ -142,11 +142,7 @@ pub async fn serve_local(
     let (stop, stopped) = tokio::sync::oneshot::channel();
     let server = Server::builder()
         .max_concurrent_streams(128)
-        .add_optional_service(
-            api.mcp
-                .clone()
-                .map(vmm_compat::operator::ApplianceOperations),
-        )
+        .add_optional_service(api.appliances.clone())
         .add_service(health)
         .add_service(vmm_compat::operator::LocalOperatorServer(api.clone()))
         .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
@@ -162,4 +158,96 @@ pub async fn serve_local(
         server.await?;
     }
     Ok(())
+}
+
+/// Online Linux and Carrier hosts accept exactly the tunnels issued by the registered connectors.
+pub(crate) async fn serve_online(
+    path: &Path,
+    api: vmm_compat::operator::LocalOperator,
+    registrations: Arc<crate::registrations::ExternalRegistrations>,
+    runtime: Arc<vmm_compat::runtime::RuntimeService>,
+    mcp_port: u16,
+    available_disk: u64,
+    shutdown: impl Future<Output = ()>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, mcp_port)).await?;
+    let management = api.mcp.as_ref().ok_or("missing MCP token authority")?;
+    let authority = management.token_authority();
+    let tools = Arc::new(vmm_compat::tools::NativeTools::open(
+        runtime.clone(),
+        available_disk,
+    )?);
+    management.publish_frontend(listener.local_addr()?, tools.registration_id())?;
+    let core = runtime.core.clone();
+    let (send, recv) = tokio::sync::mpsc::channel(64);
+    // Allocation admission replaces the PID and disk limits from the accepted pool policy.
+    let defaults = vmm_core::Limits {
+        vcpus: 1,
+        boot_ram_mb: 512,
+        max_ram_mb: 512,
+        pids_max: 0,
+        disk_quota_bytes: 0,
+    };
+    let signer = api.trust.clone().ok_or("missing device identity")?;
+    let identity = signer.identity()?;
+    let node = if identity.state() == agent_vmm_proto::host::v1::DeviceIdentityState::Ready {
+        Some(crate::service_tunnel::ServiceNode::bind(signer).await?)
+    } else {
+        None
+    };
+    let routes = crate::service_forward::ServiceForward {
+        device: identity
+            .identity
+            .ok_or("missing device identity")?
+            .device_id,
+        store: core.store.clone(),
+        guest: runtime.guest.clone(),
+        // Enrollment currently supplies gateway TLS credentials only.
+        trust: None,
+        budgets: Default::default(),
+    };
+    registrations.enable_connectors(
+        core.clone(),
+        defaults,
+        send,
+        node.as_ref().map(|n| n.observations()),
+    )?;
+    let (stop, mut operator_stop) = tokio::sync::watch::channel(false);
+    let mut mcp_stop = stop.subscribe();
+    let mcp = vmm_mcp::serve(listener, authority, tools, async move {
+        let _ = mcp_stop.changed().await;
+    });
+    let mut tunnel_stop = stop.subscribe();
+    let tunnel = crate::tunnel::serve(core.store.clone(), runtime, recv, async move {
+        let _ = tunnel_stop.changed().await;
+    });
+    let operator = serve_local(path, api, Some(core), async move {
+        let _ = operator_stop.changed().await;
+    });
+    let mut data_stop = stop.subscribe();
+    let data = async move {
+        if let Some(node) = node {
+            node.serve(routes, data_stop).await?;
+        } else {
+            let _ = data_stop.changed().await;
+        }
+        Ok(())
+    };
+    let servers = async {
+        tokio::try_join!(operator, data, async { Ok(tunnel.await?) }, async {
+            Ok(mcp.await?)
+        })?;
+        Ok(())
+    };
+    tokio::pin!(servers);
+    tokio::select! {
+        result=&mut servers => result,
+        _=shutdown=>{
+            stop.send_replace(true);
+            match tokio::time::timeout(std::time::Duration::from_secs(4),servers).await {
+                Ok(result)=>result,
+                Err(_)=>Ok(()),
+            }
+        }
+    }
 }

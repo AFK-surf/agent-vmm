@@ -1,9 +1,12 @@
 //! Blocking client for dom0. Each call opens one TCP connection.
 
+mod transport;
 use std::fmt;
 use std::io::{self, Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr};
 use std::time::Duration;
+pub use transport::GuestStream;
+use transport::Transport;
 
 use crate::auth::{NONCE_LEN, verify_boot_token_proof};
 use crate::frame::{ClientFrame, ServerFrame, read_frame, write_frame};
@@ -52,13 +55,12 @@ macro_rules! unary {
 
 #[derive(Debug, Clone)]
 pub struct Client {
-    address: SocketAddr,
-    token: Secret,
+    transport: Transport,
     connect_timeout: Duration,
 }
 
 struct Connection {
-    stream: TcpStream,
+    stream: GuestStream,
 }
 
 impl Connection {
@@ -133,8 +135,22 @@ impl Connection {
 impl Client {
     pub fn new(address: SocketAddr, token: Secret) -> Self {
         Self {
-            address,
-            token,
+            transport: Transport::Direct(address, token),
+            connect_timeout: Duration::from_secs(5),
+        }
+    }
+
+    /// Resolve, connect and authenticate the exact boot anew for each RPC.
+    /// The blocking dialer must return a fresh connected stream and its one-handshake credential.
+    pub fn bound(
+        instance: String,
+        dial: impl Fn(Duration) -> Result<(GuestStream, Secret)> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            transport: Transport::Bound {
+                instance,
+                dial: std::sync::Arc::new(dial),
+            },
             connect_timeout: Duration::from_secs(5),
         }
     }
@@ -145,12 +161,15 @@ impl Client {
     }
 
     fn open(&self, call: Call) -> Result<Connection> {
-        let stream = TcpStream::connect_timeout(&self.address, self.connect_timeout)?;
-        stream.set_nodelay(true)?;
+        let (stream, token) = self.transport.connect(self.connect_timeout)?;
+        Self::handshake(stream, token, call)
+    }
+
+    fn handshake(stream: GuestStream, token: Secret, call: Call) -> Result<Connection> {
         let mut connection = Connection { stream };
         let hello = Hello {
             version: PROTOCOL_VERSION,
-            token: self.token.clone(),
+            token,
             call,
         };
         connection.send(&ClientFrame::Hello(Box::new(hello)))?;
@@ -159,13 +178,29 @@ impl Client {
 
     /// Calls `Health` and verifies the Guest's proof of this client's token.
     pub fn health(&self, nonce: [u8; NONCE_LEN]) -> Result<HealthReply> {
-        let reply = unary!(self, Call::Health(HealthRequest { nonce }), Reply::Health)?;
-        if !verify_boot_token_proof(
-            &self.token,
-            &reply.instance_id,
-            &nonce,
-            &reply.boot_token_proof,
-        ) {
+        let (stream, token) = self.transport.connect(self.connect_timeout)?;
+        let proof = match &self.transport {
+            Transport::Bound { instance, .. } => {
+                Some(crate::auth::boot_token_proof(&token, instance, &nonce))
+            }
+            Transport::Direct(..) => None,
+        };
+        let Reply::Health(reply) =
+            Self::handshake(stream, token, Call::Health(HealthRequest { nonce }))?.finish()?
+        else {
+            return Err(MISMATCH);
+        };
+        let valid = match (&self.transport, proof) {
+            (Transport::Bound { instance, .. }, Some(proof)) => {
+                use subtle::ConstantTimeEq;
+                instance == &reply.instance_id && bool::from(proof.ct_eq(&reply.boot_token_proof))
+            }
+            (Transport::Direct(_, token), _) => {
+                verify_boot_token_proof(token, &reply.instance_id, &nonce, &reply.boot_token_proof)
+            }
+            _ => false,
+        };
+        if !valid {
             return Err(ClientError::Protocol(
                 "the boot token proof does not verify",
             ));

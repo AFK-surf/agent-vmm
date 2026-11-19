@@ -233,3 +233,21 @@ async fn dispatch(
         Err(never) => match never {},
     }
 }
+
+/// Serve the built-in frontend on an already bound loopback listener.
+pub async fn serve(
+    listener: tokio::net::TcpListener,
+    authority: TokenAuthority,
+    runtime: Arc<dyn ToolRuntime>,
+    shutdown: impl std::future::Future<Output = ()> + Send + 'static,
+) -> std::io::Result<()> {
+    if !listener.local_addr()?.ip().is_loopback() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "MCP frontend requires a loopback address",
+        ));
+    }
+    axum::serve(listener, router(authority, runtime))
+        .with_graceful_shutdown(shutdown)
+        .await
+}

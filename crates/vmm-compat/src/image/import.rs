@@ -6,6 +6,7 @@ use std::{path::PathBuf, sync::Arc};
 use tokio_stream::Stream;
 use tonic::Status;
 
+#[derive(Clone)]
 pub struct ImageImports {
     pub directory: PathBuf,
     pub staging: Arc<dyn ImageStaging>,
@@ -34,29 +35,71 @@ impl ImageImports {
             header.request_id.clone(),
             header.encode_to_vec(),
             async move {
-                let _guard = containers.definitions.lock().await;
-                let reference = header.image_reference;
-                let scope = ctx.scope.id;
-                let new_grant = match ctx.core.store.resolve_image(&scope, &reference) {
-                    Ok(_) => false,
-                    Err(vmm_core::Error::Missing(_)) => true,
-                    Err(error) => return Err(core_status(error)),
-                };
-                let logical_bytes = archive.logical_bytes;
-                let image = archive
-                    .install(&ctx.core, &scope, stage)
-                    .await
-                    .map_err(core_status)?;
-                let grant = containers.image_grant(
-                    &scope,
-                    &reference,
-                    &image,
-                    Some(logical_bytes),
-                    new_grant,
-                )?;
+                let grant = Self::publish(ctx, containers, archive, stage).await?;
                 Ok(h::ImportImageResponse { image: Some(grant) })
             },
         )
         .await
+    }
+
+    pub(super) async fn publish(
+        ctx: RuntimeContext,
+        containers: Containers,
+        archive: VerifiedArchive,
+        stage: Arc<dyn ImageStaging>,
+    ) -> Result<h::Image, Status> {
+        Self::publish_output(ctx, containers, archive, stage, None).await
+    }
+
+    pub(super) async fn publish_output(
+        ctx: RuntimeContext,
+        containers: Containers,
+        archive: VerifiedArchive,
+        stage: Arc<dyn ImageStaging>,
+        output: Option<super::staging::BuildPublication<'_>>,
+    ) -> Result<h::Image, Status> {
+        let _guard = containers.definitions.lock().await;
+        let reference = archive.header().image_reference.clone();
+        let scope = &ctx.scope.id;
+        let new_grant = match ctx.core.store.resolve_image(scope, &reference) {
+            Ok(_) => false,
+            Err(vmm_core::Error::Missing(_)) => true,
+            Err(error) => return Err(core_status(error)),
+        };
+        let (archive, cache) = tokio::task::spawn_blocking({
+            let store = ctx.core.store.clone();
+            move || {
+                let dir = archive
+                    .path()
+                    .parent()
+                    .ok_or_else(|| Status::internal("image staging directory"))?
+                    .to_owned();
+                super::base::collect(&dir, &store)?;
+                super::base::retain(&dir, archive.path(), archive.digest)?;
+                Ok::<_, Status>((archive, dir))
+            }
+        })
+        .await
+        .map_err(|_| Status::unavailable("image archive storage task interrupted"))??;
+        let logical_bytes = archive.logical_bytes;
+        let installed = archive
+            .install_with_build(&ctx.core, scope, stage, output)
+            .await
+            .map_err(core_status);
+        let image = match installed {
+            Ok(image) => image,
+            Err(status) => {
+                super::base::collect(&cache, &ctx.core.store)?;
+                return Err(status);
+            }
+        };
+        containers.image_grant(
+            &ctx.core.store,
+            scope,
+            &reference,
+            &image,
+            Some(logical_bytes),
+            new_grant,
+        )
     }
 }

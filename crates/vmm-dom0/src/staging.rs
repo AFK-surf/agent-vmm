@@ -65,7 +65,11 @@ impl LocalDom0Backend {
 
     /// Build a staged EROFS file and publish its activation parameters alongside it.
     pub fn stage_image(&self, source: &Path, digest: Digest) -> Result<ImageSource> {
-        let built = crate::image::build(source, digest, &self.cfg.staging)?;
+        let built = if self.cfg.builder_image == Some(digest) {
+            crate::image::build_trusted_builder(source, digest, &self.cfg.staging)?
+        } else {
+            crate::image::build(source, digest, &self.cfg.staging)?
+        };
         self.publish_stage(built, digest)
     }
     /// Package a trusted host directory under its operator-assigned identity.

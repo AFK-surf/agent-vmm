@@ -103,6 +103,9 @@ impl FakeDom0Backend {
         self.state()?.faults.push_back(fault);
         Ok(())
     }
+    pub fn network_policy(&self, boot: &BootIdentity) -> Result<Scope> {
+        Ok(self.state()?.guest(boot)?.policy.clone())
+    }
     pub fn shutdown_calls(&self) -> Result<u64> {
         Ok(self.state()?.shutdown_calls)
     }

@@ -59,20 +59,40 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
         let (runtime, mut incoming_runtime) = mpsc::channel(8);
         let backend = Arc::new(FakeDom0Backend::default());
         let core = Core::new(store.clone(), backend.clone());
-        let connector = Arc::new(Connector::new(
-            core.clone(),
-            client,
-            ConnectorConfig {
-                connection: claim.remote_connection,
-                scope_defaults: defaults(),
-                runtime,
-                observe: None,
-            },
-        ));
+        let endpoint = vmm_remote_salix::trust::EndpointObservation {
+            endpoint_generation: 17,
+            ..Default::default()
+        };
+        let (publish, observed) = tokio::sync::watch::channel(endpoint.clone());
+        let connector = Arc::new(
+            Connector::new(
+                core.clone(),
+                client,
+                ConnectorConfig {
+                    connection: claim.remote_connection,
+                    scope_defaults: defaults(),
+                    runtime,
+                    observe: None,
+                },
+            )
+            .with_endpoint(observed),
+        );
 
         let mut attempt = start_attempt(&connector);
         let mut first = gateway.connections.recv().await.unwrap();
         let epoch = first.hello.connection_epoch;
+        assert_eq!(first.hello.endpoint_observation.as_ref(), Some(&endpoint));
+        let renewed = vmm_remote_salix::trust::EndpointObservation {
+            device_signature: vec![42],
+            ..endpoint
+        };
+        publish.send_replace(renewed.clone());
+        let frame = first.frames.message().await.unwrap().unwrap();
+        let Some(Payload::EndpointObservationRenewal(renewal)) = frame.payload else {
+            panic!("missing signed endpoint renewal")
+        };
+        assert_eq!(renewal.connection_epoch, epoch);
+        assert_eq!(renewal.endpoint_observation, Some(renewed));
         assert_ne!(epoch, 0);
         assert_ne!(first.hello.inventory_watermark, 0);
         assert_eq!(first.hello.protocol_version, "4");

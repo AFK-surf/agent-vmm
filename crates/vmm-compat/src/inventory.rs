@@ -1,5 +1,5 @@
 use crate::container::db_error;
-use crate::{Containers, RuntimeContext, container::fingerprint, context::core_status};
+use crate::{Containers, container::fingerprint, context::core_status};
 use agent_vmm_proto::host::v1 as h;
 use prost_types::Timestamp;
 use rusqlite::{OptionalExtension, params};
@@ -55,7 +55,7 @@ fn usage(sample: &ResourceUsage) -> h::Usage {
 impl Containers {
     pub(crate) async fn observe(
         &self,
-        ctx: &RuntimeContext,
+        store: &vmm_core::Store,
         sb: &Sandbox,
         expected: Option<h::CreateContainerRequest>,
     ) -> Result<h::Container, Status> {
@@ -135,14 +135,7 @@ impl Containers {
             .ok_or_else(|| Status::internal("missing live boot identity"))?;
         let live = self.driver.health(boot).await?;
         if live.instance_id != boot.instance_id
-            || ctx
-                .core
-                .store
-                .sandbox(&def.key)
-                .map_err(core_status)?
-                .boot
-                .as_ref()
-                != Some(boot)
+            || store.sandbox(&def.key).map_err(core_status)?.boot.as_ref() != Some(boot)
         {
             return Err(core_status(vmm_core::Error::Fenced));
         }
@@ -178,16 +171,14 @@ impl Containers {
             .overlay_used_bytes
             .filter(|_| def.root_overlay.is_some())
         {
-            ctx.core
-                .store
+            store
                 .record_overlay_usage(&def.key, bytes)
                 .map_err(core_status)?;
         }
         for (id, bytes) in &live.usage.volume_used_bytes {
             if def.mounts.iter().any(|m| &m.volume_id == id) {
-                ctx.core
-                    .store
-                    .record_volume_usage(&ctx.scope.id, id, *bytes)
+                store
+                    .record_volume_usage(&def.key.scope_id, id, *bytes)
                     .map_err(core_status)?;
             }
         }

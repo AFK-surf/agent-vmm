@@ -198,3 +198,197 @@ async fn enumerate_scoped_resources_in_key_order_and_preserve_definition_metadat
     assert_eq!(current[0].definition, explicit);
     assert_eq!(current[1].definition, inherited);
 }
+
+#[tokio::test]
+async fn image_copy_grants_shared_content_once_and_checks_each_allocation_on_replay() {
+    let f = Fixture::new();
+    let store = &f.core.store;
+    store.create_registration("reg").unwrap();
+    let channel = store.connect("reg", 1).unwrap();
+    for id in ["source", "target"] {
+        let mut scope = Fixture::scope(id);
+        scope.origin = Origin::Remote {
+            registration_id: "reg".into(),
+        };
+        store.create_scope(&scope, Some(&channel)).unwrap();
+    }
+    let original = f
+        .core
+        .import_image("source", "app", &Fixture::image())
+        .await
+        .unwrap();
+    let (session, _) = store.issue_session("target", Some(&channel)).unwrap();
+    let auth = CopyAuthority {
+        session: &session,
+        registration: "reg",
+        target: "target",
+        generation: u64::MAX,
+        source: &CopySource::Allocation {
+            id: "source".into(),
+            generation: u64::MAX,
+        },
+    };
+    let copy = |fingerprint, digest| {
+        store.copy_image_grant(
+            &auth,
+            "copy",
+            fingerprint,
+            "app",
+            "docker.io/library/app:latest",
+            digest,
+        )
+    };
+    assert!(matches!(
+        copy([0; 32], [1; 32]).await,
+        Err(Error::Conflict("copy digest"))
+    ));
+    assert!(store.resolve_image("target", "app").is_err());
+    let first = copy([2; 32], original.manifest_digest).await.unwrap();
+    assert_eq!(store.resolve_image("target", "app").unwrap(), original);
+    assert_eq!(
+        f.core
+            .remove_image_reference("source", "app", original.manifest_digest)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        copy([2; 32], original.manifest_digest)
+            .await
+            .unwrap()
+            .digest,
+        first.digest
+    );
+    assert!(matches!(
+        copy([3; 32], original.manifest_digest).await,
+        Err(Error::Conflict("request fingerprint"))
+    ));
+    let stale = CopyAuthority {
+        generation: 1,
+        ..auth
+    };
+    assert!(matches!(
+        store.observe_image_copy(&stale, "copy", [2; 32]),
+        Err(Error::Fenced)
+    ));
+    store.revoke_session(&session.id).unwrap();
+    assert!(matches!(
+        store.observe_image_copy(&auth, "copy", [2; 32]),
+        Err(Error::Fenced)
+    ));
+    drop(f.core);
+    let reopened = Store::open(f.directory.path().join("host.db")).unwrap();
+    let fresh_channel = reopened.connect("reg", 2).unwrap();
+    let (session, _) = reopened
+        .issue_session("target", Some(&fresh_channel))
+        .unwrap();
+    let fresh = CopyAuthority {
+        session: &session,
+        ..auth
+    };
+    assert_eq!(
+        reopened
+            .observe_image_copy(&fresh, "copy", [2; 32])
+            .unwrap()
+            .digest,
+        original.manifest_digest
+    );
+}
+
+#[tokio::test]
+async fn retained_builds_pin_the_extent_independently_and_only_the_owner_can_copy_them() {
+    let f = Fixture::new();
+    let store = &f.core.store;
+    let mut sessions = vec![];
+    for (reg, env) in [("owner", "builder"), ("other", "stranger")] {
+        store.create_registration(reg).unwrap();
+        let channel = store.connect(reg, 1).unwrap();
+        let mut scope = Fixture::scope(env);
+        scope.origin = Origin::Remote {
+            registration_id: reg.into(),
+        };
+        store.create_scope(&scope, Some(&channel)).unwrap();
+        sessions.push(store.issue_session(env, Some(&channel)).unwrap().0);
+    }
+    let digest = f
+        .core
+        .import_image("builder", "app", &Fixture::image())
+        .await
+        .unwrap()
+        .manifest_digest;
+    for id in ["first", "second"] {
+        store
+            .retain_build_output(
+                "owner",
+                &sessions[0],
+                &RetainedImage {
+                    reference: "app".into(),
+                    digest,
+                    generation: id.into(),
+                    build_request: id.into(),
+                    build_receipt: id.as_bytes().to_vec(),
+                    logical_bytes: 5,
+                },
+            )
+            .unwrap();
+    }
+    assert_eq!(
+        f.core
+            .remove_image_reference("builder", "app", digest)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        store
+            .list_retained_images("owner", &sessions[0])
+            .unwrap()
+            .len(),
+        2
+    );
+    assert!(matches!(
+        store.list_retained_images("owner", &sessions[1]),
+        Err(Error::Fenced)
+    ));
+    let source = CopySource::Retained {
+        build_request: "second".into(),
+    };
+    let auth = CopyAuthority {
+        session: &sessions[1],
+        registration: "other",
+        target: "stranger",
+        generation: u64::MAX,
+        source: &source,
+    };
+    assert!(matches!(
+        store
+            .copy_image_grant(&auth, "copy", [4; 32], "app", "app", digest)
+            .await,
+        Err(Error::Missing("retained image"))
+    ));
+    let owner = CopyAuthority {
+        session: &sessions[0],
+        registration: "owner",
+        target: "builder",
+        ..auth
+    };
+    store
+        .copy_image_grant(&owner, "copy", [4; 32], "app", "app", digest)
+        .await
+        .unwrap();
+    f.core
+        .remove_retained_image("owner", &sessions[0], "app", "app", "second", digest)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.list_retained_images("owner", &sessions[0]).unwrap()[0].generation,
+        "first"
+    );
+    assert_eq!(
+        store
+            .resolve_image("builder", "app")
+            .unwrap()
+            .manifest_digest,
+        digest
+    );
+}

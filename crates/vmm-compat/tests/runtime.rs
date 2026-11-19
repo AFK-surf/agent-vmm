@@ -1,5 +1,13 @@
+#[path = "runtime/build.rs"]
+mod build;
 #[path = "runtime/guest.rs"]
 mod guest;
+#[path = "runtime/image_copy.rs"]
+mod image_copy;
+#[path = "runtime/mcp.rs"]
+mod mcp;
+#[path = "runtime/mesh.rs"]
+mod mesh;
 #[path = "image/fixture.rs"]
 mod oci;
 #[path = "runtime/unused.rs"]
@@ -28,9 +36,10 @@ use zeroize::Zeroizing;
 #[tokio::test]
 async fn session_drives_workload_and_workspace_over_tonic() {
     let dir = tempfile::tempdir().unwrap();
+    let backend = Arc::new(FakeDom0Backend::default());
     let core = Core::new(
         Arc::new(Store::open(dir.path().join("db")).unwrap()),
-        Arc::new(FakeDom0Backend::default()),
+        backend.clone(),
     );
     core.store
         .create_scope(
@@ -68,25 +77,48 @@ async fn session_drives_workload_and_workspace_over_tonic() {
     let (driver, work) = guest::Guest::start().await;
     let driver = Arc::new(driver);
     let auth = RuntimeAuth::bound(core.store.clone(), session.id, Zeroizing::new(secret));
-    let runtime = RuntimeService {
+    let mut operator = vmm_compat::operator::LocalOperator::open(
+        &dir.path().join("operator"),
+        core.store.clone(),
+        Arc::new(unused::Unused),
+        Some(backend),
+    )
+    .unwrap();
+    operator.guest = Some(driver.clone());
+    let containers = Containers::open(dir.path().join("protocol"), driver.clone()).unwrap();
+    operator.containers = Some(containers.clone());
+    let imports = vmm_compat::image::ImageImports {
+        directory: dir.path().into(),
+        staging: Arc::new(ArchiveStage),
+    };
+    let (builder, build_server) = build::builder().await;
+    let images =
+        vmm_compat::image::build::Builds::new(builder.clone(), containers.clone(), imports.clone())
+            .unwrap();
+    let runtime = Arc::new(RuntimeService {
         core,
-        containers: Containers::open(dir.path().join("protocol"), driver.clone()).unwrap(),
+        containers,
         workspace: WorkspaceService::new(Arc::new(workspace::TestDriver::default())),
         guest: driver,
-        imports: vmm_compat::image::ImageImports {
-            directory: dir.path().into(),
-            staging: Arc::new(ArchiveStage),
-        },
-        images: Arc::new(unused::Unused),
-        mesh: Arc::new(unused::Unused),
-    };
+        imports,
+        images: Arc::new(images),
+        mesh: Arc::new(vmm_compat::mesh::ServiceMesh {
+            device_id: "host-device".into(),
+        }),
+    });
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
     let addr = listener.local_addr().unwrap();
     let server = tokio::spawn(
         Server::builder()
-            .add_service(AgentRuntimeServiceServer::with_interceptor(runtime, auth))
+            .add_service(vmm_compat::operator::LocalOperatorServer(Arc::new(
+                operator,
+            )))
+            .add_service(tonic::service::interceptor::InterceptedService::new(
+                AgentRuntimeServiceServer::from_arc(runtime.clone()),
+                auth,
+            ))
             .serve_with_incoming(TcpListenerStream::new(listener)),
     );
     let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
@@ -94,6 +126,7 @@ async fn session_drives_workload_and_workspace_over_tonic() {
         .connect()
         .await
         .unwrap();
+    let mut operator = h::operator_service_client::OperatorServiceClient::new(channel.clone());
     let mut c = AgentRuntimeServiceClient::new(channel);
     let (bytes, header) = oci::fixture(b"expected", "arm64");
     let mut responses = Vec::new();
@@ -122,6 +155,26 @@ async fn session_drives_workload_and_workspace_over_tonic() {
     assert!(!responses[0].generation_id.is_empty());
     assert_eq!(responses[0], responses[1]);
     assert_eq!(responses[0], responses[2]);
+    for _ in 0..2 {
+        let mut pull = c
+            .pull_image(h::PullImageRequest {
+                request_id: "pull-existing".into(),
+                reference: "example.com/test".into(),
+            })
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(pull.message().await.unwrap().unwrap().status, "resolving");
+        let completed = pull.message().await.unwrap().unwrap();
+        assert_eq!(completed.status, "complete");
+        assert_eq!(
+            completed.digest.as_deref(),
+            Some(header.manifest_digest.as_str())
+        );
+        assert_eq!(completed.logical_bytes, responses[0].logical_bytes);
+        assert_eq!(completed.canonical_reference, header.image_reference);
+        assert!(pull.message().await.unwrap().is_none());
+    }
     let listed = c
         .list_images(h::ListImagesRequest::default())
         .await
@@ -243,6 +296,9 @@ async fn session_drives_workload_and_workspace_over_tonic() {
         .duration_since(UNIX_EPOCH)
         .unwrap()
         .as_nanos() as i64;
+    mesh::exercise(&mut c, &instance).await;
+    build::exercise(&mut c, &instance, deadline, &builder).await;
+    build_server.await.unwrap();
     let frames = [
         In::Start(h::ExecStart {
             request_id: "exec".into(),
@@ -291,6 +347,41 @@ async fn session_drives_workload_and_workspace_over_tonic() {
     assert_eq!(record.data, b"retained");
     assert_eq!(record.dropped_records, 4);
     assert!(logs.message().await.unwrap().is_none());
+    let env = operator
+        .get_environment(h::OperatorServiceGetEnvironmentRequest {
+            environment_id: "env".into(),
+        })
+        .await
+        .unwrap()
+        .into_inner()
+        .environment
+        .unwrap();
+    assert_eq!(env.namespace_id, "env");
+    assert_eq!(env.owner.unwrap().kind(), h::EnvironmentOwnerKind::Local);
+    assert!(env.containers.iter().any(|c| c.instance_id == instance));
+    let mut operator_logs = operator
+        .logs(h::OperatorServiceLogsRequest {
+            environment_id: "env".into(),
+            query: Some(h::LogsRequest {
+                container_id: "worker".into(),
+                tail_records: 2,
+                ..Default::default()
+            }),
+        })
+        .await
+        .unwrap()
+        .into_inner();
+    let host_record = operator_logs.message().await.unwrap().unwrap();
+    assert_eq!(
+        (
+            host_record.cursor,
+            host_record.data,
+            host_record.dropped_records,
+            host_record.truncated
+        ),
+        (record.cursor, record.data, 4, true)
+    );
+    assert!(operator_logs.message().await.unwrap().is_none());
     work.await.unwrap();
     c.quiesce_container(h::QuiesceContainerRequest {
         request_id: "quiet".into(),
@@ -326,6 +417,7 @@ async fn session_drives_workload_and_workspace_over_tonic() {
         .await
         .unwrap_err();
     assert_eq!(stale.code(), Code::Unauthenticated);
+    mcp::exercise(runtime, dir.path()).await;
     server.abort();
 }
 

@@ -14,6 +14,14 @@ fn running(db: &Connection, boot: &BootIdentity) -> Result<bool> {
     Ok(sb.state == SandboxState::Running && sb.boot.as_ref() == Some(boot))
 }
 fn current(db: &Connection, binding: &RouteBinding) -> Result<bool> {
+    if let Some(expires) = binding.expires_at_unix_seconds {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| Error::Invalid("system time"))?;
+        if now.as_secs() >= expires {
+            return Ok(false);
+        }
+    }
     let published: Option<String> = db
         .query_row(
             "SELECT data FROM service_exports WHERE id=?",
@@ -37,6 +45,7 @@ impl Core {
             return Err(Error::Invalid("service export"));
         }
         self.store.write(|db| {
+            Store::check_cleanup_owner(db, &export.boot.sandbox.scope_id)?;
             if !running(db, &export.boot)? {
                 return Err(Error::Fenced);
             }
@@ -66,10 +75,15 @@ impl Core {
 
     pub async fn bind_route(&self, binding: &RouteBinding) -> Result<ServiceRoute> {
         let _guard = self.store.effects.lock().await;
+        self.bind_locked(binding).await
+    }
+    pub(crate) async fn bind_locked(&self, binding: &RouteBinding) -> Result<ServiceRoute> {
         if binding.id.is_empty() {
             return Err(Error::Invalid("route id"));
         }
         let (route, applied) = self.store.write(|db| {
+            Store::check_cleanup_owner(db, &binding.source.sandbox.scope_id)?;
+            Store::check_cleanup_owner(db, &binding.export.boot.sandbox.scope_id)?;
             if !current(db, binding)? {
                 return Err(Error::Fenced);
             }
@@ -106,7 +120,27 @@ impl Core {
         Ok(route)
     }
     async fn apply_route(&self, route: &ServiceRoute) -> Result<()> {
-        self.backend.bind_route(route).await?;
+        if let Err(error) = self.backend.bind_route(route).await {
+            if matches!(error, Error::Invalid(_) | Error::Conflict(_)) {
+                // A backend admission refusal is final for this revision. A lost
+                // transport response leaves the revision pending for exact replay.
+                self.store.write(|db| {
+                    db.execute(
+                        "UPDATE routes SET phase='revoking' WHERE revision=?",
+                        [route.revision],
+                    )?;
+                    db.execute(
+                        "UPDATE mesh_imports SET revoked_by='',revision=revision+1
+                         WHERE id=? AND revoked_by IS NULL",
+                        [&route.binding.id],
+                    )?;
+                    Ok(())
+                })?;
+                self.revoke_locked(&route.binding.id, route.revision)
+                    .await?;
+            }
+            return Err(error);
+        }
         self.store.write(|db| {
             db.execute(
                 "UPDATE routes SET phase='active' WHERE revision=?",
@@ -170,11 +204,42 @@ impl Core {
             let binding: RouteBinding = decode(&data)?;
             if phase == "revoking" || !self.store.read(|db| current(db, &binding))? {
                 self.revoke_locked(&binding.id, revision).await?;
-            } else if restore || phase == "binding" {
-                self.apply_route(&ServiceRoute { binding, revision })
-                    .await?;
+            } else if (restore || phase == "binding")
+                && let Err(error) = self.apply_route(&ServiceRoute { binding, revision }).await
+            {
+                let retired = self.store.read(|db| {
+                    Ok(db.query_row(
+                        "SELECT phase='revoked' FROM routes WHERE revision=?",
+                        [revision],
+                        |row| row.get::<_, bool>(0),
+                    )?)
+                })?;
+                if !retired {
+                    return Err(error);
+                }
             }
         }
         Ok(())
+    }
+}
+
+impl Store {
+    /// Resolve only a published port on the same running boot.
+    pub fn current_service_export(&self, id: &str) -> Result<ServiceExport> {
+        self.read(|db| {
+            let data: String = db
+                .query_row("SELECT data FROM service_exports WHERE id=?", [id], |row| {
+                    row.get(0)
+                })
+                .optional()?
+                .ok_or(Error::Missing("service export"))?;
+            let export: ServiceExport = decode(&data)?;
+            Self::check_cleanup_owner(db, &export.boot.sandbox.scope_id)?;
+            crate::storage::active(db, &export.boot.sandbox.scope_id)?;
+            if !running(db, &export.boot)? {
+                return Err(Error::Fenced);
+            }
+            Ok(export)
+        })
     }
 }

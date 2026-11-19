@@ -168,10 +168,28 @@ impl LocalInventory {
     }
 }
 
+mod cleanup;
+pub(crate) use cleanup::cleanup_plan;
 mod disposal;
+mod environment;
+mod impact;
+mod logs;
+mod socket;
 pub use disposal::{LocalDisposals, RegistrationControl};
 mod local;
 pub use local::{LocalOperator, LocalOperatorServer};
 
+mod appliance;
+mod content;
 mod mcp;
-pub use mcp::{McpManagement,ApplianceOperations};
+pub use appliance::ApplianceOperations;
+pub use mcp::McpManagement;
+
+mod identity;
+pub use identity::DeviceTrust;
+
+mod vm;
+pub use vm::VmControl;
+
+mod registration;
+pub use registration::RegistrationManagement;

@@ -43,6 +43,37 @@ pub(crate) fn detailed_status(
     Status::with_details(code, message, details.encode_to_vec().into())
 }
 
+pub(crate) fn projection_failed() -> Status {
+    let code = Code::Unavailable;
+    let message = "the Host socket was saved but the egress policy was not published";
+    let info = ErrorInfo {
+        domain: DOMAIN.into(),
+        reason: "POLICY_PROJECTION_FAILED".into(),
+        metadata: Default::default(),
+    };
+    let retry = tonic_types::pb::RetryInfo {
+        retry_delay: Some(prost_types::Duration {
+            seconds: 1,
+            nanos: 0,
+        }),
+    };
+    let details = rpc::Status {
+        code: code as i32,
+        message: message.into(),
+        details: vec![
+            Any {
+                type_url: "type.googleapis.com/google.rpc.ErrorInfo".into(),
+                value: info.encode_to_vec(),
+            },
+            Any {
+                type_url: "type.googleapis.com/google.rpc.RetryInfo".into(),
+                value: retry.encode_to_vec(),
+            },
+        ],
+    };
+    Status::with_details(code, message, details.encode_to_vec().into())
+}
+
 /// Matches host.v1 InvalidField so clients can point to the offending input.
 pub fn invalid_field(field: &str, description: &str) -> Status {
     use tonic_types::pb::{BadRequest, bad_request::FieldViolation};
@@ -91,6 +122,14 @@ pub fn client_status(e: vmm_guest_proto::client::ClientError) -> Status {
     match e {
         ClientError::Rpc(err) => guest_status(&err),
         ClientError::Protocol(_) => Status::data_loss("invalid guest protocol response"),
+        ClientError::Io(err) if err.get_ref().is_some_and(|e| e.is::<vmm_core::Error>()) => {
+            let error = err
+                .into_inner()
+                .unwrap()
+                .downcast::<vmm_core::Error>()
+                .unwrap();
+            core_status(*error)
+        }
         ClientError::Io(err) if err.kind() == std::io::ErrorKind::TimedOut => {
             Status::deadline_exceeded("guest connection timed out")
         }
@@ -118,4 +157,33 @@ pub fn guest_status(err: &vmm_guest_proto::rpc::RpcError) -> Status {
         G::Internal => Code::Internal,
     };
     Status::new(code, &err.message)
+}
+
+pub(crate) fn with_resource(status: Status, kind: &str, name: &str) -> Status {
+    use agent_vmm_proto::google::rpc;
+    use prost::Message;
+    let Ok(mut details) = rpc::Status::decode(status.details()) else {
+        return status;
+    };
+    if !details
+        .details
+        .iter()
+        .any(|d| d.type_url == "type.googleapis.com/google.rpc.ErrorInfo")
+    {
+        return status;
+    }
+    let resource = tonic_types::pb::ResourceInfo {
+        resource_type: kind.into(),
+        resource_name: name.into(),
+        ..Default::default()
+    };
+    details.details.push(prost_types::Any {
+        type_url: "type.googleapis.com/google.rpc.ResourceInfo".into(),
+        value: resource.encode_to_vec(),
+    });
+    Status::with_details(
+        status.code(),
+        status.message(),
+        details.encode_to_vec().into(),
+    )
 }

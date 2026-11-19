@@ -108,7 +108,7 @@ impl Containers {
                 let sb = owner.core.store.sandbox(key).map_err(core_status)?;
                 drop(guard);
                 Ok(h::CreateContainerResponse {
-                    container: Some(host.observe(&owner, &sb, None).await?),
+                    container: Some(host.observe(&owner.core.store, &sb, None).await?),
                 })
             },
         )
@@ -145,7 +145,7 @@ impl Containers {
                 ).map_err(db_error)?;
                 let sb = owner.core.store.sandbox(key).map_err(core_status)?;
                 Ok(h::StartContainerResponse {
-                    container: Some(host.observe(&owner, &sb, None).await?),
+                    container: Some(host.observe(&owner.core.store, &sb, None).await?),
                 })
             },
         )
@@ -183,7 +183,10 @@ impl Containers {
     ) -> Result<h::GetContainerResponse, Status> {
         let sb = current(ctx, &r.container_id)?;
         Ok(h::GetContainerResponse {
-            container: Some(self.observe(ctx, &sb, r.expected_configuration).await?),
+            container: Some(
+                self.observe(&ctx.core.store, &sb, r.expected_configuration)
+                    .await?,
+            ),
         })
     }
     pub async fn list(&self, ctx: &RuntimeContext) -> Result<h::ListContainersResponse, Status> {
@@ -194,7 +197,7 @@ impl Containers {
             .list_sandboxes(&ctx.scope.id, None, usize::MAX)
             .map_err(core_status)?
         {
-            containers.push(self.observe(ctx, &sb, None).await?);
+            containers.push(self.observe(&ctx.core.store, &sb, None).await?);
         }
         Ok(h::ListContainersResponse { containers })
     }
@@ -219,11 +222,17 @@ pub(crate) fn current(ctx: &RuntimeContext, id: &str) -> Result<Sandbox, Status>
     find(ctx, id)?.ok_or_else(|| Status::not_found("container not found"))
 }
 pub(crate) fn find(ctx: &RuntimeContext, id: &str) -> Result<Option<Sandbox>, Status> {
+    find_in_scope(&ctx.core.store, &ctx.scope.id, id)
+}
+
+pub(crate) fn find_in_scope(
+    store: &vmm_core::Store,
+    scope: &str,
+    id: &str,
+) -> Result<Option<Sandbox>, Status> {
     resource_id(id)?;
-    Ok(ctx
-        .core
-        .store
-        .list_sandboxes(&ctx.scope.id, None, usize::MAX)
+    Ok(store
+        .list_sandboxes(scope, None, usize::MAX)
         .map_err(core_status)?
         .into_iter()
         .find(|s| s.definition.key.sandbox_id == id))

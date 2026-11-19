@@ -9,7 +9,19 @@ impl Containers {
         &self,
         ctx: &RuntimeContext,
     ) -> Result<h::GetEnvironmentResponse, Status> {
-        let store = &ctx.core.store;
+        Ok(h::GetEnvironmentResponse {
+            environment: Some(
+                self.observe_environment(&ctx.core.store, &ctx.scope)
+                    .await?,
+            ),
+        })
+    }
+
+    pub(crate) async fn observe_environment(
+        &self,
+        store: &vmm_core::Store,
+        scope: &vmm_core::Scope,
+    ) -> Result<h::AgentEnvironment, Status> {
         let mut observed = vec![];
         let mut stale = false;
         let now: prost_types::Timestamp = SystemTime::now().into();
@@ -18,10 +30,10 @@ impl Containers {
             ..Default::default()
         };
         for sb in store
-            .list_sandboxes(&ctx.scope.id, None, usize::MAX)
+            .list_sandboxes(&scope.id, None, usize::MAX)
             .map_err(core_status)?
         {
-            let container = match self.observe(ctx, &sb, None).await {
+            let container = match self.observe(store, &sb, None).await {
                 Ok(c) => c,
                 Err(e)
                     if matches!(
@@ -58,54 +70,57 @@ impl Containers {
             }
             observed.push(container);
         }
-        totals.disk_bytes = store.scope_used_bytes(&ctx.scope.id).map_err(core_status)?;
+        totals.disk_bytes = store.scope_used_bytes(&scope.id).map_err(core_status)?;
         totals.stale |= stale;
         if totals.stale {
             totals.unavailable_reason = "some runtime samples unavailable".into();
         }
-        let origin = match ctx.scope.origin {
-            Origin::Local => h::EnvironmentOrigin::Local,
-            Origin::Remote { .. } => h::EnvironmentOrigin::Remote,
-        };
-        let egress = match ctx.scope.egress_mode {
-            EgressMode::DenyAll => h::EgressMode::DenyAll,
-            EgressMode::PublicInternet => h::EgressMode::PublicInternet,
-        };
-        // The runtime wire intentionally omits the host-private owner and namespace identity.
-        Ok(h::GetEnvironmentResponse {
-            environment: Some(h::AgentEnvironment {
-                policy_revision: ctx.scope.revision,
-                limits: Some(h::ResourceLimits {
-                    pids: Some(ctx.scope.limits.pids_max.min(u32::MAX as u64) as u32),
-                    disk_bytes: Some(ctx.scope.limits.disk_quota_bytes),
-                }),
-                egress_mode: egress as i32,
-                origin: origin as i32,
-                inventory_observed_at: Some(now),
-                inventory_state: if stale {
-                    h::InventoryState::Stale
+        Ok(h::AgentEnvironment {
+            inventory_observed_at: Some(now),
+            inventory_state: if stale {
+                h::InventoryState::Stale
+            } else {
+                h::InventoryState::Available
+            } as i32,
+            inventory_message: if stale {
+                "Some runtime inventory could not be refreshed.".into()
+            } else {
+                String::new()
+            },
+            health: Some(h::HealthStatus {
+                state: if stale {
+                    h::HealthState::Degraded
                 } else {
-                    h::InventoryState::Available
+                    h::HealthState::Healthy
                 } as i32,
-                inventory_message: if stale {
-                    "Some runtime inventory could not be refreshed.".into()
-                } else {
-                    String::new()
-                },
-                health: Some(h::HealthStatus {
-                    state: if stale {
-                        h::HealthState::Degraded
-                    } else {
-                        h::HealthState::Healthy
-                    } as i32,
-                    ..Default::default()
-                }),
-                usage: Some(totals),
-                containers: observed,
-                volumes: ctx.list_volumes()?.volumes,
                 ..Default::default()
             }),
+            usage: Some(totals),
+            containers: observed,
+            volumes: crate::volume::list_volumes(store, &scope.id)?,
+            ..environment_policy(scope)
         })
+    }
+}
+
+pub(crate) fn environment_policy(scope: &vmm_core::Scope) -> h::AgentEnvironment {
+    let origin = match scope.origin {
+        Origin::Local => h::EnvironmentOrigin::Local,
+        Origin::Remote { .. } => h::EnvironmentOrigin::Remote,
+    };
+    let egress = match scope.egress_mode {
+        EgressMode::DenyAll => h::EgressMode::DenyAll,
+        EgressMode::PublicInternet => h::EgressMode::PublicInternet,
+    };
+    h::AgentEnvironment {
+        policy_revision: scope.revision,
+        limits: Some(h::ResourceLimits {
+            pids: Some(scope.limits.pids_max.min(u32::MAX as u64) as u32),
+            disk_bytes: Some(scope.limits.disk_quota_bytes),
+        }),
+        egress_mode: egress as i32,
+        origin: origin as i32,
+        ..Default::default()
     }
 }
 

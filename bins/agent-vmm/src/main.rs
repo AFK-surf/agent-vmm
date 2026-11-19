@@ -32,6 +32,8 @@ fn main() {
     let code = match arguments.first().map(String::as_str) {
         Some("mcp") => mcp::run(&arguments[1..]),
         #[cfg(target_os = "linux")]
+        Some("host") => agent_vmm_host::main_from_args(&arguments[1..]),
+        #[cfg(target_os = "linux")]
         Some("lifecycle") => vmm_lifecycle::main(arguments[1..].to_vec()),
         Some("appliance") => appliance::run(&arguments[1..]).unwrap_or_else(|| managed(&[])),
         _ => managed(&arguments),

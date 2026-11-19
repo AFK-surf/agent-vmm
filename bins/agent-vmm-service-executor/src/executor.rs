@@ -7,7 +7,7 @@ use crate::system::{Launch, System};
 use std::path::{Path, PathBuf};
 
 pub const OWNER_FILE: &str = "/Library/Application Support/AgentVMM/service-owner.json";
-const HOST_LABEL: &str = "com.afk-surf.agent-vmm-host";
+use crate::HOST_BUNDLE_IDENTIFIER as HOST_LABEL;
 const CARRIER_LABEL: &str = "com.afk-surf.agent-vmm-carrier";
 const APP: &str = "Library/Application Support/Agent VMM Host/current/Agent VMM Host.app";
 const STATE_DISKS: [&str; 2] = ["Library/Application Support/AgentVMM/instance/pool.raw", "Library/Application Support/AgentVMM/instance/state.raw"];

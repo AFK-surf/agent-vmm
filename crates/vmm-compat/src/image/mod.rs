@@ -1,9 +1,15 @@
 //! Receive and verify immutable OCI archives before granting an image to a scope.
+mod base;
+pub mod build;
+pub(crate) mod copy;
 mod download;
 pub(crate) mod grant;
 mod import;
 pub use import::ImageImports;
 mod oci;
+mod pull;
+mod registry;
+pub(crate) mod retained;
 
 use crate::error::invalid_field;
 use agent_vmm_proto::host::v1 as h;
@@ -28,6 +34,9 @@ pub struct VerifiedArchive {
 impl VerifiedArchive {
     pub fn path(&self) -> &Path {
         self.file.path()
+    }
+    pub(crate) fn into_file(self) -> NamedTempFile {
+        self.file
     }
     pub fn header(&self) -> &h::ImportImageHeader {
         &self.header

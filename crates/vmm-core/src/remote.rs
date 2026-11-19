@@ -61,12 +61,32 @@ fn check_target(scope: &Scope, generation: u64, revision: u64) -> Result<()> {
 
 impl Store {
     pub fn remote_inventory(&self, channel: &Channel, limit: usize) -> Result<RemoteInventory> {
+        self.registration_inventory(&channel.registration_id, Some(channel), limit)
+    }
+    pub fn operator_registration_inventory(
+        &self,
+        id: &str,
+        limit: usize,
+    ) -> Result<RemoteInventory> {
+        self.registration_inventory(id, None, limit)
+    }
+    fn registration_inventory(
+        &self,
+        id: &str,
+        channel: Option<&Channel>,
+        limit: usize,
+    ) -> Result<RemoteInventory> {
         self.read(|db| {
             let tx = db.unchecked_transaction()?;
-            authorize(&tx, &origin(channel), Some(channel))?;
+            if let Some(channel) = channel {
+                authorize(&tx, &origin(channel), Some(channel))?;
+            } else {
+                let private: bool = tx.query_row("SELECT EXISTS(SELECT 1 FROM appliances WHERE registration=?)", [id], |r|r.get(0))?;
+                if private { return Err(Error::Conflict("private appliance registration")); }
+            }
             let watermark: i64 = tx.query_row(
                 "SELECT inventory_watermark FROM registrations WHERE id=?",
-                [&channel.registration_id], |row| row.get(0),
+                [id], |row| row.get(0),
             )?;
             let watermark = u64::try_from(watermark).map_err(|_| Error::Invalid("inventory watermark"))?;
             let mut query = tx.prepare_cached(
@@ -74,7 +94,7 @@ impl Store {
                  AND json_extract(data,'$.state')!='Released' ORDER BY COALESCE(remote_id,id) LIMIT ?",
             )?;
             let rows = query.query_map(
-                params![channel.registration_id, i64::try_from(limit).unwrap_or(i64::MAX)],
+                params![id, i64::try_from(limit).unwrap_or(i64::MAX)],
                 |row| Ok((row.get(0)?, row.get(1)?, row.get::<_, String>(2)?)),
             )?;
             let mut allocations = Vec::new();
@@ -204,6 +224,7 @@ impl Store {
         self.write(|db| {
             let mut current = allocation(db, channel, id)?;
             let scope = &mut current.scope;
+            Self::check_cleanup_owner(db, &scope.id)?;
             check_target(scope, generation, revision)?;
             let accepted: Option<String> = db.query_row(
                 "SELECT disposal_request FROM scopes WHERE id=?",
@@ -305,27 +326,13 @@ impl Core {
             return Ok(current);
         }
         let scope = &current.id;
-        let mut cursor = None;
-        loop {
-            let page = self.store.list_sandboxes(scope, cursor.as_deref(), 32)?;
-            if page.is_empty() {
-                break;
-            }
-            for sandbox in page {
-                let key = &sandbox.definition.key;
-                if !matches!(
-                    sandbox.state,
-                    SandboxState::Defined | SandboxState::Stopped | SandboxState::Deleting
-                ) {
-                    self.stop(&sandbox.boot.ok_or(Error::Interrupted)?, false)
-                        .await?;
-                }
-                if discard {
-                    self.delete_sandbox(key).await?;
-                }
-                cursor = Some(key.sandbox_id.clone());
-            }
+        {
+            let _guard = self.store.effects.lock().await;
+            self.store
+                .write(|db| crate::mesh::retire_scope(db, scope))?;
+            self.reconcile_routes(false).await?;
         }
+        self.retire_workloads(scope, discard).await?;
         if discard {
             // Include durable discard intents that may have outlived a previous attempt.
             loop {
@@ -350,6 +357,30 @@ impl Core {
         }
         self.store
             .finish_scope_retirement(&current, disposal_request)
+    }
+    pub(crate) async fn retire_workloads(&self, scope: &str, delete: bool) -> Result<()> {
+        let mut cursor = None;
+        loop {
+            let page = self.store.list_sandboxes(scope, cursor.as_deref(), 32)?;
+            if page.is_empty() {
+                break;
+            }
+            for sandbox in page {
+                let key = &sandbox.definition.key;
+                if !matches!(
+                    sandbox.state,
+                    SandboxState::Defined | SandboxState::Stopped | SandboxState::Deleting
+                ) {
+                    self.stop(&sandbox.boot.ok_or(Error::Interrupted)?, false)
+                        .await?;
+                }
+                if delete {
+                    self.delete_sandbox(key).await?;
+                }
+                cursor = Some(key.sandbox_id.clone());
+            }
+        }
+        Ok(())
     }
 }
 

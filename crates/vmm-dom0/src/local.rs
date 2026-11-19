@@ -39,6 +39,10 @@ pub struct Dom0Config {
     helper_root: PathBuf,
     helper_digest: String,
     #[serde(default)]
+    builder_archive: Option<PathBuf>,
+    #[serde(default)]
+    builder_digest: Option<String>,
+    #[serde(default)]
     host_shares: BTreeMap<String, PathBuf>,
     pub socket: Option<PathBuf>,
     #[serde(default)]
@@ -94,6 +98,11 @@ impl Dom0Config {
     }
 
     pub async fn open(self, init_pool: bool) -> Result<LocalDom0Handle> {
+        let builder = trusted_builder(
+            self.builder_archive.as_deref(),
+            self.builder_digest.as_deref(),
+            Path::new("/usr/lib/agent-vmm"),
+        )?;
         private_dir(&self.state_dir)?;
         let mut secret = File::open(&self.master_key)?;
         if secret.metadata()?.permissions().mode() & 0o077 != 0 {
@@ -136,6 +145,7 @@ impl Dom0Config {
             .try_into()
             .map_err(|_| "invalid helper digest")?;
         options.helper_image = Some(digest);
+        options.builder_image = builder.as_ref().map(|(_, d)| *d);
         options.host_shares = self.host_shares;
 
         let boot_address = (options.gateway, options.boot_port);
@@ -156,8 +166,48 @@ impl Dom0Config {
             let image = backend.stage_directory(&self.helper_root, digest)?;
             backend.install_image_artifact(&image).await?;
         }
+        if let Some((archive, digest)) = builder
+            && !backend.image_installed(digest)?
+        {
+            let image = backend.stage_image(&archive, digest)?;
+            backend.install_image_artifact(&image).await?;
+        }
         Ok(LocalDom0Handle::serve(backend, listener, dns))
     }
+}
+
+fn trusted_builder(
+    archive: Option<&Path>,
+    digest: Option<&str>,
+    release_dir: &Path,
+) -> Result<Option<(PathBuf, vmm_core::Digest)>> {
+    let (path, text) = match (archive, digest) {
+        (Some(path), Some(digest)) => (path.to_owned(), digest.to_owned()),
+        (None, None) => {
+            let path = release_dir.join("buildkit.oci.tar");
+            let metadata = release_dir.join("buildkit.digest");
+            if !path.try_exists()? && !metadata.try_exists()? {
+                return Ok(None);
+            }
+            (path, std::fs::read_to_string(metadata)?)
+        }
+        _ => return Err("builder_archive and builder_digest must be configured together".into()),
+    };
+    if !path.metadata()?.is_file() {
+        return Err("builder_archive must be a regular OCI archive".into());
+    }
+    let hash = text.trim();
+    let hash = hash.strip_prefix("sha256:").unwrap_or(hash);
+    if hash.len() != 64
+        || !hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err("invalid trusted builder manifest digest".into());
+    }
+    let mut digest = [0; 32];
+    hex::decode_to_slice(hash, &mut digest)?;
+    Ok(Some((path, digest)))
 }
 
 pub fn private_dir(path: &Path) -> Result<()> {
@@ -190,4 +240,32 @@ fn configure_gateway(interface: &str) -> Result<()> {
     }
     std::fs::write("/proc/sys/net/ipv4/ip_forward", "1\n")?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn builder_archive_and_digest_form_one_release_artifact() -> Result<()> {
+        let tmp = tempfile::tempdir()?;
+        let dir = tmp.path();
+        let archive = dir.join("buildkit.oci.tar");
+        let meta = dir.join("buildkit.digest");
+        let hash = "ab".repeat(32);
+        assert!(trusted_builder(None, None, dir)?.is_none());
+        std::fs::write(&meta, format!("sha256:{hash}\n"))?;
+        assert!(trusted_builder(None, None, dir).is_err());
+        std::fs::write(&archive, [])?;
+        let expected = Some((archive.clone(), [0xab; 32]));
+        assert_eq!(trusted_builder(None, None, dir)?, expected);
+        assert_eq!(trusted_builder(Some(&archive), Some(&hash), dir)?, expected);
+        assert!(trusted_builder(Some(&archive), None, dir).is_err());
+        assert!(trusted_builder(None, Some(&hash), dir).is_err());
+        std::fs::write(&meta, "not a digest")?;
+        assert!(trusted_builder(None, None, dir).is_err());
+        std::fs::remove_file(meta)?;
+        assert!(trusted_builder(None, None, dir).is_err());
+        Ok(())
+    }
 }

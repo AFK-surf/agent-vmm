@@ -6,4 +6,4 @@ pub use auth::{Binding, SigningKeys, TokenAuthority};
 pub use file_keys::FileSigningKeys;
 
 mod http;
-pub use http::{ToolFailure, ToolRuntime, router};
+pub use http::{ToolFailure, ToolRuntime, router, serve};

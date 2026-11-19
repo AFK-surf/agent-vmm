@@ -5,7 +5,7 @@ use tokio::{io::AsyncReadExt, net::lookup_host, process::Command};
 use tonic::Status;
 use url::Url;
 
-fn public(ip: Ipv4Addr) -> bool {
+pub(super) fn public(ip: Ipv4Addr) -> bool {
     !matches!(
         ip.octets(),
         [0 | 10 | 127 | 224..=255, ..]

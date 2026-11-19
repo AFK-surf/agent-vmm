@@ -18,6 +18,10 @@ impl Pending {
     async fn cleanup(&self) -> Result<()> {
         let b = &self.backend;
         let _lock = b.effects.lock().await;
+        self.cleanup_locked().await
+    }
+    async fn cleanup_locked(&self) -> Result<()> {
+        let b = &self.backend;
         for boot in b
             .catalog()
             .boots()?
@@ -66,27 +70,58 @@ impl Drop for BuildVm {
     }
 }
 impl LocalDom0Backend {
-    /// The caller selects an installed builder image and the build request's
-    /// network mode. A public build still inherits a DenyAll scope restriction.
+    /// Launch the builder selected by dom0 under the requesting scope's limits.
     pub async fn begin_build(
         self: &Arc<Self>,
         scope: &Scope,
-        builder: Digest,
         network: EgressMode,
         quota_bytes: u64,
     ) -> Result<BuildVm> {
+        let id = hex::encode(random::<16>()?.as_ref());
+        self.begin_owned_build(scope, network, quota_bytes, &id)
+            .await
+    }
+
+    pub async fn settle_build(self: &Arc<Self>, id: &str) -> Result<()> {
+        let object = build_object(id)?;
+        let _lock = self.effects.lock().await;
+        self.catalog().put(&format!("build-lease/{id}"), &true)?;
+        Pending {
+            backend: self.clone(),
+            object,
+        }
+        .cleanup_locked()
+        .await
+    }
+
+    pub async fn begin_owned_build(
+        self: &Arc<Self>,
+        scope: &Scope,
+        network: EgressMode,
+        quota_bytes: u64,
+        id: &str,
+    ) -> Result<BuildVm> {
+        let builder = self
+            .cfg
+            .builder_image
+            .ok_or(Error::Missing("trusted builder image"))?;
         if scope.state != ScopeState::Active {
             return Err(Error::Draining);
         }
         if quota_bytes == 0 || quota_bytes > scope.limits.disk_quota_bytes {
             return Err(Error::Invalid("build quota"));
         }
-        let object = format!("build/{}", hex::encode(random::<16>()?.as_ref()));
+        let object = build_object(id)?;
+        let _lock = self.effects.lock().await;
+        let key = format!("build-lease/{id}");
+        if self.catalog().get::<bool>(&key)?.is_some() {
+            return Err(Error::Fenced);
+        }
+        self.catalog().put(&key, &false)?;
         let mut cancel = Cancel(Some(Pending {
             backend: self.clone(),
             object: object.clone(),
         }));
-        let _lock = self.effects.lock().await;
         let mut isolated = scope.clone();
         isolated.host_socket_rules.clear();
         if network == EgressMode::DenyAll {
@@ -139,4 +174,15 @@ impl LocalDom0Backend {
         *pending = Default::default();
         Ok(())
     }
+}
+
+fn build_object(id: &str) -> Result<String> {
+    if id.len() != 32
+        || !id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        return Err(Error::Invalid("build lease ID"));
+    }
+    Ok(format!("build/{id}"))
 }

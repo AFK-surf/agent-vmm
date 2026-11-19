@@ -206,7 +206,17 @@ impl LocalDom0Backend {
             return Err(Error::Conflict("service endpoint or alias already bound"));
         }
         let existed = routes.local.contains_key(&id) || routes.external.contains_key(&id);
-        self.proxies.bind(peer, source, target, rev).await?;
+        let expires = local
+            .and_then(|r| r.binding.expires_at_unix_seconds)
+            .map(|s| {
+                std::time::UNIX_EPOCH
+                    .checked_add(std::time::Duration::from_secs(s))
+                    .ok_or(Error::Invalid("route expiry"))
+            })
+            .transpose()?;
+        self.proxies
+            .bind_until(peer, source, target, rev, expires)
+            .await?;
         if let Some(r) = local {
             routes.local.insert(id.clone(), r.clone());
         } else {

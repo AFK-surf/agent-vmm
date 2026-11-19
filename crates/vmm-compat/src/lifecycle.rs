@@ -169,7 +169,7 @@ impl Containers {
                         .sandbox(&boot.sandbox)
                         .map_err(core_status)?;
                     if matches!(sb.state, SandboxState::Running | SandboxState::Quiesced) {
-                        let _ = host.observe(&owner, &sb, None).await;
+                        let _ = host.observe(&owner.core.store, &sb, None).await;
                     }
                     let grace = Duration::from_secs(u64::from(r.timeout_seconds.unwrap_or(30)));
                     if grace.is_zero() {
@@ -197,7 +197,7 @@ impl Containers {
                 }
                 let sb = current(&owner, &r.container_id)?;
                 Ok(h::StopContainerResponse {
-                    container: Some(host.observe(&owner, &sb, None).await?),
+                    container: Some(host.observe(&owner.core.store, &sb, None).await?),
                 })
             },
         )
@@ -217,7 +217,7 @@ impl Containers {
                 return Err(fenced());
             }
             let observed = self
-                .observe(ctx, &sb, r.expected_configuration.clone())
+                .observe(&ctx.core.store, &sb, r.expected_configuration.clone())
                 .await?;
             if observed.configuration_matches == Some(false) {
                 return Err(host_status(

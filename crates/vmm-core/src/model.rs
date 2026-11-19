@@ -259,6 +259,8 @@ pub struct RouteBinding {
     pub export: ServiceExport,
     pub vip: Ipv4Addr,
     #[serde(default)]
+    pub expires_at_unix_seconds: Option<u64>,
+    #[serde(default)]
     pub virtual_service_name: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

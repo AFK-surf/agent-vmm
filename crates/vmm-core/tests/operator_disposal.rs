@@ -182,3 +182,129 @@ async fn local_environment_disposal_is_revision_bound_and_rejects_remote_childre
     ));
     assert_eq!(store.scope("remote").unwrap().state, ScopeState::Active);
 }
+
+#[tokio::test]
+async fn revocation_fences_reconnect_and_preserves_named_storage_after_restart() {
+    let f = Fixture::new();
+    let store = &f.core.store;
+    store.create_registration("external").unwrap();
+    let channel = store.connect("external", 9).unwrap();
+    let mut scope = Fixture::scope("child");
+    scope.origin = Origin::Remote {
+        registration_id: "external".into(),
+    };
+    store.create_scope(&scope, Some(&channel)).unwrap();
+    f.core
+        .import_image("child", "cue", &Fixture::image())
+        .await
+        .unwrap();
+    f.core
+        .create_volume(&Fixture::volume("child"))
+        .await
+        .unwrap();
+    let worker = Fixture::definition("child", "worker", AccessMode::ReadWrite);
+    f.core.define_sandbox(&worker).await.unwrap();
+    f.core.start(&worker.key).await.unwrap();
+    let (session, token) = store.issue_session("child", Some(&channel)).unwrap();
+    store.begin_registration_revocation("external").unwrap();
+    assert!(matches!(
+        store.authenticate_session(&session.id, &token),
+        Err(Error::Fenced)
+    ));
+    assert!(matches!(
+        store.connect("external", u64::MAX),
+        Err(Error::Fenced)
+    ));
+    assert!(matches!(
+        store.set_admission("external", false),
+        Err(Error::Fenced)
+    ));
+    drop(f.core);
+    let core = Core::new(
+        Arc::new(Store::open(f.directory.path().join("host.db")).unwrap()),
+        f.backend,
+    );
+    for _ in 0..2 {
+        core.retain_revoked_registration("external").await.unwrap();
+    }
+    assert_eq!(
+        core.store.scope("child").unwrap().state,
+        ScopeState::Retained
+    );
+    assert_eq!(core.store.list_volumes("child", None, 10).unwrap().len(), 1);
+    assert!(core.store.resolve_image("child", "cue").is_ok());
+    assert_eq!(
+        core.store.sandbox(&worker.key).unwrap().state,
+        SandboxState::Stopped
+    );
+    assert!(matches!(
+        core.start(&worker.key).await,
+        Err(Error::Draining)
+    ));
+}
+
+#[tokio::test]
+async fn reviewed_reset_and_discard_survive_restart_and_reject_recreated_storage() {
+    use CleanupKind::{Discard, Reset};
+    let f = Fixture::new();
+    let id = "owned";
+    f.provision(id).await;
+    let store = &f.core.store;
+    let first = store.cleanup_inventory(id, Discard).unwrap();
+    f.core.discard_volume(id, "data").await.unwrap();
+    f.core.create_volume(&Fixture::volume(id)).await.unwrap();
+    let (session, cap) = store.issue_session(id, None).unwrap();
+    assert!(matches!(
+        store
+            .accept_cleanup(id, Discard, first.revision, &["data".into()], "stale")
+            .await,
+        Err(Error::Fenced)
+    ));
+    assert!(store.authenticate_session(&session.id, &cap).is_ok());
+    let sandbox = Fixture::definition(id, "worker", AccessMode::ReadWrite);
+    f.core.define_sandbox(&sandbox).await.unwrap();
+    f.core.start(&sandbox.key).await.unwrap();
+    let plan = store.cleanup_inventory(id, Reset).unwrap();
+    let reset = store
+        .accept_cleanup(id, Reset, plan.revision, &[], "reset")
+        .await
+        .unwrap();
+    assert!(
+        store
+            .begin_operator_environment_disposal(id, 1, &reset.id)
+            .is_err()
+    );
+    assert!(store.authenticate_session(&session.id, &cap).is_err());
+    drop(f.core);
+    let core = Core::new(
+        Arc::new(Store::open(f.directory.path().join("host.db")).unwrap()),
+        f.backend,
+    );
+    assert!(core.drive_cleanup(&reset.id).await.unwrap().complete);
+    assert!(
+        core.store
+            .accept_cleanup(id, Reset, plan.revision, &[], "reset")
+            .await
+            .unwrap()
+            .complete
+    );
+    assert!(core.store.list_sandboxes(id, None, 10).unwrap().is_empty());
+    assert!(core.store.resolve_image(id, "cue").is_ok());
+    let plan = core.store.cleanup_inventory(id, Discard).unwrap();
+    assert!(matches!(
+        core.store
+            .accept_cleanup(id, Discard, plan.revision, &[], "discard")
+            .await,
+        Err(Error::Conflict("volume confirmation required"))
+    ));
+    assert!(core.store.volume(id, "data").is_ok());
+    let discard = core
+        .store
+        .accept_cleanup(id, Discard, plan.revision, &["data".into()], "discard")
+        .await
+        .unwrap();
+    assert!(core.drive_cleanup(&discard.id).await.unwrap().complete);
+    assert!(core.store.list_volumes(id, None, 10).unwrap().is_empty());
+    assert_eq!(core.store.scope(id).unwrap().state, ScopeState::Released);
+    assert!(core.store.pending_cleanups("").unwrap().is_empty());
+}

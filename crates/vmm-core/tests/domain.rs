@@ -352,6 +352,7 @@ async fn routes_replay_exact_revision_and_reject_stale_or_unverified_endpoints()
     };
     f.core.publish_export(&export).await.unwrap();
     let mut binding = RouteBinding {
+        expires_at_unix_seconds: None,
         id: "route".into(),
         source: vm.boot.clone(),
         export,
@@ -517,4 +518,86 @@ async fn sparse_volumes_and_overlay_share_actual_usage() {
     ));
     store.record_volume_usage("sparse", "third", 0).unwrap();
     assert_eq!(store.scope_used_bytes("sparse").unwrap(), u64::MAX);
+}
+
+#[tokio::test]
+async fn host_socket_approvals_apply_at_boot_and_revoke_live_overrides() {
+    let f = Fixture::new();
+    let store = &f.core.store;
+    let port = 8765;
+    store
+        .change_host_socket("", port, Some("/global.sock"), "global")
+        .await
+        .unwrap();
+    f.provision("later").await;
+    let def = Fixture::definition("later", "guest", AccessMode::ReadOnly);
+    f.core.define_sandbox(&def).await.unwrap();
+    let boot = f.core.start(&def.key).await.unwrap().boot;
+    let path = || {
+        f.backend.network_policy(&boot).unwrap().host_socket_rules[0]
+            .socket_path
+            .clone()
+    };
+    assert_eq!(path(), "/global.sock");
+    let change = store
+        .change_host_socket("later", port, Some("/override.sock"), "override")
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(change.revision, 1);
+    f.core.project_host_sockets().await.unwrap();
+    assert_eq!(path(), "/override.sock");
+    store
+        .change_host_socket("later", port, None, "remove")
+        .await
+        .unwrap();
+    f.core.project_host_sockets().await.unwrap();
+    assert_eq!(path(), "/global.sock");
+    let replay = store
+        .change_host_socket("later", port, Some("/override.sock"), "override")
+        .await
+        .unwrap();
+    assert_eq!(replay, Some(change));
+    assert_eq!(store.host_sockets("later").unwrap().len(), 1);
+    store
+        .change_host_socket("", port, None, "remove-all")
+        .await
+        .unwrap();
+    f.core.project_host_sockets().await.unwrap();
+    assert!(
+        f.backend
+            .network_policy(&boot)
+            .unwrap()
+            .host_socket_rules
+            .is_empty()
+    );
+}
+
+#[tokio::test]
+async fn whole_native_host_stop_drains_workloads_and_fences_boot_until_restart() {
+    let f = Fixture::new();
+    let first_boot = f.core.store.host_vm_observation().unwrap().boot_id;
+    let mut workloads = Vec::new();
+    for id in ["left", "right"] {
+        f.provision(id).await;
+        let def = Fixture::definition(id, "worker", AccessMode::ReadOnly);
+        f.core.define_sandbox(&def).await.unwrap();
+        f.core.start(&def.key).await.unwrap();
+        workloads.push(def.key);
+    }
+    f.core.stop_local_host(false).await.unwrap();
+    assert!(f.backend.list_live_vms().await.unwrap().is_empty());
+    assert_eq!("stopped", f.core.store.host_vm_observation().unwrap().state);
+    for key in &workloads {
+        assert_eq!(
+            f.core.store.sandbox(key).unwrap().state,
+            SandboxState::Stopped
+        );
+        assert!(matches!(f.core.start(key).await, Err(Error::Draining)));
+    }
+    f.core.start_local_host().await.unwrap();
+    let next = f.core.store.host_vm_observation().unwrap();
+    assert_ne!(first_boot, next.boot_id);
+    assert_eq!(next.state, "running");
+    f.core.start(&workloads[0]).await.unwrap();
 }

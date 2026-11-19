@@ -79,6 +79,7 @@ struct Grant {
     target: Target,
     revision: i64,
     cancel: watch::Sender<()>,
+    expires: Option<std::time::SystemTime>,
 }
 
 struct Listener {
@@ -104,6 +105,16 @@ impl Proxies {
         target: Target,
         revision: i64,
     ) -> Result<()> {
+        self.bind_until(vip, source, target, revision, None).await
+    }
+    pub(crate) async fn bind_until(
+        &self,
+        vip: SocketAddrV4,
+        source: Ipv4Addr,
+        target: Target,
+        revision: i64,
+        expires: Option<std::time::SystemTime>,
+    ) -> Result<()> {
         let mut listeners = self.listeners.lock().await;
         if let std::collections::btree_map::Entry::Vacant(entry) = listeners.entry(vip) {
             let socket = TcpListener::bind(vip).await?;
@@ -117,8 +128,21 @@ impl Proxies {
                     if let Some(grant) = map.lock().await.get(&ip) {
                         let mut cancel = grant.cancel.subscribe();
                         let target = grant.target.clone();
+                        let expires = grant.expires;
                         tokio::spawn(async move {
-                            tokio::select! { biased; _ = cancel.changed() => {}, _ = forward(stream, target) => {} }
+                            let expiry = async {
+                                match expires {
+                                    Some(time) => {
+                                        if let Ok(remaining) =
+                                            time.duration_since(std::time::SystemTime::now())
+                                        {
+                                            tokio::time::sleep(remaining).await;
+                                        }
+                                    }
+                                    None => std::future::pending().await,
+                                }
+                            };
+                            tokio::select! { biased; _ = cancel.changed() => {}, _ = expiry => {}, _ = forward(stream, target) => {} }
                         });
                     }
                 }
@@ -127,7 +151,7 @@ impl Proxies {
         }
         let mut grants = listeners[&vip].grants.lock().await;
         if let Some(old) = grants.get(&source) {
-            return if old.revision == revision && old.target == target {
+            return if old.revision == revision && old.target == target && old.expires == expires {
                 Ok(())
             } else {
                 Err(Error::Conflict("proxy grant occupied"))
@@ -139,6 +163,7 @@ impl Proxies {
                 target,
                 revision,
                 cancel: watch::channel(()).0,
+                expires,
             },
         );
         Ok(())

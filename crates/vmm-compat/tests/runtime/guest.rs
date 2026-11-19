@@ -22,7 +22,7 @@ impl Guest {
             .unwrap();
         let addr = server.local_addr().unwrap();
         let task = tokio::spawn(async move {
-            for _ in 0..2 {
+            for _ in 0..3 {
                 let (socket, _) = tokio::time::timeout(Duration::from_secs(8), server.accept())
                     .await
                     .unwrap()

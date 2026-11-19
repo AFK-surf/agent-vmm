@@ -145,7 +145,17 @@ pub async fn logs(
     driver: &dyn GuestDriver,
     r: h::LogsRequest,
 ) -> Result<Output<h::LogsResponse>, Status> {
-    let sb = current(ctx, &r.container_id)?;
+    logs_in_scope(ctx.core.store.clone(), &ctx.scope.id, driver, r).await
+}
+
+pub(crate) async fn logs_in_scope(
+    store: Arc<vmm_core::Store>,
+    scope: &str,
+    driver: &dyn GuestDriver,
+    r: h::LogsRequest,
+) -> Result<Output<h::LogsResponse>, Status> {
+    let sb = crate::container::find_in_scope(&store, scope, &r.container_id)?
+        .ok_or_else(|| Status::not_found("container not found"))?;
     let generation_id = &sb.definition.key.generation_id;
     let prefix = format!("{}:{}:", r.container_id, generation_id);
     let after = if r.after_cursor.is_empty() {
@@ -185,7 +195,6 @@ pub async fn logs(
     let (tx, rx) = mpsc::channel(8);
     if let Some(boot) = sb.boot {
         let client = driver.client(&boot).await?;
-        let store = ctx.core.store.clone();
         tokio::spawn(async move {
             // Fetch finite snapshots so cancellation can release the guest connection.
             let mut position = after;

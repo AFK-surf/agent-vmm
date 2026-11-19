@@ -20,11 +20,7 @@ macro_rules! unused_driver {
     }
 }
 unused_driver! { ImageRuntime {
-    pull_image(h::PullImageRequest) -> Output<h::PullImageResponse>,
-    list_images(h::ListImagesRequest) -> h::ListImagesResponse,
-    delete_image(h::DeleteImageRequest) -> h::DeleteImageResponse,
     build_image(Streaming<h::BuildImageRequest>) -> Output<h::BuildImageResponse>,
-    copy_image(h::CopyImageRequest) -> h::CopyImageResponse,
     observe_image_operation(h::ObserveImageOperationRequest) -> h::ObserveImageOperationResponse,
     cancel_image_operation(h::CancelImageOperationRequest) -> h::CancelImageOperationResponse,
 }}
@@ -37,3 +33,20 @@ unused_driver! { MeshRuntime {
     list_service_imports(h::ListServiceImportsRequest) -> h::ListServiceImportsResponse,
     revoke_service_import(h::RevokeServiceImportRequest) -> h::RevokeServiceImportResponse,
 }}
+
+impl vmm_compat::operator::RegistrationControl for Unused {
+    fn metadata(&self, _: &str) -> Result<(u64, String), tonic::Status> {
+        unreachable!()
+    }
+    fn isolate(
+        &self,
+        _: &str,
+        _: u64,
+        _: &mut dyn FnMut() -> Result<(), tonic::Status>,
+    ) -> Result<(), tonic::Status> {
+        unreachable!()
+    }
+    fn delete_credential(&self, _: &str) -> Result<(), tonic::Status> {
+        unreachable!()
+    }
+}

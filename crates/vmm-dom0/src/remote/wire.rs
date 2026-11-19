@@ -12,6 +12,9 @@ pub(super) struct Start {
 }
 #[derive(Serialize, Deserialize)]
 pub(super) enum Request {
+    AcquireBuild(Box<Scope>, EgressMode, u64, String),
+    SettleBuild(String),
+    StageImage(Digest, u64),
     Install(Digest, String, u64),
     DiscardImage(Digest),
     Volume(Volume),
@@ -30,6 +33,9 @@ pub(super) enum Request {
     Process(BootIdentity, String),
     Workspace(BootIdentity, String, Option<Vec<u8>>),
     Logs(BootIdentity, String),
+    GuestAddress(BootIdentity),
+    OpenGuestRuntime(BootIdentity),
+    AcquireWorkspace(String, Option<String>, AccessMode),
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,11 +50,15 @@ pub(super) enum Fault {
     Storage,
     Interrupted,
     Io(String),
+    ReadOnlyWorkspace,
 }
 impl From<Error> for Fault {
     fn from(e: Error) -> Self {
         match e {
             Error::Missing(_) => Self::Missing,
+            Error::Conflict("workload mounted volume read-only" | "read-only workspace") => {
+                Self::ReadOnlyWorkspace
+            }
             Error::Conflict(_) => Self::Conflict,
             Error::Fenced => Self::Fenced,
             Error::Draining => Self::Draining,
@@ -65,6 +75,7 @@ impl From<Fault> for Error {
     fn from(f: Fault) -> Self {
         match f {
             Fault::Missing => Self::Missing("remote resource"),
+            Fault::ReadOnlyWorkspace => Self::Conflict("read-only workspace"),
             Fault::Conflict => Self::Conflict("remote resource"),
             Fault::Invalid => Self::Invalid("remote request"),
             Fault::Fenced => Self::Fenced,
@@ -81,6 +92,14 @@ impl From<Fault> for Error {
 pub(super) async fn dispatch(backend: &dyn Dom0Backend, r: Request) -> Result<serde_json::Value> {
     use serde_json::to_value;
     let reply = match r {
+        Request::AcquireBuild(..)
+        | Request::SettleBuild(_)
+        | Request::StageImage(..)
+        | Request::AcquireWorkspace(..)
+        | Request::OpenGuestRuntime(_)
+        | Request::GuestAddress(_) => {
+            return Err(Error::Fenced);
+        }
         Request::Install(manifest_digest, staged_extent, physical_bytes) => to_value(
             backend
                 .install_image_artifact(&ImageSource {

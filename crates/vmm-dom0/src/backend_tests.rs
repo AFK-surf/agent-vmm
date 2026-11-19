@@ -172,6 +172,41 @@ async fn external_dialer_disconnects_an_active_stream_on_revoke() -> Result<()> 
     Ok(())
 }
 
+#[tokio::test]
+async fn expiring_grant_closes_current_and_future_connections() -> Result<()> {
+    let ip = Ipv4Addr::LOCALHOST;
+    let port = std::net::TcpListener::bind((ip, 0))?.local_addr()?.port();
+    let endpoint = SocketAddrV4::new(ip, port);
+    let proxies = Proxies::default();
+    let deadline = std::time::SystemTime::now() + Duration::from_millis(500);
+    proxies
+        .bind_until(
+            endpoint,
+            ip,
+            Target::Dialer(Arc::new(Echo)),
+            7,
+            Some(deadline),
+        )
+        .await?;
+    let mut current = TcpStream::connect(endpoint).await?;
+    current.write_all(b"x").await?;
+    assert_eq!(current.read_u8().await?, b'x');
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(3), current.read(&mut [0]))
+            .await
+            .unwrap()?,
+        0
+    );
+    let mut later = TcpStream::connect(endpoint).await?;
+    assert_eq!(
+        tokio::time::timeout(Duration::from_secs(1), later.read(&mut [0]))
+            .await
+            .unwrap()?,
+        0
+    );
+    Ok(())
+}
+
 async fn query(addr: SocketAddrV4, name: &str, typ: QTYPE, tcp: bool) -> Packet<'static> {
     let mut q = Packet::new_query(37);
     q.questions.push(Question::new(
@@ -471,5 +506,57 @@ async fn embedded_open_accepts_config_without_control_socket_and_checks_master_k
             .to_string(),
         "master key must contain exactly 32 bytes"
     );
+    Ok(())
+}
+
+#[tokio::test]
+async fn carrier_image_upload_releases_unpublished_stage_when_the_host_disconnects() -> Result<()> {
+    use crate::remote::{Connect, RemoteImageStage, serve_host_connection};
+    use tokio::net::{UnixListener, UnixStream};
+    struct Dial(std::path::PathBuf);
+    #[async_trait::async_trait]
+    impl Connect for Dial {
+        async fn connect(&self) -> std::io::Result<UnixStream> {
+            UnixStream::connect(&self.0).await
+        }
+    }
+
+    let (dir, pool, ctl) = setup()?;
+    let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+    let (bytes, digest) = crate::image::tests::fixture(false);
+    let archive = dir.path().join("verified.tar");
+    std::fs::write(&archive, bytes)?;
+    // The socket path on macOS is limited to 104 bytes.
+    let sockets = tempfile::tempdir_in("/tmp")?;
+    let dial = Dial(sockets.path().join("dom0.sock"));
+    let listener = UnixListener::bind(&dial.0)?;
+    for install in [false, true] {
+        let accept = async {
+            let (socket, _) = listener.accept().await?;
+            serve_host_connection(socket, &b).await
+        };
+        let upload = async {
+            let stage = RemoteImageStage::upload(&dial, &archive, digest).await?;
+            assert_eq!(b.disk_accounting()?.2, stage.source.physical_bytes);
+            if install {
+                b.install_image_artifact(&stage.source).await?;
+            }
+            drop(stage);
+            Ok::<_, Error>(())
+        };
+        tokio::try_join!(accept, upload)?;
+        assert_eq!(b.disk_accounting()?.2, 0);
+        assert_eq!(b.image_installed(digest)?, install);
+        assert!(b.catalog().staged_tokens()?.is_empty());
+    }
+    let (server, refused) = tokio::join!(
+        async {
+            let (socket, _) = listener.accept().await?;
+            crate::remote::serve_connection(socket, b.as_ref()).await
+        },
+        RemoteImageStage::upload(&dial, &archive, digest),
+    );
+    server?;
+    assert!(matches!(refused, Err(Error::Fenced)));
     Ok(())
 }

@@ -1,6 +1,6 @@
 use crate::{
-    authority::load_scope,
     backend::{Launch, LiveVm},
+    host_socket::boot_scope,
     storage::{active, artifact, check_quota, volume},
     store::{decode, encode},
     *,
@@ -112,6 +112,9 @@ impl Core {
 
     pub async fn start(&self, key: &SandboxKey) -> Result<VMIncarnation> {
         let _guard = self.store.effects.lock().await;
+        if self.store.host_vm_observation()?.state != "running" {
+            return Err(Error::Draining);
+        }
         let token = Uuid::new_v4().into_bytes();
         let boot = BootIdentity {
             sandbox: key.clone(),
@@ -123,7 +126,7 @@ impl Core {
             if !matches!(sb.state, SandboxState::Defined | SandboxState::Stopped) {
                 return Err(Error::Conflict("sandbox is not stopped"));
             }
-            let scope = load_scope(db, &key.scope_id)?;
+            let scope = boot_scope(db, &key.scope_id)?;
             crate::authority::admit_existing(db, &scope)?;
             validate_sandbox_pids(&sb.definition, &scope)?;
             let conflict: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM mounts wanted JOIN mounts owner
@@ -171,6 +174,7 @@ impl Core {
         match result {
             Ok(vm) if vm.boot == boot => {
                 self.record_live(&vm, false)?;
+                self.project_mesh(false).await?;
                 Ok(vm)
             }
             Ok(_) => Err(Error::Fenced),
@@ -227,6 +231,9 @@ impl Core {
     }
     pub async fn stop(&self, boot: &BootIdentity, force: bool) -> Result<()> {
         let _guard = self.store.effects.lock().await;
+        self.stop_locked(boot, force).await
+    }
+    pub(crate) async fn stop_locked(&self, boot: &BootIdentity, force: bool) -> Result<()> {
         let key = &boot.sandbox;
         self.store.write(|db| {
             let sb = sandbox(db, key)?;
@@ -245,7 +252,7 @@ impl Core {
             self.backend.shutdown_vm(boot).await?;
         }
         self.record_stopped(key, if force { "destroyed" } else { "shutdown" })?;
-        self.reconcile_routes(false).await
+        self.project_mesh(false).await
     }
     pub async fn delete_sandbox(&self, key: &SandboxKey) -> Result<()> {
         let _guard = self.store.effects.lock().await;
@@ -285,6 +292,10 @@ impl Core {
 
     pub async fn reconcile_after_restart(&self) -> Result<Reconciliation> {
         let _guard = self.store.effects.lock().await;
+        self.reconcile_locked().await
+    }
+
+    pub(crate) async fn reconcile_locked(&self) -> Result<Reconciliation> {
         let mut live = self.backend.list_live_vms().await?;
         let mut report = Reconciliation::default();
         let rows = self.store.read(|db| {
@@ -344,7 +355,7 @@ impl Core {
                     quiesced,
                 } = live.swap_remove(index);
                 if sb.state != SandboxState::Stopping {
-                    let scope = self.store.scope(&key.scope_id)?;
+                    let scope = self.store.read(|db| boot_scope(db, &key.scope_id))?;
                     self.backend.set_network_policy(&boot, &scope).await?;
                     self.record_live(&incarnation, quiesced)?;
                     report.adopted.push(incarnation);
@@ -365,7 +376,7 @@ impl Core {
         report.unowned = live.into_iter().map(|v| v.incarnation).collect();
         let unused = self.store.read(|db| {
             let mut stmt = db.prepare("SELECT digest FROM images i WHERE NOT EXISTS(SELECT 1 FROM image_refs WHERE digest=i.digest)
-                AND NOT EXISTS(SELECT 1 FROM sandboxes WHERE digest=i.digest)")?;
+                AND NOT EXISTS(SELECT 1 FROM retained_images WHERE digest=i.digest) AND NOT EXISTS(SELECT 1 FROM sandboxes WHERE digest=i.digest)")?;
             Ok(stmt
                 .query_map([], |r| r.get::<_, Digest>(0))?
                 .collect::<rusqlite::Result<Vec<_>>>()?)
@@ -374,7 +385,7 @@ impl Core {
             self.collect_image(digest).await?;
         }
         self.reconcile_volumes().await?;
-        self.reconcile_routes(true).await?;
+        self.project_mesh(true).await?;
         Ok(report)
     }
 }

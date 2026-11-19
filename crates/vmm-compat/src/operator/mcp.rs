@@ -2,17 +2,14 @@
 use agent_vmm_proto::appliance::v1 as a;
 use prost::Message;
 use rusqlite::{Connection, OptionalExtension, params};
-use std::{
-    path::Path,
-    sync::{Arc, Mutex},
-    time::SystemTime,
-};
-use tonic::{Response, Status};
+use std::{path::Path, sync::Mutex, time::SystemTime};
+use tonic::Status;
 use vmm_mcp::TokenAuthority;
 
 const INSTALLATION: &str = "agent-vmm-mcp";
 pub struct McpManagement {
     authority: TokenAuthority,
+    frontend: std::sync::OnceLock<(std::net::SocketAddr, String)>,
     db: Mutex<Connection>,
 }
 fn storage(_: rusqlite::Error) -> Status {
@@ -30,6 +27,7 @@ impl McpManagement {
         let owner = Self {
             db: Mutex::new(db),
             authority,
+            frontend: Default::default(),
         };
         {
             let db = owner.lock()?;
@@ -80,6 +78,84 @@ impl McpManagement {
         }
         Ok(())
     }
+    pub fn publish_frontend(
+        &self,
+        bound: std::net::SocketAddr,
+        registration: &str,
+    ) -> Result<(), Status> {
+        if !bound.ip().is_loopback() || bound.port() == 0 || registration.is_empty() {
+            return Err(Status::internal("invalid bound MCP frontend"));
+        }
+        self.frontend
+            .set((bound, registration.to_owned()))
+            .map_err(|_| Status::already_exists("MCP frontend is bound"))
+    }
+    fn builtin_status(&self) -> a::ApplianceStatus {
+        let live = self.frontend.get();
+        let running = live.is_some();
+        let boot = if running {
+            super::BOOT_ID.to_string()
+        } else {
+            String::new()
+        };
+        a::ApplianceStatus {
+            installation_id: INSTALLATION.into(),
+            product_id: INSTALLATION.into(),
+            revision: 1,
+            enabled: true,
+            runtime_stopped: Some(!running),
+            registration_id: live.map(|(_, id)| id.clone()).unwrap_or_default(),
+            boot_id: boot.clone(),
+            appliance_state: if running {
+                a::ApplianceState::Running
+            } else {
+                a::ApplianceState::Stopped
+            } as i32,
+            channel_state: if running {
+                a::ControllerChannelState::Active
+            } else {
+                a::ControllerChannelState::Disconnected
+            } as i32,
+            health: Some(a::ApplianceHealth {
+                installation_id: INSTALLATION.into(),
+                boot_id: boot,
+                healthy: running,
+                config_revision: 1,
+                ..Default::default()
+            }),
+            frontends: vec![a::ApplianceFrontendStatus {
+                name: "mcp-http".into(),
+                transport: a::FrontendTransport::Http as i32,
+                exposure: a::FrontendExposure::HostLoopback as i32,
+                endpoint: live.map(|(addr, _)| addr.to_string()).unwrap_or_default(),
+                available: running,
+                ..Default::default()
+            }],
+            ..Default::default()
+        }
+    }
+    pub(super) fn list_appliances(
+        &self,
+        _: a::ListAppliancesRequest,
+    ) -> Result<a::ListAppliancesResponse, Status> {
+        Ok(a::ListAppliancesResponse {
+            appliances: vec![self.builtin_status()],
+        })
+    }
+    pub(super) fn get_status(
+        &self,
+        r: a::GetApplianceStatusRequest,
+    ) -> Result<a::GetApplianceStatusResponse, Status> {
+        if r.installation_id != INSTALLATION {
+            return Err(Status::not_found("appliance installation"));
+        }
+        Ok(a::GetApplianceStatusResponse {
+            status: Some(self.builtin_status()),
+        })
+    }
+    pub fn token_authority(&self) -> TokenAuthority {
+        self.authority.clone()
+    }
     pub fn issue(&self) -> Result<String, Status> {
         let db = self.lock()?;
         self.finish_pending(&db)?;
@@ -112,7 +188,7 @@ impl McpManagement {
         self.finish_pending(&db)?;
         Ok(operation_id)
     }
-    fn watch(
+    pub(super) fn watch(
         &self,
         req: a::WatchApplianceOperationRequest,
     ) -> Result<a::WatchApplianceOperationResponse, Status> {
@@ -138,58 +214,4 @@ impl McpManagement {
 }
 fn decode(bytes: &[u8]) -> Result<a::ApplianceOperation, Status> {
     a::ApplianceOperation::decode(bytes).map_err(|_| Status::data_loss("invalid rotation receipt"))
-}
-
-#[derive(Clone)]
-pub struct ApplianceOperations(pub Arc<McpManagement>);
-use tonic::codegen::{Body, BoxFuture, Service, StdError, http};
-impl tonic::server::NamedService for ApplianceOperations {
-    const NAME: &'static str = "agentvmm.appliance.v1.ApplianceAdminService";
-}
-impl<B: Body + Send + 'static> Service<http::Request<B>> for ApplianceOperations
-where
-    B::Error: Into<StdError> + Send + 'static,
-{
-    type Response = http::Response<tonic::body::Body>;
-    type Error = std::convert::Infallible;
-    type Future = BoxFuture<Self::Response, Self::Error>;
-    fn poll_ready(
-        &mut self,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-    fn call(&mut self, req: http::Request<B>) -> Self::Future {
-        if req.uri().path()
-            != "/agentvmm.appliance.v1.ApplianceAdminService/WatchApplianceOperation"
-        {
-            return Box::pin(async {
-                Ok(Status::unimplemented("unknown appliance method").into_http())
-            });
-        }
-        struct Watch(Arc<McpManagement>);
-        impl tonic::server::ServerStreamingService<a::WatchApplianceOperationRequest> for Watch {
-            type Response = a::WatchApplianceOperationResponse;
-            type ResponseStream = tokio_stream::Once<Result<Self::Response, Status>>;
-            type Future = BoxFuture<Response<Self::ResponseStream>, Status>;
-            fn call(
-                &mut self,
-                req: tonic::Request<a::WatchApplianceOperationRequest>,
-            ) -> Self::Future {
-                let owner = self.0.clone();
-                Box::pin(async move {
-                    let result = tokio::task::spawn_blocking(move || owner.watch(req.into_inner()))
-                        .await
-                        .map_err(|_| Status::unavailable("operation store unavailable"))??;
-                    Ok(Response::new(tokio_stream::once(Ok(result))))
-                })
-            }
-        }
-        let handler = Watch(self.0.clone());
-        Box::pin(async move {
-            Ok(tonic::server::Grpc::new(tonic_prost::ProstCodec::default())
-                .server_streaming(handler, req)
-                .await)
-        })
-    }
 }

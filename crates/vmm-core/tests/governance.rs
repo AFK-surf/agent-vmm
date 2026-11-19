@@ -280,3 +280,88 @@ fn appliance_and_registration_commit_or_roll_back_together() {
         )
         .unwrap();
 }
+
+#[test]
+fn managed_enrollment_binds_the_pool_to_each_epoch_and_replays_revocation() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("host.db");
+    let store = Store::open(&path).unwrap();
+    let mut policy = ManagedConnection {
+        id: "host-a".into(),
+        endpoint: "gateway.example:443".into(),
+        request: "enroll-a".into(),
+        trust_bundle: vec![1, 2],
+        display_name: "Work".into(),
+        source_revision: 10,
+        pool: ManagedPool {
+            pids: 32,
+            disk_bytes: 8192,
+            egress: EgressMode::DenyAll,
+            stop_grace_seconds: 30,
+        },
+    };
+    let initial = store.configure_registration(&policy).unwrap();
+    assert!(matches!(
+        store.connect_with_policy("host-a", 1, Some(1)),
+        Err(Error::Fenced)
+    ));
+    let ready = store
+        .change_registration(
+            "host-a",
+            initial.revision,
+            RegistrationChange::CredentialReady,
+        )
+        .unwrap();
+    assert_eq!(
+        store.configure_registration(&policy).unwrap().revision,
+        ready.revision
+    );
+    let channel = store.connect_with_policy("host-a", 1, Some(1)).unwrap();
+    policy.pool.pids += 1;
+    assert!(matches!(
+        store.configure_registration(&policy),
+        Err(Error::Fenced)
+    ));
+    assert!(store.remote_inventory(&channel, 1).is_ok());
+    policy.source_revision += 1;
+    let updated = store.configure_registration(&policy).unwrap();
+    assert_eq!(updated.pool_revision, 2);
+    assert!(matches!(
+        store.remote_inventory(&channel, 1),
+        Err(Error::Fenced)
+    ));
+    assert!(matches!(
+        store.connect_with_policy("host-a", 2, Some(1)),
+        Err(Error::Fenced)
+    ));
+    assert!(store.connect_with_policy("host-a", 2, Some(2)).is_ok());
+    assert!(matches!(
+        store.change_registration(
+            "host-a",
+            ready.revision,
+            RegistrationChange::BeginRevocation
+        ),
+        Err(Error::Fenced)
+    ));
+    let pending = store
+        .change_registration(
+            "host-a",
+            updated.revision,
+            RegistrationChange::BeginRevocation,
+        )
+        .unwrap();
+    drop(store);
+    let store = Store::open(path).unwrap();
+    let final_state = store
+        .change_registration(
+            "host-a",
+            pending.revision,
+            RegistrationChange::CompleteRevocation,
+        )
+        .unwrap();
+    assert_eq!(final_state.phase, ManagedPhase::Revoked);
+    assert!(matches!(
+        store.configure_registration(&policy),
+        Err(Error::Draining)
+    ));
+}

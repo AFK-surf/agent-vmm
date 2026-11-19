@@ -87,6 +87,15 @@ impl Containers {
         ctx: &RuntimeContext,
         r: h::AcquireExecutionRequest,
     ) -> Result<h::AcquireExecutionResponse, Status> {
+        self.acquire_recorded(ctx, r, |_, _| Ok(()))
+    }
+
+    pub(crate) fn acquire_recorded(
+        &self,
+        ctx: &RuntimeContext,
+        r: h::AcquireExecutionRequest,
+        record: impl FnOnce(&Connection, bool) -> Result<(), Status>,
+    ) -> Result<h::AcquireExecutionResponse, Status> {
         if r.execution_id.is_empty()
             || r.execution_id.len() > 256
             || !r.holder_id.is_empty()
@@ -155,6 +164,7 @@ impl Containers {
             )
             .map_err(db_error)?;
         }
+        record(&tx, acquired)?;
         tx.commit().map_err(db_error)?;
         Ok(h::AcquireExecutionResponse {
             acquired,

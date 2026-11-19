@@ -41,6 +41,9 @@ impl Dom0Runtime {
             client: Client::new(addr, token),
         }
     }
+    pub(crate) fn from_client(client: Client) -> Self {
+        Self { client }
+    }
     /// For host adapters that already own a blocking-pool thread.
     pub fn blocking_client(&self) -> &Client {
         &self.client

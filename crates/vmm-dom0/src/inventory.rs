@@ -27,7 +27,10 @@ impl LocalDom0Backend {
             .copied()
             .map(image_id)
             .collect::<BTreeSet<_>>();
-        if let Some(d) = self.cfg.helper_image {
+        for d in [self.cfg.helper_image, self.cfg.builder_image]
+            .into_iter()
+            .flatten()
+        {
             keep.insert(image_id(d));
         }
         for (s, v) in &inventory.volumes {

@@ -9,7 +9,7 @@ use vmm_compat::{
     workspace::{WorkspaceDriver, WorkspaceLease},
 };
 use vmm_core::{AccessMode, Error};
-use vmm_dom0::{backend::LocalDom0Backend, helper_vm::Workspace, runtime::guest_rpc_error};
+use vmm_dom0::{backend::LocalDom0Backend, runtime::guest_rpc_error};
 use vmm_guest_proto::{client::Client, rpc as g};
 
 pub struct Dom0Workspaces(pub Arc<LocalDom0Backend>);
@@ -36,19 +36,51 @@ impl WorkspaceDriver for Dom0Workspaces {
     ) -> Result<Arc<dyn WorkspaceLease>, Status> {
         let workspace = self
             .0
-            .resolve_workspace(scope, volume, access)
+            .resolve_workspace(scope, volume, access.clone())
             .await
             .map_err(dom0_status)?;
+        let (client, alias) = workspace
+            .blocking_client(access.clone())
+            .map_err(dom0_status)?;
         Ok(Arc::new(Mounted {
-            workspace,
-            runtime: tokio::runtime::Handle::current(),
+            client: client.clone(),
+            alias: alias.to_owned(),
+            access,
+            _lease: Box::new(workspace),
+        }))
+    }
+}
+
+#[cfg(target_os = "macos")]
+#[async_trait]
+impl WorkspaceDriver for crate::carrier::CarrierClientAdapter {
+    async fn resolve_workspace(
+        &self,
+        scope: &str,
+        volume: Option<&str>,
+        access: AccessMode,
+    ) -> Result<Arc<dyn WorkspaceLease>, Status> {
+        use vmm_compat::guest::GuestDriver;
+        let lease =
+            vmm_dom0::remote::RemoteWorkspace::acquire(&self.0, scope, volume, access.clone())
+                .await
+                .map_err(dom0_status)?;
+        let client = self.client(&lease.boot).await?;
+        Ok(Arc::new(Mounted {
+            client,
+            alias: lease.alias.clone(),
+            access,
+            _lease: Box::new(lease),
         }))
     }
 }
 
 struct Mounted {
-    workspace: Workspace,
-    runtime: tokio::runtime::Handle,
+    client: Client,
+    alias: String,
+    access: AccessMode,
+    // Dropping the local guard or carrier control socket releases the same dom0 lease.
+    _lease: Box<dyn Send + Sync>,
 }
 impl Mounted {
     fn client(
@@ -56,12 +88,11 @@ impl Mounted {
         target: &mut g::WorkspaceTarget,
         access: AccessMode,
     ) -> Result<&Client, Status> {
-        let (client, alias) = self
-            .workspace
-            .blocking_client(access)
-            .map_err(dom0_status)?;
-        target.volume = Some(alias.to_owned());
-        Ok(client)
+        if access == AccessMode::ReadWrite && self.access != access {
+            return Err(Status::permission_denied("workspace volume is read-only"));
+        }
+        target.volume = Some(self.alias.clone());
+        Ok(&self.client)
     }
 }
 impl WorkspaceLease for Mounted {
@@ -112,9 +143,16 @@ impl WorkspaceLease for Mounted {
             .map_err(client_status)
     }
     fn used_bytes(&self) -> Result<u64, Status> {
-        self.runtime
-            .block_on(self.workspace.used_bytes())
-            .map_err(dom0_status)?
+        let mut nonce = [0; vmm_guest_proto::auth::NONCE_LEN];
+        getrandom::fill(&mut nonce)
+            .map_err(|_| Status::unavailable("guest health nonce unavailable"))?;
+        self.client
+            .health(nonce)
+            .map_err(client_status)?
+            .usage
+            .volume_used_bytes
+            .into_iter()
+            .find_map(|(name, bytes)| (name == self.alias).then_some(bytes))
             .ok_or_else(|| Status::unavailable("guest workspace usage is unavailable"))
     }
 }
@@ -122,12 +160,7 @@ impl WorkspaceLease for Mounted {
 #[async_trait]
 impl vmm_compat::guest::GuestDriver for Dom0Workspaces {
     async fn client(&self, boot: &vmm_core::BootIdentity) -> Result<Client, Status> {
-        Ok(self
-            .0
-            .runtime(boot)
-            .map_err(dom0_status)?
-            .blocking_client()
-            .clone())
+        Ok(self.0.bound_guest_client(boot.clone()))
     }
     async fn connect_port(
         &self,

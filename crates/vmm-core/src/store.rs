@@ -69,6 +69,16 @@ impl Store {
             tx.execute_batch(include_str!("remote_schema.sql"))?;
         }
         tx.execute_batch(include_str!("operator_disposal.sql"))?;
+        tx.execute_batch(include_str!("cleanup.sql"))?;
+        tx.execute_batch(crate::registration_policy::SCHEMA)?;
+        tx.execute_batch(crate::image_copy::SCHEMA)?;
+        tx.execute_batch(crate::mesh::SCHEMA)?;
+        tx.execute_batch(crate::host_socket::SCHEMA)?;
+        tx.execute_batch(crate::host_vm::SCHEMA)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO local_vm_admission VALUES(1,'running',?)",
+            [uuid::Uuid::new_v4().to_string()],
+        )?;
         tx.execute("UPDATE registrations SET connected=0 WHERE connected=1", [])?;
         // A previous host cannot publish a terminal reply after ownership changes.
         // Keep the fingerprint so a retry can inspect the resource without re-executing.

@@ -18,7 +18,7 @@ use tokio_rustls::{
 };
 use vmm_dom0::{
     local::{Dom0Config, Result, TlsConfig, private_dir},
-    remote::serve_connection,
+    remote::{serve_connection, serve_host_connection},
 };
 
 fn acceptor(c: &TlsConfig) -> Result<TlsAcceptor> {
@@ -77,7 +77,7 @@ pub async fn run() -> Result<()> {
                 s=optional(unix.as_ref().map(UnixListener::accept))=>{let (s,_)=s?;tokio::spawn(async move{let _permit=permit;let _=serve_connection(s,b.as_ref()).await;});},
                 s=optional(control.as_ref().map(crate::vsock::Listener::accept))=>{
                     let stream=s?;
-                    tokio::spawn(async move {let _permit=permit;let _=serve_connection(stream,b.as_ref()).await;});
+                    tokio::spawn(async move {let _permit=permit;let _=serve_host_connection(stream,&b).await;});
                 }
                 s=async{match &tls{Some((tcp,a))=>tcp.accept().await.map(|(s,_)|(s,a.clone())),None=>std::future::pending().await}}=>{
                     let (s,a)=s?;
