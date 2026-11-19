@@ -1,13 +1,11 @@
 #!/bin/sh
 set -eu
-set -o pipefail
+
+target=aarch64-unknown-linux-musl
+# Native Alpine builds use musl for C dependencies as well as Rust.
+cargo build --locked --release --target "$target" -p l4h-dom0d -p vmm-guest-init
 mkdir -p /binaries
-export GOOS=linux GOARCH=arm64 CGO_ENABLED=0
-for command in agent-vmmd agent-vmm-supervisor agent-vmm-mcp-appliance; do
-  go build -trimpath -ldflags='-s -w -buildid=' -o "/binaries/$command" "./cmd/$command"
-done
-for command in oci bundle; do
-  go build -trimpath -ldflags='-s -w -buildid=' -o "/binaries/$command" "./build/guest/$command"
-done
-go build -trimpath -ldflags='-s -w -buildid=' -o /binaries/appliance-manifest ./build/appliance/manifest
-go build -trimpath -ldflags='-s -w -buildid=' -o /binaries/notices ./build/notices
+install -m 0755 "target/$target/release/l4h-dom0d" "target/$target/release/vmm-guest-init" /binaries/
+guest-notices -o /binaries/THIRD_PARTY_NOTICES -licenses /src/third_party/licenses \
+  -cargo-manifest /src/bins/l4h-dom0d/Cargo.toml -cargo-manifest /src/bins/vmm-guest-init/Cargo.toml \
+  -cargo-target "$target"

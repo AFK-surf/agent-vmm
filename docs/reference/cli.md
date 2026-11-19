@@ -1,6 +1,6 @@
 # Managed CLI reference
 
-<!-- Generated from cmd/agent-vmm/managed_cli.go by make cli-docs. -->
+See `agent-vmm <command> --help` for the options supported by the installed release.
 
 The formal Host bundle includes these commands. Each command accepts only its listed options.
 Use `--json` for the structured result. Unknown or incomplete arguments return `invalid_arguments` and exit code 2.

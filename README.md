@@ -1,8 +1,8 @@
 # agent-vmm
 
-Agent VMM runs isolated AI agent workloads in one Linux virtual machine.
-A Go Host owns the VM and policy database.
-The Guest uses containerd and one gVisor sandbox for each workload.
+Agent VMM runs each isolated AI agent workload in its own l4h virtual machine.
+The Rust Host owns the policy database and operator API.
+The dom0 service manages workload VM instances.
 
 ## Status
 
@@ -10,8 +10,8 @@ The project has no production release. Interfaces can change without notice.
 
 | Host platform | Status |
 | --- | --- |
-| macOS 15+, Apple Silicon | Supported, Virtualization.framework |
-| Linux arm64, KVM | Experimental, `agent-vmm-host.service` |
+| macOS 15+, Apple Silicon | Host package with a separate Carrier, awaiting l4h support for Virtualization.framework |
+| Linux arm64 | Experimental, requires an l4h dom0 |
 
 Guest artifacts target Linux arm64.
 
@@ -23,9 +23,9 @@ This repository does not publish binaries.
 
 ## Concepts
 
-- **Host:** owns the VM, local policy, and operator API.
-- **Guest:** runs the container runtime inside the VM.
-- **Environment:** owns one namespace, workloads, and private volumes.
+- **Host:** owns local policy and the operator API.
+- **Guest:** runs the workload and its private runtime service.
+- **Environment:** owns workloads and private volumes.
 - **Appliance:** runs a system service with an approved manifest and data volume.
 - **Controller:** registers remote compute and manages its own allocations.
 
@@ -50,7 +50,7 @@ The Host package is `Agent VMM Host.app`.
 - [Design](docs/design/overview.md) and [security model](docs/design/security-model.md)
 - [Remote protocol](docs/protocols/remote.md), [trust and service](docs/protocols/trust-service.md), and [appliances](docs/protocols/appliance.md)
 - [API](docs/reference/api/README.md), [CLI commands](docs/reference/cli.md), and [errors](docs/reference/errors.md)
-- [Linux Host development](test/kvmdev/README.md), [external controller E2E](test/e2e/README.md), and [TLA+ models](spec/tla/README.md)
+- [Linux Host packaging](docs/build.md#linux-host-package), [external controller E2E](test/e2e/README.md), and [TLA+ models](spec/tla/README.md)
 
 Read [SECURITY.md](SECURITY.md) for trust boundaries and vulnerability reports.
 Read [CONTRIBUTING.md](CONTRIBUTING.md) before you send a change.

@@ -5,7 +5,8 @@ repo=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 output=${OUTPUT_DIRECTORY:-"$repo/dist"}
 identity=${CODE_SIGN_IDENTITY:--}
 guest=${AGENT_VMM_GUEST_BUNDLE:-}
-rust_target=${CARGO_TARGET_DIR:-"$repo/target/host-rust"}
+mkdir -p "$output"
+output=$(CDPATH= cd -- "$output" && pwd)
 product="$output/Agent VMM Host.app"
 release_id=${AGENT_VMM_RELEASE_ID:-agent-vmm-host}
 phase=${AGENT_VMM_PACKAGE_PHASE:-all}
@@ -17,119 +18,97 @@ case "$release_id" in
 	''|latest|*[!A-Za-z0-9._+-]*) echo "AGENT_VMM_RELEASE_ID must be a stable non-latest release id" >&2; exit 1 ;;
 esac
 
-go_tags=keychain
+host="$product/Contents/MacOS/agent-vmm-host"
+helpers="$product/Contents/Helpers"
 build_profile=release
-if [ "$phase" = sign ]; then
-	test "$identity" != "-"
-	test -n "${NOTARYTOOL_PROFILE:-}"
-	test -x "$product/Contents/MacOS/agent-vmm-host"
-	test -x "$product/Contents/Helpers/agent-vmm"
-	test -x "$product/Contents/Helpers/agent-vmm-lifecycle"
-	test -x "$product/Contents/Helpers/agent-vmm-data"
-	test -x "$product/Contents/Helpers/agent-vmm-service-executor"
-	host="$product/Contents/MacOS/agent-vmm-host"
-else
-test -d "$guest"
-for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
-	test -s "$guest/$artifact"
-done
-has_mcp_digest=$(jq -r 'has("artifacts") and (.artifacts | has("mcp_appliance_digest"))' "$guest/manifest.json")
-has_mcp_manifest=$(jq -r 'has("artifacts") and (.artifacts | has("mcp_appliance_manifest"))' "$guest/manifest.json")
-test "$has_mcp_digest" = "$has_mcp_manifest"
-if [ "$has_mcp_digest" = true ]; then
-	test -s "$guest/mcp-appliance.digest"
-	test -s "$guest/mcp-appliance/manifest.pb"
-fi
-guest_manifest_digest=$(shasum -a 256 "$guest/manifest.json" | awk '{print $1}')
 if [ "$phase" = all ] && [ "$identity" = "-" ]; then
 	build_profile=test
-	go_tags=development
 elif [ "$phase" != assemble ]; then
 	test "$identity" != "-"
 	test -n "${NOTARYTOOL_PROFILE:-}"
 fi
-mkdir -p "$output"
-rm -rf "$product"
-mkdir -p "$product/Contents/MacOS" "$product/Contents/Helpers" "$product/Contents/Resources/Guest"
-cp "$repo/build/host/Info.plist" "$product/Contents/Info.plist"
-for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
-	cp "$guest/$artifact" "$product/Contents/Resources/Guest/$artifact"
-done
-if [ "$has_mcp_digest" = true ]; then
-	cp "$guest/mcp-appliance.digest" "$product/Contents/Resources/Guest/mcp-appliance.digest"
-	mkdir -p "$product/Contents/Resources/Guest/mcp-appliance"
-	cp "$guest/mcp-appliance/manifest.pb" "$product/Contents/Resources/Guest/mcp-appliance/manifest.pb"
-fi
-GOOS=darwin GOARCH=arm64 go build -tags="$go_tags" -trimpath -ldflags "-X main.guestManifestDigest=$guest_manifest_digest" -o "$product/Contents/MacOS/agent-vmm-host" "$repo/cmd/agent-vmm-host"
-host="$product/Contents/MacOS/agent-vmm-host"
-host_info="$product/Contents/Resources/host-build-info.json"
-host_symbols="$output/agent-vmm-host-symbols.txt"
-host_undefined_symbols="$output/agent-vmm-host-undefined-symbols.txt"
-go version -m -json "$host" > "$host_info"
-go tool nm "$host" > "$host_symbols"
-nm -u "$host" > "$host_undefined_symbols"
-jq -e '
-  .Path == "github.com/AFK-surf/agent-vmm/cmd/agent-vmm-host" and
-  ((.Settings | map({key:.Key, value:.Value}) | from_entries) as $settings |
-    $settings.GOOS == "darwin" and $settings.GOARCH == "arm64" and $settings.CGO_ENABLED == "1")
-' "$host_info" >/dev/null
-case "$build_profile" in
-	test)
-		jq -e '(.Settings | map({key:.Key, value:.Value}) | from_entries) as $settings |
-			(($settings["-tags"] // "") | test("(^|[, ])development([, ]|$)")) and
-			(($settings["-tags"] // "") | test("(^|[, ])e2e([, ]|$)") | not)' "$host_info" >/dev/null
-		grep -q 'fileApplianceSecrets' "$host_symbols"
-		if grep -Eq '_Sec(Item|Key)' "$host_undefined_symbols"; then
-			echo "development host links a login-context Security API" >&2
-			exit 1
-		fi
-		;;
-	release)
-		jq -e '(.Settings | map({key:.Key, value:.Value}) | from_entries) as $settings |
-			(($settings["-tags"] // "") | test("(^|[, ])(development|e2e)([, ]|$)") | not) and
-			$settings["vcs.modified"] == "false" and ($settings["vcs.revision"] // "") != ""' "$host_info" >/dev/null
-		grep -q 'fileApplianceSecrets' "$host_symbols"
-		if grep -Eq 'NewDevelopmentFileProvider|developmentFileProvider' "$host_symbols"; then
-			echo "release host contains a development identity provider" >&2
-			exit 1
-		fi
-		;;
-esac
-# AGENT_VMM_PACKAGE_E2E=1 adds the installation-chain E2E isolation seam to
-# the lifecycle helper of an ad-hoc development bundle only.
-lifecycle_tags=
+
 if [ "${AGENT_VMM_PACKAGE_E2E:-}" = 1 ]; then
 	test "$build_profile" = test
-	lifecycle_tags=e2e
 fi
-GOOS=darwin GOARCH=arm64 go build -tags="$lifecycle_tags" -trimpath -ldflags "-X github.com/AFK-surf/agent-vmm/internal/lifecycle.releaseID=$release_id" -o "$product/Contents/Helpers/agent-vmm-lifecycle" "$repo/cmd/agent-vmm-lifecycle"
-printf '%s\n' "$("$product/Contents/Helpers/agent-vmm-lifecycle" version --json)" |
-	jq -e --arg release_id "$release_id" '.version == $release_id and .release_id == $release_id' >/dev/null
-GOOS=darwin GOARCH=arm64 go build -tags=managedonly -trimpath -o "$product/Contents/Helpers/agent-vmm" "$repo/cmd/agent-vmm"
-for command in inspect diagnose logs operation repair update vm cleanup; do
-	"$product/Contents/Helpers/agent-vmm" "$command" --help >/dev/null
-done
-for command in install update status recover stop start activate restart revoke remove; do
- "$product/Contents/Helpers/agent-vmm" appliance "$command" --help >/dev/null 2>&1
-done
-if "$product/Contents/Helpers/agent-vmm" appliance build --help >/dev/null 2>&1; then
-	echo "managed Agent VMM CLI exposed development appliance build" >&2
-	exit 1
-else
-	test "$?" -eq 2
-fi
-GOOS=darwin GOARCH=arm64 go build -trimpath -o "$product/Contents/Helpers/agent-vmm-service-executor" "$repo/cmd/agent-vmm-service-executor"
-CARGO_TARGET_DIR="$rust_target" cargo build --locked --release --target aarch64-apple-darwin --manifest-path "$repo/data/agent-vmm-data/Cargo.toml"
-cp "$rust_target/aarch64-apple-darwin/release/agent-vmm-data" "$product/Contents/Helpers/agent-vmm-data"
-cp "$repo/LICENSE" "$repo/NOTICE" "$product/Contents/Resources/"
-go run "$repo/build/notices" -o "$product/Contents/Resources/THIRD_PARTY_NOTICES" \
-  -licenses "$repo/third_party/licenses" -go-binary "$product/Contents/MacOS" \
-  -go-binary "$product/Contents/Helpers" -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml" \
-  -cargo-target aarch64-apple-darwin
-jq -n --arg release_id "$release_id" \
-	'{schema_version: 1, component: "agent-vmm-host-runtime", release_id: $release_id}' \
-	> "$product/Contents/Resources/release-inventory.json"
 
+if [ "$phase" != sign ]; then
+	test -n "$guest"
+	guest=$(CDPATH= cd -- "$guest" && pwd)
+	for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
+		test -s "$guest/$artifact"
+	done
+
+	export AGENT_VMM_RELEASE_ID="$release_id"
+	AGENT_VMM_GUEST_MANIFEST_DIGEST=$(shasum -a 256 "$guest/manifest.json" | awk '{print $1}')
+	export AGENT_VMM_GUEST_MANIFEST_DIGEST
+	rust_target=${CARGO_TARGET_DIR:-"$repo/target/host-rust"}
+	mkdir -p "$rust_target"
+	CARGO_TARGET_DIR=$(CDPATH= cd -- "$rust_target" && pwd)
+	export CARGO_TARGET_DIR
+	PROTOC=$(sh "$repo/build/protoc.sh" "$CARGO_TARGET_DIR")
+	export PROTOC
+	target=aarch64-apple-darwin
+	(
+		cd "$repo"
+		cargo build --locked --release --target "$target" \
+			-p agent-vmm-host -p agent-vmm-carrier -p agent-vmm-lifecycle \
+			-p agent-vmm -p agent-vmm-data
+		cargo rustc --locked --release --target "$target" -p agent-vmm-service-executor -- \
+			-C link-arg=-Wl,-dead_strip_dylibs
+		if [ "${AGENT_VMM_PACKAGE_E2E:-}" = 1 ]; then
+			cargo build --locked --release --target "$target" -p agent-vmm-lifecycle --features e2e-isolation
+		fi
+	)
+
+	rm -rf "$product"
+	resources="$product/Contents/Resources"
+	mkdir -p "$product/Contents/MacOS" "$helpers" "$resources/Guest"
+	cp "$repo/build/host/Info.plist" "$product/Contents/Info.plist"
+	for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
+		cp "$guest/$artifact" "$resources/Guest/$artifact"
+	done
+	cp "$CARGO_TARGET_DIR/$target/release/agent-vmm-host" "$host"
+	for helper in agent-vmm-carrier agent-vmm-lifecycle agent-vmm agent-vmm-service-executor agent-vmm-data; do
+		cp "$CARGO_TARGET_DIR/$target/release/$helper" "$helpers/$helper"
+	done
+	for binary in "$host" "$helpers/agent-vmm-lifecycle"; do
+		report=$("$binary" version --json)
+		printf '%s\n' "$report" |
+			jq -e --arg release_id "$release_id" '.version == $release_id and .release_id == $release_id' >/dev/null
+	done
+	for command in inspect diagnose logs operation repair update vm cleanup; do
+		"$helpers/agent-vmm" "$command" --help >/dev/null
+	done
+	appliance_help=$("$helpers/agent-vmm" appliance --help)
+	for command in install update status recover stop start activate restart revoke remove; do
+		printf '%s\n' "$appliance_help" | grep -qw "$command"
+	done
+	if "$helpers/agent-vmm" appliance build --help >/dev/null 2>&1; then
+		echo "managed Agent VMM CLI exposed development appliance build" >&2
+		exit 1
+	else
+		test "$?" -eq 2
+	fi
+	cp "$repo/LICENSE" "$repo/NOTICE" "$resources/"
+	set -- -o "$resources/THIRD_PARTY_NOTICES" -licenses "$repo/third_party/licenses" -cargo-target "$target"
+	for crate in bins/agent-vmm-host bins/agent-vmm-carrier bins/agent-vmm-lifecycle bins/agent-vmm bins/agent-vmm-service-executor data/agent-vmm-data; do
+		set -- "$@" -cargo-manifest "$repo/$crate/Cargo.toml"
+	done
+	(cd "$repo" && go run ./build/notices "$@")
+	jq -n --arg release_id "$release_id" \
+		'{schema_version: 1, component: "agent-vmm-host-runtime", release_id: $release_id}' \
+		> "$resources/release-inventory.json"
+fi
+
+test -x "$host"
+for helper in agent-vmm-carrier agent-vmm-lifecycle agent-vmm agent-vmm-service-executor agent-vmm-data; do
+	test -x "$helpers/$helper"
+done
+executor_links=$(otool -L "$helpers/agent-vmm-service-executor")
+if [ "$(printf '%s\n' "$executor_links" | awk 'NR > 1 {print $1}')" != /usr/lib/libSystem.B.dylib ]; then
+	printf 'Unexpected service executor dependencies:\n%s\n' "$executor_links" >&2
+	exit 1
 fi
 
 /usr/bin/plutil -lint "$product/Contents/Info.plist"
@@ -140,44 +119,47 @@ test ! -e "$product/Contents/MacOS/AgentVMM"
 test ! -e "$product/Contents/MacOS/agent-vmm"
 test ! -e "$product/Contents/Helpers/agent-vmm-host"
 test ! -e "$product/Contents/Resources/SwiftUI"
-
 if [ "$phase" = assemble ]; then
 	exit 0
 fi
-entitlements="$repo/build/host/vz.entitlements.plist"
+
 profile=${AGENT_VMM_PROVISIONING_PROFILE:-}
 rm -f "$product/Contents/embedded.provisionprofile"
+set --
 if [ "$build_profile" = release ] && [ -n "$profile" ]; then
 	test -s "$profile"
 	cp "$profile" "$product/Contents/embedded.provisionprofile"
-	entitlements="$repo/build/host/keychain.entitlements.plist"
+	set -- --entitlements "$repo/build/host/keychain.entitlements.plist"
 fi
-codesign --force --sign "$identity" --options runtime --entitlements "$entitlements" "$product/Contents/MacOS/agent-vmm-host"
-codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-lifecycle"
-codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-data"
-codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm"
-codesign --force --sign "$identity" --options runtime "$product/Contents/Helpers/agent-vmm-service-executor"
-codesign --force --sign "$identity" --options runtime --preserve-metadata=entitlements "$product"
+codesign --force --sign "$identity" --options runtime --entitlements "$repo/build/host/vz.entitlements.plist" "$helpers/agent-vmm-carrier"
+for helper in agent-vmm-lifecycle agent-vmm-data agent-vmm agent-vmm-service-executor; do
+	codesign --force --sign "$identity" --options runtime "$helpers/$helper"
+done
+codesign --force --sign "$identity" --options runtime "$@" "$product"
 codesign --verify --deep --strict --verbose=2 "$product"
+
+carrier_entitlements="$output/agent-vmm-carrier-entitlements.plist"
+codesign -d --xml --entitlements "$carrier_entitlements" "$helpers/agent-vmm-carrier"
+plutil -convert json -o - "$carrier_entitlements" |
+	jq -e '.["com.apple.security.virtualization"] == true and (has("keychain-access-groups") | not)' >/dev/null
+
 host_entitlements="$output/agent-vmm-host-entitlements.plist"
-codesign -d --xml --entitlements "$host_entitlements" "$host" 2>/dev/null
-if [ "$entitlements" = "$repo/build/host/vz.entitlements.plist" ]; then
+rm -f "$host_entitlements"
+codesign -d --xml --entitlements "$host_entitlements" "$host"
+if [ "$#" -ne 0 ]; then
 	plutil -convert json -o - "$host_entitlements" |
-		jq -e '.["com.apple.security.virtualization"] == true and has("keychain-access-groups") == false' >/dev/null
-else
-	test -s "$product/Contents/embedded.provisionprofile"
-	plutil -convert json -o - "$host_entitlements" |
-		jq -e '.["com.apple.security.virtualization"] == true and
+		jq -e '(has("com.apple.security.virtualization") | not) and
 			.["keychain-access-groups"] == ["D9AAN3VJK8.com.afk-surf.agent-vmm-host"] and
 			.["com.apple.application-identifier"] == "D9AAN3VJK8.com.afk-surf.agent-vmm-host" and
 			.["com.apple.developer.team-identifier"] == "D9AAN3VJK8"' >/dev/null
+elif [ -s "$host_entitlements" ]; then
+	plutil -convert json -o - "$host_entitlements" | jq -e '. == {}' >/dev/null
 fi
 if [ "$build_profile" = test ]; then
 	codesign -dv --verbose=4 "$host" 2>&1 | grep -q 'Signature=adhoc'
 else
 	codesign -dv --verbose=4 "$host" 2>&1 | grep -q 'Authority=Developer ID Application'
 fi
-
 
 if [ -n "${NOTARYTOOL_PROFILE:-}" ]; then
   ditto -c -k --norsrc --noextattr --keepParent "$product" "$output/Agent-VMM.zip"

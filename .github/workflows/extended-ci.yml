@@ -27,6 +27,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: false
+      - name: Install Protobuf compiler and Rust toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes protobuf-compiler squashfs-tools
+          rustup toolchain install 1.96.0 --profile minimal --target aarch64-unknown-linux-gnu
+          rustup default 1.96.0
       - name: Set up persistent Guest builder
         if: startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
         uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2
@@ -40,28 +46,32 @@ jobs:
         env:
           AGENT_VMM_REFRESH_DEPENDENCIES: ${{ (github.event_name == 'schedule' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && '1' || '0' }}
         run: build/guest/build.sh "$RUNNER_TEMP/guest-bundle" release runtime
-      - name: Unpack Guest root filesystem and run sandbox smoke test
+      - name: Unpack Guest root filesystem and check its executables
         run: |
-          sudo apt-get update
-          sudo apt-get install --yes squashfs-tools
           unsquashfs -d "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/guest-bundle/rootfs.squashfs"
-          sudo build/guest/smoke.sh "$RUNNER_TEMP/guest-rootfs"
+          build/guest/smoke.sh "$RUNNER_TEMP/guest-rootfs"
       - uses: anchore/sbom-action/download-syft@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
       - name: Generate Guest inventories
         run: build/guest/sbom.sh "$RUNNER_TEMP/guest-rootfs" "$RUNNER_TEMP/inventory/guest"
       - name: Build Linux Host package and inventories
         env:
           AGENT_VMM_GUEST_BUNDLE: ${{ runner.temp }}/guest-bundle
-          AGENT_VMM_DATA_WORKER: ${{ github.workspace }}/target/release/agent-vmm-data
+          AGENT_VMM_RELEASE_ID: agent-vmm-${{ github.sha }}
+          CARGO_INCREMENTAL: "0"
           OUTPUT_DIRECTORY: ${{ runner.temp }}/host-bundle
         run: |
-          rustup toolchain install 1.96.0 --profile minimal
-          rustup default 1.96.0
-          cargo build --release --locked --manifest-path data/agent-vmm-data/Cargo.toml --target-dir target
+          export AGENT_VMM_GUEST_MANIFEST_DIGEST
+          AGENT_VMM_GUEST_MANIFEST_DIGEST=$(sha256sum "$AGENT_VMM_GUEST_BUNDLE/manifest.json" | cut -d ' ' -f 1)
+          cargo build --locked --release --target aarch64-unknown-linux-gnu -p agent-vmm -p agent-vmm-data
+          export AGENT_VMM_HOST_BIN="$PWD/target/aarch64-unknown-linux-gnu/release/agent-vmm"
+          export AGENT_VMM_DATA_WORKER="$PWD/target/aarch64-unknown-linux-gnu/release/agent-vmm-data"
           build/host-linux/package.sh
-          mkdir "$RUNNER_TEMP/host-package"
-          tar -xf "$RUNNER_TEMP"/host-bundle/*.tar.gz -C "$RUNNER_TEMP/host-package"
-          build/host/sbom.sh "$RUNNER_TEMP/host-package" "$RUNNER_TEMP/inventory/host"
+          export AGENT_VMM_LINUX_RELEASE_DIR="$RUNNER_TEMP/host-package"
+          mkdir "$AGENT_VMM_LINUX_RELEASE_DIR"
+          tar -xf "$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.tar.gz" \
+            -C "$AGENT_VMM_LINUX_RELEASE_DIR" --strip-components=1
+          VMM_CONTRACT_REQUIRE_LIVE=1 cargo test --locked -p vmm-comma-contract-tests --test live linux_release_has_the_installer_at_its_root -- --exact
+          build/host/sbom.sh "$AGENT_VMM_LINUX_RELEASE_DIR" "$RUNNER_TEMP/inventory/host"
 
   dependency-advisories:
     name: Rust dependency advisories
@@ -73,4 +83,4 @@ jobs:
       - name: Install audit command
         run: cargo install cargo-audit --locked
       - name: Check dependency advisories
-        run: make audit-data-worker
+        run: cargo audit --file Cargo.lock

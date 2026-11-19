@@ -1,18 +1,17 @@
 #!/bin/sh
 set -eu
 
-# Packages the Linux arm64 Host release: agent-vmm (Host, CLI, VMM child, and
-# lifecycle), an existing Linux agent-vmm-data, and an existing Guest bundle.
 repo=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 output=${OUTPUT_DIRECTORY:-"$repo/dist/linux-arm64"}
 guest=${AGENT_VMM_GUEST_BUNDLE:?set AGENT_VMM_GUEST_BUNDLE to the Guest bundle directory}
-data_worker=${AGENT_VMM_DATA_WORKER:?set AGENT_VMM_DATA_WORKER to the Linux arm64 agent-vmm-data executable}
+data_worker=${AGENT_VMM_DATA_WORKER:-}
+host=${AGENT_VMM_HOST_BIN:-}
 release_id=${AGENT_VMM_RELEASE_ID:-agent-vmm-host}
 case "$release_id" in
-	''|latest|*[!A-Za-z0-9._-]*) echo "AGENT_VMM_RELEASE_ID must be a stable non-latest release id" >&2; exit 1 ;;
+	latest|[!A-Za-z0-9]*|*[!A-Za-z0-9_-]*) echo "Invalid Linux release ID: $release_id" >&2; exit 1 ;;
 esac
-test -x "$data_worker"
-for artifact in Image initramfs.xz rootfs.squashfs manifest.json; do
+test "${#release_id}" -le 128
+for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
 	test -s "$guest/$artifact"
 done
 
@@ -21,28 +20,41 @@ sha256() {
 }
 
 name="agent-vmm-$release_id"
-work=$(mktemp -d)
+mkdir -p "$output"
+work=$(mktemp -d "$output/.package.XXXXXXXX")
+work=$(CDPATH= cd -- "$work" && pwd)
 trap 'rm -rf "$work"' EXIT
 release="$work/$name"
 mkdir -p "$release/guest"
 for artifact in Image initramfs.xz rootfs.squashfs manifest.json THIRD_PARTY_NOTICES; do
 	cp "$guest/$artifact" "$release/guest/$artifact"
 done
-if [ -s "$guest/mcp-appliance.digest" ]; then
-	cp "$guest/mcp-appliance.digest" "$release/guest/mcp-appliance.digest"
-	mkdir -p "$release/guest/mcp-appliance"
-	cp "$guest/mcp-appliance/manifest.pb" "$release/guest/mcp-appliance/manifest.pb"
+guest_manifest_digest=$(sha256 "$release/guest/manifest.json")
+target=aarch64-unknown-linux-gnu
+if [ -z "$host" ]; then
+	rust_target=${CARGO_TARGET_DIR:-"$repo/target"}
+	mkdir -p "$rust_target"
+	CARGO_TARGET_DIR=$(CDPATH= cd -- "$rust_target" && pwd)
+	export CARGO_TARGET_DIR
+	PROTOC=$(sh "$repo/build/protoc.sh" "$work")
+	export PROTOC
+	(cd "$repo" && AGENT_VMM_RELEASE_ID="$release_id" AGENT_VMM_GUEST_MANIFEST_DIGEST="$guest_manifest_digest" \
+		cargo build --locked --release --target "$target" -p agent-vmm)
+	host="$CARGO_TARGET_DIR/$target/release/agent-vmm"
 fi
-guest_manifest_digest=$(sha256 "$guest/manifest.json")
-CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -tags=managedonly -trimpath \
-	-ldflags "-X main.guestManifestDigest=$guest_manifest_digest -X github.com/AFK-surf/agent-vmm/internal/lifecycle.releaseID=$release_id" \
-	-o "$release/agent-vmm" "$repo/cmd/agent-vmm"
-cp "$data_worker" "$release/agent-vmm-data"
-chmod 0755 "$release/agent-vmm" "$release/agent-vmm-data"
+install -m 0755 "$host" "$release/agent-vmm"
+report=$("$release/agent-vmm" lifecycle version --json)
+printf '%s\n' "$report" | jq -e --arg release_id "$release_id" '.release_id == $release_id' >/dev/null
+
+set -- -cargo-manifest "$repo/bins/agent-vmm/Cargo.toml"
+if [ -n "$data_worker" ]; then
+	test -x "$data_worker"
+	install -m 0755 "$data_worker" "$release/agent-vmm-data"
+	set -- "$@" -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml"
+fi
 cp "$repo/LICENSE" "$repo/NOTICE" "$release/"
-go run "$repo/build/notices" -o "$release/THIRD_PARTY_NOTICES" \
-  -licenses "$repo/third_party/licenses" -go-binary "$release/agent-vmm" \
-  -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml" -cargo-target aarch64-unknown-linux-gnu
+(cd "$repo" && go run ./build/notices -o "$release/THIRD_PARTY_NOTICES" \
+	-licenses "$repo/third_party/licenses" -cargo-target "$target" "$@")
 
 # release.json lists every file. Its SHA-256 is the content ID and the
 # installed directory name under /opt/agent-vmm.
@@ -56,7 +68,6 @@ done | jq -cs --arg release_id "$release_id" '{version: 1, release_id: $release_
 mv "$work/release.json" "$release/release.json"
 content_id=$(sha256 "$release/release.json")
 
-mkdir -p "$output"
 archive="$output/$name-linux-arm64.tar.gz"
 COPYFILE_DISABLE=1 tar --no-xattrs -C "$work" -czf "$archive" "$name"
 jq -n --arg release_id "$release_id" --arg content_id "$content_id" --arg guest_manifest_sha256 "$guest_manifest_digest" \

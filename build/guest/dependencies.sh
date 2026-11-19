@@ -72,8 +72,8 @@ if [ ! -f "$cached" ]; then
 fi
 tar -xzf "$miniroot" -C "$root"
 cp /etc/resolv.conf "$root/etc/resolv.conf"
-set -- openrc ca-certificates-bundle iproute2 nftables e2fsprogs e2fsprogs-extra sfdisk \
-  cni-plugins xz linux-virt containerd
+set -- openrc ca-certificates-bundle iproute2 nftables erofs-utils jq e2fsprogs \
+  e2fsprogs-extra device-mapper cryptsetup kmod xz squashfs-tools linux-virt
 apk_repositories=/tmp/agent-vmm-apk-repositories
 : > "$root$apk_repositories"
 apk_repository=0
@@ -126,12 +126,5 @@ for symbol in RTC_DRV_PL031 RTC_HCTOSYS; do
 done
 guest-kernel "$root/boot/vmlinuz-"* >"$bundle/Image"
 test -s "$bundle/Image"
-
-runsc_archive=$work/downloads/gvisor.tar.bz2
-fetch_current "https://storage.googleapis.com/gvisor/releases/release/latest/aarch64/gvisor.tar.bz2" "$runsc_archive"
-tar -xjf "$runsc_archive" -C "$work"
-install -m 0755 "$work/runsc" "$root/usr/bin/runsc"
-cp -a "$work/gvisor-bin" "$root/usr/bin/gvisor-bin"
-install -m 0755 "$work/containerd-shim-runsc-v1" "$root/usr/bin/containerd-shim-runsc-v1"
 
 find "$root" "$bundle" -exec touch -h -d @0 {} +

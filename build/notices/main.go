@@ -38,16 +38,16 @@ func run(args []string) error {
 	flags := flag.NewFlagSet("notices", flag.ContinueOnError)
 	output := flags.String("o", "", "output file")
 	licenses := flags.String("licenses", "third_party/licenses", "fallback license texts")
-	manifest := flags.String("cargo-manifest", "", "Cargo manifest")
 	target := flags.String("cargo-target", "", "Cargo target triple")
-	var binaries, databases, extras paths
+	var binaries, databases, extras, manifests paths
+	flags.Var(&manifests, "cargo-manifest", "Cargo package manifest (repeatable)")
 	flags.Var(&binaries, "go-binary", "Go executable or directory (repeatable)")
 	flags.Var(&databases, "apk-db", "APK installed database (repeatable)")
 	flags.Var(&extras, "extra", "additional NAME=SPDX-ID component (repeatable)")
 	if err := flags.Parse(args); err != nil {
 		return err
 	}
-	if *output == "" || flags.NArg() != 0 || (*manifest != "" && *target == "") {
+	if *output == "" || flags.NArg() != 0 || (len(manifests) != 0 && *target == "") {
 		return fmt.Errorf("usage: notices -o FILE [-licenses DIRECTORY] [-go-binary PATH] [-cargo-manifest FILE -cargo-target TRIPLE] [-apk-db FILE] [-extra NAME=SPDX-ID]")
 	}
 	var notices []notice
@@ -117,11 +117,11 @@ func run(args []string) error {
 			notices = append(notices, notice{section: "Go", name: module.Path, version: module.Version, texts: texts})
 		}
 	}
-	if *manifest != "" {
-		cmd := exec.Command("cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", *manifest, "--filter-platform", *target)
+	for _, manifest := range manifests {
+		cmd := exec.Command("cargo", "metadata", "--locked", "--format-version", "1", "--manifest-path", manifest, "--filter-platform", *target)
 		data, err := cmd.Output()
 		if err != nil {
-			return fmt.Errorf("cargo metadata: %w", err)
+			return fmt.Errorf("cargo metadata for %s: %w", manifest, err)
 		}
 		rust, err := cargoNotices(data, *licenses)
 		if err != nil {

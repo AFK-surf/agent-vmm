@@ -1,4 +1,0 @@
-[runsc_config]
-  platform = "systrap"
-  directfs = "false"
-  overlay2 = "root:memory"

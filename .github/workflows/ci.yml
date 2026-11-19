@@ -15,8 +15,8 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  data-worker:
-    name: Rust data worker / Linux
+  rust-linux:
+    name: Rust workspace / Linux
     runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX || 'ubuntu-24.04' }}
     timeout-minutes: 20
     steps:
@@ -35,7 +35,7 @@ jobs:
         run: make test-rust lint-rust
 
   linux-arm64:
-    name: Go / Linux arm64
+    name: Protocol and workflows / Linux arm64
     runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX_ARM || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     steps:
@@ -53,23 +53,15 @@ jobs:
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
       - name: Check Go and generated code
-        run: >-
-          make check GOTESTFLAGS=-race
-          GOTESTPACKAGES="$(go list ./... | grep -Ev '/internal/guest/(control|network)$' | tr '\n' ' ')"
+        run: make check GOTESTFLAGS=-race
       - name: Check protobuf compatibility
         if: github.event_name == 'pull_request'
         env:
           PROTO_BASE_REF: ${{ github.event.pull_request.base.sha }}
         run: make proto-breaking
-      - name: Test Guest root filesystem, ownership, and kernel networking
-        run: |
-          go test -race -c -o "$RUNNER_TEMP/control-root.test" ./internal/guest/control
-          go test -race -c -o "$RUNNER_TEMP/network-kernel.test" ./internal/guest/network
-          (cd internal/guest/control && sudo "$RUNNER_TEMP/control-root.test" -test.v)
-          (cd internal/guest/network && sudo env AGENT_VMM_NFTABLES_TEST=1 "$RUNNER_TEMP/network-kernel.test" -test.v)
 
   macos:
-    name: Go and app / macOS
+    name: macOS app and packaging
     runs-on: ${{ vars.AGENT_VMM_RUNNER_MACOS || 'macos-15' }}
     timeout-minutes: 25
     steps:
@@ -82,13 +74,14 @@ jobs:
         with:
           version: 1.69.0
           setup_only: true
-      - name: Test with the race detector
+      - name: Install Protobuf compiler and Rust toolchain
+        run: |
+          brew install protobuf
+          rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-darwin
+          rustup default 1.96.0
+      - name: Test Go protocol with the race detector
         run: make vet test GOTESTFLAGS=-race
-      - name: Compile Keychain providers
-        run: go vet -tags keychain ./...
-      - name: Compile the Host E2E suite
-        # E2E needs a real Virtualization.framework host and runs only in the
-        # report-only E2E workflow; this catches code that no longer compiles.
+      - name: Compile the external Host bridge
         run: go vet -tags=e2e ./test/e2e
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -117,3 +110,7 @@ jobs:
         run: make check-swift-generated
       - name: Test Host installer resume contract
         run: build/host/install.test.sh
+      - name: Package the ad-hoc Host and check the Comma contracts
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: sh build/host/package.test.sh

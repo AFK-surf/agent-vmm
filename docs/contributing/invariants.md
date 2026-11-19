@@ -10,50 +10,29 @@ A version difference alone never authorizes deletion, re-enrollment, or workload
 ## Guest build and supply chain
 
 Build Guest artifacts on Linux arm64 with a case-sensitive filesystem.
-Resolve current Alpine stable, APK, kernel, containerd, gVisor, and BuildKit during the Guest build.
-Do not pin their versions or input hashes.
-Test the resolved runtime set with a real sandbox before publishing its Guest bundle.
-Install the complete gVisor release directory.
-Remove guest-native runc and `containerd-shim-runc-v2` from the assembled Guest and verify their absence.
+Resolve Alpine packages and the Guest kernel from current Alpine stable.
+Resolve BuildKit during the Guest build.
+The release smoke test checks the extracted binaries and excludes the retired runtime.
 Select `linux/arm64` from multi-platform image indexes.
 Record the completed Guest bundle and published artifact content identities.
-Downloaded dependency hashes do not identify a release.
-Link the Host executable with the canonical Guest manifest digest.
-Keep SBOMs as CI inventory for concrete dependency or license consumers, outside runtime bundle authority.
-The Guest root uses read-only SquashFS. Do not put the build Host resolver file in it.
+Link the Carrier with the canonical Guest manifest digest.
+Keep SBOMs as CI inventories outside runtime bundle authority.
+The Carrier root uses read-only SquashFS. Keep the build Host resolver file out of it.
 
-## Runtime and image builds
+## Runtime and storage
 
-Use one independent runsc sandbox for each workload and mark its spec `io.kubernetes.cri.container-type=sandbox`.
-Do not hide image incompatibility with a wrapper or a guest-native runc fallback.
-Use the fixed supervisor as sandbox init and the user process as a retained exec process.
-Do not substitute a delay, CRI pause container, or exit-code rewriting.
-
-Run rootless BuildKit as UID 1000 inside its separate runsc sandbox.
-Grant only sandbox-visible `CAP_SETUID`, `CAP_SETGID`, and `CAP_SETPCAP` for sub-ID mapping.
-Do not rely on setuid or file capabilities for `newuidmap` and `newgidmap` there.
-Use a build-only runsc `root:memory` overlay for the read-only BuildKit root.
-Do not restore nested persistent overlays.
-Keep `host-uds=create` for appliances' projected private sockets. Never expand it to `open` or `all`.
-
-## Storage
-
-Use one VMMD-owned internal containerd namespace and containerd overlayfs for persistent workloads.
-Share immutable lower snapshots by digest.
-Keep each workload's writable upper, volume, runsc sandbox, cgroup, and network independent.
-Delete only a fenced logical image record. Shared CAS content can remain referenced elsewhere.
-Never report that image's logical size as physically reclaimed space.
+Run each workload in its own l4h VM.
+Keep immutable image extents separate from writable workload and volume extents.
+Release an extent only after the VM detaches it and the owner releases it.
+Separate image metadata and pool capacity so pool exhaustion cannot block cleanup.
+Report reclaimed space only when the backing storage releases it.
 
 ## Network and VM lifecycle
 
-Send public IPv4 through the fixed Guest TUN and dedicated egress vsock session.
-Resolve public names through virtual DNS. Do not restore DHCP or a VZ resolver dependency.
-Neither virtual DNS nor the transparent proxy exception grants LAN access.
-Reject new public relay connections after VM state enters `STOPPING`.
-Permit the internal PrepareShutdown connection during `STOPPING` so Guest cleanup can finish.
-
-A Linux VMM survives Host restart. The replacement Host adopts that running Guest.
-A failed startup commit closes admission and egress. It does not stop the Guest.
+Apply network policies at the dom0 switch.
+Keep the Guest resolver on the dom0 DNS service.
+Internet access does not grant LAN access.
+Preserve the workloads of an adopted VM when its Host control process restarts.
 
 ## Controller fencing
 

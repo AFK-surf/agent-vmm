@@ -10,16 +10,15 @@ mkdir -p "$product/Contents/MacOS"
 cp "$repo/build/host/Info.plist" "$product/Contents/Info.plist"
 plutil -replace CFBundleExecutable -string keychain-tests "$product/Contents/Info.plist"
 rm -f "$product/Contents/embedded.provisionprofile"
-entitlements="$repo/build/host/vz.entitlements.plist"
+set --
 expect_keychain=false
 if [ -n "$profile" ]; then
 	test -s "$profile"
 	cp "$profile" "$product/Contents/embedded.provisionprofile"
-	entitlements="$repo/build/host/keychain.entitlements.plist"
+	set -- --entitlements "$repo/build/host/keychain.entitlements.plist"
 	expect_keychain=true
 fi
-cd "$repo"
-GOOS=darwin GOARCH=arm64 go test -c -tags keychain,keychain_integration -o "$product/Contents/MacOS/keychain-tests" ./internal/keychain
-codesign --force --sign "$identity" --options runtime --entitlements "$entitlements" "$product"
+xcrun swiftc -o "$product/Contents/MacOS/keychain-tests" "$repo/build/host/keychain-probe.swift"
+codesign --force --sign "$identity" --options runtime "$@" "$product"
 codesign --verify --deep --strict "$product"
-"$product/Contents/MacOS/keychain-tests" -test.v -expect-keychain="$expect_keychain"
+"$product/Contents/MacOS/keychain-tests" "$expect_keychain"

@@ -1,41 +1,38 @@
 FROM golang:1.26-alpine AS tools
-RUN apk add --no-cache bzip2 coreutils cpio curl file findutils git grep jq squashfs-tools tar xz
+RUN apk add --no-cache coreutils cpio curl file findutils grep jq squashfs-tools tar xz
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY build/guest/kernel/ build/guest/kernel/
+COPY build/guest/oci/ build/guest/oci/
+COPY build/notices/ build/notices/
+RUN go build -o /usr/local/bin/guest-kernel ./build/guest/kernel && \
+    go build -o /usr/local/bin/guest-oci ./build/guest/oci && \
+    go build -o /usr/local/bin/guest-notices ./build/notices
 
 FROM moby/buildkit:rootless AS buildkit
 USER root
 RUN apk upgrade --no-cache
 
 FROM tools AS dependencies
-WORKDIR /kernel-extract
-COPY go.mod go.sum ./
-COPY build/guest/kernel/ build/guest/kernel/
-RUN --mount=type=cache,id=agent-vmm-guest-go-build,target=/root/.cache/go-build,sharing=locked \
-    go build -o /usr/local/bin/guest-kernel ./build/guest/kernel
 COPY build/guest/dependencies.sh /usr/local/bin/guest-dependencies
 RUN --mount=type=cache,id=agent-vmm-guest-downloads,target=/var/cache/agent-vmm-downloads,sharing=locked \
     sh /usr/local/bin/guest-dependencies
 
-FROM tools AS compile
-ARG GOTOOLCHAIN
-ENV GOTOOLCHAIN=$GOTOOLCHAIN
+FROM rust:1.96.0-alpine AS compile
+RUN apk add --no-cache build-base linux-headers musl-dev perl protobuf-dev
 WORKDIR /src
-COPY go.mod go.sum ./
-RUN --mount=type=cache,id=agent-vmm-guest-go-modules,target=/go/pkg/mod,sharing=locked \
-    go mod download
+COPY Cargo.toml Cargo.lock ./
+COPY crates/ crates/
+COPY bins/ bins/
+COPY data/ data/
+COPY third_party/l4h/ third_party/l4h/
+COPY third_party/licenses/ third_party/licenses/
 COPY api/ api/
-COPY cmd/agent-vmmd/ cmd/agent-vmmd/
-COPY cmd/agent-vmm-supervisor/ cmd/agent-vmm-supervisor/
-COPY cmd/agent-vmm-mcp-appliance/ cmd/agent-vmm-mcp-appliance/
-COPY internal/ internal/
-COPY pkg/signing/ pkg/signing/
-COPY controller/remote/ controller/remote/
-COPY build/appliance/manifest/ build/appliance/manifest/
-COPY build/guest/oci/ build/guest/oci/
-COPY build/guest/bundle/ build/guest/bundle/
-COPY build/notices/ build/notices/
+COPY --from=tools /usr/local/bin/guest-notices /usr/local/bin/
 COPY build/guest/compile.sh /usr/local/bin/guest-compile
-RUN --mount=type=cache,id=agent-vmm-guest-go-modules,target=/go/pkg/mod,sharing=locked \
-    --mount=type=cache,id=agent-vmm-guest-go-build,target=/root/.cache/go-build,sharing=locked \
+RUN --mount=type=cache,id=agent-vmm-guest-rust-registry,target=/usr/local/cargo/registry,sharing=locked \
+    --mount=type=cache,id=agent-vmm-guest-rust-git,target=/usr/local/cargo/git,sharing=locked \
+    --mount=type=cache,id=agent-vmm-guest-rust-target,target=/src/target,sharing=locked \
     sh /usr/local/bin/guest-compile
 
 FROM tools AS assembly
@@ -47,10 +44,10 @@ COPY third_party/licenses/ /src/third_party/licenses/
 COPY build/guest/root/ /src/build/guest/root/
 COPY build/guest/initramfs/ /src/build/guest/initramfs/
 COPY build/guest/assemble.sh /usr/local/bin/guest-assemble
+COPY build/guest/smoke.sh /usr/local/bin/guest-smoke
 ARG BUILD_PROFILE=development
-ARG BUNDLE_FLAVOR=standalone
 RUN --mount=type=cache,id=agent-vmm-guest-go-modules,target=/go/pkg/mod,sharing=locked \
-    sh /usr/local/bin/guest-assemble "$BUILD_PROFILE" "$BUNDLE_FLAVOR"
+    sh /usr/local/bin/guest-assemble "$BUILD_PROFILE"
 
 FROM scratch AS output
 COPY --from=assembly /assembly/bundle/ /

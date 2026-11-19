@@ -39,6 +39,7 @@ test -d "$source_app"
 # Pass the physical source path to the native publication owner.
 source_app=$(CDPATH= cd -- "$source_app" && pwd -P)
 test -x "$source_app/Contents/Helpers/agent-vmm"
+test -x "$source_app/Contents/Helpers/agent-vmm-carrier"
 test -x "$source_app/Contents/Helpers/agent-vmm-lifecycle"
 test -x "$source_app/Contents/Helpers/agent-vmm-service-executor"
 

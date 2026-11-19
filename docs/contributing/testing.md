@@ -7,14 +7,14 @@ Use [CONTRIBUTING.md](../../CONTRIBUTING.md#test-scope) for test scope and requi
 Guest path, numeric-owner, quota, and port-53 tests need root.
 Network kernel regressions run in a private network namespace.
 
-Use [the KVM development guide](../../test/kvmdev/README.md) for Linux Guest smoke tests.
+Use [the build guide](../build.md#guest) for the Guest image smoke test.
 Use [the E2E guide](../../test/e2e/README.md) for macOS VM and external controller tests.
 An opt-in test that skips without configuration does not validate a deployed integration.
 
 ## Protocol and model checks
 
 Use `make proto` after public protocol changes and inspect the generated clients and references.
-Public messages describe authority and lifetime. Internal connector and VMMD protocols remain private.
+Public messages describe authority and lifetime. The Rust Guest protocol stays private.
 Use the shared signing vectors for cross-language canonical input and signature checks.
 A generated source or metadata-presence check does not prove runtime interoperability.
 

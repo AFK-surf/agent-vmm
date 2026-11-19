@@ -20,7 +20,7 @@ make swift-project
 ```
 
 `make proto-check` runs protobuf lint.
-`make proto-breaking` compares API compatibility with `origin/master`.
+`make proto-breaking` compares API compatibility with `origin/main`.
 Set `PROTO_BASE_REF` to select another commit or ref. Pull request CI uses its base commit.
 Authorized retirement can remove an RPC or message. All other `PACKAGE` compatibility checks remain active.
 Retained fields, types, tags, JSON names, and RPC shapes must preserve their existing contracts.
@@ -49,12 +49,7 @@ During development, run the smallest test set that covers the changed behavior.
 Run broader phase checks after focused tests pass.
 Run the full suite at final convergence or for a justified broad regression check.
 
-Guest tests for fixed runtime paths, numeric ownership, and DNS port 53 require root.
-CI compiles race test binaries as the runner user, then runs them with `sudo`.
-Kernel network tests use a private network namespace. Other tests run without root.
-
 `make e2e` needs a macOS machine that can boot Virtualization.framework Guests.
-It writes `.build/test-results/e2e/report.md`.
 Read [the external controller fixture contract](test/e2e/README.md) for cross-repository tests.
 
 `make tla` runs the models. Read [the model testing rules](docs/contributing/testing.md#protocol-and-model-checks).

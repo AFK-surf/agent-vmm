@@ -7,7 +7,7 @@ cd "$repository"
 case "${1:-}" in
   go)
     buf generate --exclude-path api/google --output "$work"
-    find api internal/api -name '*.pb.go' -type f | while IFS= read -r path; do
+    find api -name '*.pb.go' -type f | while IFS= read -r path; do
       diff -u "$path" "$work/$path"
     done
     find "$work" -name '*.pb.go' -type f | while IFS= read -r path; do

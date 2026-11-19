@@ -112,7 +112,7 @@ fn rejects_unknown_nested_fields() {
 #[test]
 fn credential_replacement_matches_salix_wire() {
     let fixture: Json = serde_json::from_str(include_str!(
-        "../../../internal/host/trust/testdata/registration_recovery_wire.json"
+        "testdata/registration_recovery_wire.json"
     ))
     .unwrap();
     let now = fixture["challenge"]["expires_at"].as_i64().unwrap() - 120;

@@ -1,0 +1,41 @@
+#!/sbin/openrc-run
+
+command=/usr/bin/l4h-dom0d
+config=/etc/agent-vmm/dom0.json
+command_args="$config"
+command_background=true
+pidfile=/run/l4h-dom0d.pid
+
+depend() {
+	need localmount
+	after networking
+}
+
+start() {
+	if [ ! -c /dev/l4hctl ]; then
+		einfo "The kernel has no l4h control device"
+		return 0
+	fi
+	if [ ! -f "$config" ]; then
+		einfo "Missing dom0 configuration at $config"
+		return 0
+	fi
+
+	master_key=$(jq -er '.master_key | strings | select(startswith("/"))' "$config") || return 1
+	state_dir=$(jq -er '.state_dir | strings | select(startswith("/"))' "$config") || return 1
+	if [ ! -e "$master_key" ]; then
+		if [ -e "$state_dir/pool.db" ]; then
+			eerror "The existing pool needs its original master key"
+			return 1
+		fi
+		umask 077
+		mkdir -p "$(dirname "$master_key")" || return 1
+		key_file=$(mktemp "$master_key.XXXXXXXX") || return 1
+		if ! head -c 32 /dev/urandom > "$key_file" || ! ln "$key_file" "$master_key"; then
+			rm -f "$key_file"
+			return 1
+		fi
+		rm -f "$key_file"
+	fi
+	default_start
+}

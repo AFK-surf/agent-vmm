@@ -14,7 +14,7 @@ mkdir -p "$output"
 output=$(CDPATH= cd -- "$output" && pwd)
 set -- docker buildx build --platform linux/arm64 \
   --file "$repository/build/guest/Dockerfile" --build-arg "BUILD_PROFILE=$profile" \
-  --build-arg "BUNDLE_FLAVOR=$flavor" --build-arg "GOTOOLCHAIN=$(awk '$1 == "toolchain" {print $2}' "$repository/go.mod")" --output "type=local,dest=$output"
+  --output "type=local,dest=$output"
 if [ "${AGENT_VMM_REFRESH_DEPENDENCIES:-0}" = 1 ]; then
   set -- "$@" --pull --no-cache-filter tools,buildkit,dependencies
 fi
@@ -22,9 +22,7 @@ if [ -n "${AGENT_VMM_BUILDX_BUILDER:-}" ]; then
   set -- "$@" --builder "$AGENT_VMM_BUILDX_BUILDER"
 fi
 "$@" "$repository"
-if [ "$flavor" = runtime ]; then
-  rm -f "$output/mcp-appliance.digest" "$output/mcp-appliance/manifest.pb"
-  if [ -d "$output/mcp-appliance" ]; then
-    rmdir "$output/mcp-appliance" 2>/dev/null || true
-  fi
+rm -f "$output/mcp-appliance.digest" "$output/mcp-appliance/manifest.pb"
+if [ -d "$output/mcp-appliance" ]; then
+  rmdir "$output/mcp-appliance" 2>/dev/null || true
 fi

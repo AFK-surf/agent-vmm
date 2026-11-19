@@ -11,20 +11,9 @@ lint:
     - COMMENT_MESSAGE
   except:
     - PACKAGE_DIRECTORY_MATCH
-  ignore_only:
-    COMMENT_SERVICE:
-      - api/internal
-    COMMENT_RPC:
-      - api/internal
-    COMMENT_MESSAGE:
-      - api/internal
-    RPC_REQUEST_RESPONSE_UNIQUE:
-      - api/internal
-    RPC_REQUEST_STANDARD_NAME:
-      - api/internal
-    RPC_RESPONSE_STANDARD_NAME:
-      - api/internal
 breaking:
+  ignore:
+    - api/internal
   use:
     - PACKAGE
   except:

@@ -77,7 +77,7 @@ Linux mutations run as root. The Host runs as the `agent-vmm` system user.
 | Guest logs | `/var/lib/agent-vmm/logs` |
 | Service unit | `/etc/systemd/system/agent-vmm-host.service` |
 
-Read [the Linux Host service guide](../../test/kvmdev/README.md#linux-host-service) for first installation.
+Build the Linux arm64 package with [the build guide](../build.md#linux-host-package).
 Run the installed `agent-vmm update` with `sudo`, the exact artifact fields, and a stable request ID.
 The owner stages the release, stops the VM and unit, verifies the copied files, and switches `current` atomically.
 It then starts the service and VM. It preserves `/var/lib/agent-vmm`.

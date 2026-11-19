@@ -1,7 +1,7 @@
-PROTO_BASE_REF ?= origin/master
+PROTO_BASE_REF ?= origin/main
 GOTESTPACKAGES ?= ./...
 
-.PHONY: check fmt-check vet test tidy-check check-generated check-swift-generated e2e proto proto-docs cli-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
+.PHONY: check fmt-check vet test tidy-check check-generated check-swift-generated e2e proto proto-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
 
 check: fmt-check vet test tidy-check proto-check check-generated
 
@@ -33,9 +33,6 @@ proto-docs:
 	buf build --as-file-descriptor-set -o .build/api-descriptors.binpb
 	go run ./internal/cmd/protodoc .build/api-descriptors.binpb docs/reference/api
 
-cli-docs:
-	go run ./internal/cmd/clidoc
-
 proto-check:
 	buf lint
 
@@ -57,7 +54,8 @@ install-bundle:
 	sh build/host/install.sh
 
 e2e:
-	sh test/e2e/run.sh
+	test -n "$$AGENT_VMM_EXTERNAL_E2E_CONFIG"
+	go test -tags=e2e ./test/e2e -run '^TestExternalSettingsBridgeE2E$$' -v -count=1 -timeout=20m
 
 # The contract test of the lifecycle helper needs a build that stays away from the production Host.
 test-rust:

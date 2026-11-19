@@ -27,7 +27,7 @@ cp -R "$1" "$2"
 EOF
 chmod +x "$scratch/bin/dscl" "$scratch/bin/codesign" "$scratch/bin/ditto"
 
-for helper in agent-vmm agent-vmm-service-executor; do
+for helper in agent-vmm agent-vmm-carrier agent-vmm-service-executor; do
 	printf '#!/bin/sh\nexit 0\n' > "$source_app/Contents/Helpers/$helper"
 	chmod +x "$source_app/Contents/Helpers/$helper"
 done

@@ -8,22 +8,23 @@ Build on Linux arm64 with a case-sensitive filesystem:
 build/guest/build.sh OUTPUT_DIRECTORY [development|release] [standalone|runtime]
 ```
 
-`standalone` includes the MCP appliance. `runtime` omits that appliance.
+The legacy `standalone` and `runtime` arguments select the same bundle.
 Set `AGENT_VMM_REFRESH_DEPENDENCIES=1` to refresh the build dependencies.
-The build resolves current Alpine stable packages, gVisor, and BuildKit.
-It does not pin their versions or input hashes.
-The publisher runs smoke tests and generates SBOMs from the exact bundle before publication.
+The build resolves current Alpine stable packages and BuildKit.
+It builds `l4h-dom0d` and `vmm-guest-init` with Rust 1.96.0 for musl.
+The workload initramfs is at `/usr/lib/agent-vmm/workload-initramfs.cpio` inside the root filesystem.
+The dom0 service requires `/dev/l4hctl` and a deployment configuration at `/etc/agent-vmm/dom0.json`.
 
 The completed Guest manifest records the bundle content identity.
 
-Run the sandbox smoke test on Linux arm64:
+Check the extracted Guest root filesystem on Linux arm64:
 
 ```sh
 unsquashfs -d ROOTFS OUTPUT_DIRECTORY/rootfs.squashfs
 build/guest/smoke.sh ROOTFS
 ```
 
-The smoke test runs `runsc --rootless --network=none do true` in the unpacked root filesystem.
+The smoke test checks the Rust and BuildKit executables in the unpacked root filesystem.
 
 ## macOS Host package
 
@@ -39,38 +40,36 @@ Use `--service-type daemon --service-user USER` for a non-root user managed by a
 `auto` selects daemon with administrator access. Otherwise, it requires the user's GUI domain.
 Verify the installed helper set before you report the local version.
 
-The Host embeds the canonical Guest manifest digest at link time.
+The Carrier embeds the canonical Guest manifest digest at link time.
+Use Rust 1.96.0, Go, and the Protobuf compiler to build the package.
 Build the debugging app with `make swift-project`.
 
 ## Linux Host package
 
-Build a Linux arm64 data worker before packaging:
+Build on Linux arm64:
 
 ```sh
-cargo build --release --locked --target aarch64-unknown-linux-gnu \
-  --manifest-path data/agent-vmm-data/Cargo.toml
 AGENT_VMM_GUEST_BUNDLE=GUEST_DIRECTORY \
-  AGENT_VMM_DATA_WORKER=target/aarch64-unknown-linux-gnu/release/agent-vmm-data \
   OUTPUT_DIRECTORY=HOST_DIRECTORY build/host-linux/package.sh
 ```
 
+Set `AGENT_VMM_HOST_BIN` to use an existing `agent-vmm` executable with the selected release ID.
+Set `AGENT_VMM_DATA_WORKER` to include an existing data worker in the archive.
 The script writes a tar archive and a JSON artifact record.
 The release's `release.json` lists its files, sizes, and SHA-256 content identities.
-Read [the Linux Host guide](../test/kvmdev/README.md#linux-host-service) for installation and updates.
+Read [Install and update](operator/install-and-update.md) for installation and updates.
 
 ## Signing
 
-Release packages build with `-tags keychain`.
 Signing requires `CODE_SIGN_IDENTITY` and `NOTARYTOOL_PROFILE`.
-Optional `AGENT_VMM_PROVISIONING_PROFILE` enables Keychain permissions and must authorize `D9AAN3VJK8.com.afk-surf.agent-vmm-host`.
-Without a profile, the signed package has only virtualization permissions. Fresh installations select file storage.
-Existing file installations keep file storage. Existing Keychain installations require a package with Keychain permissions.
-Ad-hoc development packages use file storage and carry no Keychain permissions.
+Only the Carrier has the virtualization entitlement.
+Set `AGENT_VMM_PROVISIONING_PROFILE` to grant Keychain access to the Host.
+The profile must authorize `D9AAN3VJK8.com.afk-surf.agent-vmm-host`.
+Existing Keychain installations need a package with Keychain access.
+Ad-hoc development packages use file storage.
 
 The release signer runs `build/host/test-keychain.sh` in a logged-in user session.
-Supply `OUTPUT_DIRECTORY`, `CODE_SIGN_IDENTITY`, and the same optional `AGENT_VMM_PROVISIONING_PROFILE` used for the package.
-The script checks real Keychain storage with a profile, or verifies unavailable Keychain access without one.
-Ordinary CI compiles the backend without accessing Keychain.
+Use the same signing identity and optional profile as for the Host package.
 This repository does not publish binaries or hold signing secrets.
 
 ## Third-party notices and inventories
@@ -87,4 +86,4 @@ build/guest/sbom.sh ROOTFS INVENTORY_DIRECTORY
 build/host/sbom.sh HOST_DIRECTORY HOST_INVENTORY_DIRECTORY
 ```
 
-The Guest inventory covers its root filesystem and nested OCI images, including BuildKit.
+The Guest inventory covers its root filesystem, including BuildKit.
