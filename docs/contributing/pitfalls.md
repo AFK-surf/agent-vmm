@@ -84,6 +84,10 @@ Its sixteen-namespace fixture is not a product capacity limit.
 
 ## Filesystems and quota
 
+`CreateVolumeRequest` has no size field. A sparse volume can have a logical limit equal to the full Scope disk quota.
+For admission, sum the actual bytes used by all named volumes and root overlays in the Scope.
+Keep measured usage even when the total exceeds the quota.
+
 Linux openat2 rejects `O_PATH|O_NONBLOCK` with `EINVAL`.
 Add O_NONBLOCK only to ordinary beneath descriptors.
 An O_PATH socket descriptor cannot open device contents or block.

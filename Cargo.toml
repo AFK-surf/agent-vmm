@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/agent-vmm-proto",
+    "crates/vmm-core",
     "crates/vmm-l4hctl",
     "data/agent-vmm-data",
     "data/agent-vmm-data/netdev-compat",
