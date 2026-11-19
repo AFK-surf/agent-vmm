@@ -1,5 +1,7 @@
 #![allow(clippy::large_enum_variant)]
 
+pub const FILE_DESCRIPTOR_SET: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/agent-vmm.bin"));
+
 pub mod appliance {
     pub mod v1 {
         tonic::include_proto!("agentvmm.appliance.v1");

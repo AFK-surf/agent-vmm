@@ -73,7 +73,6 @@ impl Core {
             if !current(db, binding)? {
                 return Err(Error::Fenced);
             }
-            let data = encode(binding)?;
             let row: Option<(i64, String, String)> = db
                 .query_row(
                     "SELECT revision,binding,phase FROM routes WHERE id=? AND phase!='revoked'",
@@ -82,14 +81,14 @@ impl Core {
                 )
                 .optional()?;
             let (revision, applied) = if let Some((rev, prior, phase)) = row {
-                if data != prior || phase == "revoking" {
+                if phase == "revoking" || decode::<RouteBinding>(&prior)? != *binding {
                     return Err(Error::Conflict("route already bound"));
                 }
                 (rev, phase == "active")
             } else {
                 db.execute(
                     "INSERT INTO routes(id,binding,phase) VALUES(?,?,'binding')",
-                    params![binding.id, data],
+                    params![binding.id, encode(binding)?],
                 )?;
                 (db.last_insert_rowid(), false)
             };

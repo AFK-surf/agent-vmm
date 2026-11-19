@@ -25,7 +25,7 @@ pub(crate) fn load_scope(db: &Connection, id: &str) -> Result<Scope> {
     decode(&data)
 }
 
-fn registration(db: &Connection, id: &str) -> Result<Registration> {
+pub(crate) fn registration(db: &Connection, id: &str) -> Result<Registration> {
     db.query_row(
         "SELECT id,epoch,connected,draining FROM registrations WHERE id=?",
         [id],
@@ -44,7 +44,7 @@ pub(crate) fn registration_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result
     })
 }
 
-fn authorize(db: &Connection, origin: &Origin, command: Option<&Channel>) -> Result<()> {
+pub(crate) fn authorize(db: &Connection, origin: &Origin, command: Option<&Channel>) -> Result<()> {
     match (origin, command) {
         (Origin::Local, None) => Ok(()),
         (Origin::Remote { registration_id }, Some(channel))
@@ -96,6 +96,70 @@ fn insert_scope(db: &Connection, scope: &Scope, channel: Option<&Channel>) -> Re
         params![scope.id, registration_id, encode(scope)?],
     )?;
     Ok(())
+}
+
+pub(crate) fn ensure_scope(
+    db: &Connection,
+    desired: &Scope,
+    channel: Option<&Channel>,
+) -> Result<Scope> {
+    let current = match load_scope(db, &desired.id) {
+        Ok(scope) => scope,
+        Err(Error::Missing(_)) => {
+            insert_scope(db, desired, channel)?;
+            return Ok(desired.clone());
+        }
+        Err(error) => return Err(error),
+    };
+    if current.origin != desired.origin || current.generation != desired.generation {
+        return Err(Error::Fenced);
+    }
+    authorize(db, &current.origin, channel)?;
+    validate_policy(desired)?;
+    if desired.revision < current.revision || current.state != ScopeState::Active {
+        return Ok(current);
+    }
+    let updated = Scope {
+        state: current.state.clone(),
+        ..desired.clone()
+    };
+    if updated != current {
+        if updated.limits.disk_quota_bytes < current.limits.disk_quota_bytes {
+            crate::storage::check_quota(db, &updated, 0, 0)?;
+        }
+        db.execute(
+            "UPDATE scopes SET data=? WHERE id=?",
+            params![encode(&updated)?, updated.id],
+        )?;
+    }
+    Ok(updated)
+}
+
+pub(crate) fn issue_session(
+    db: &Connection,
+    scope_id: &str,
+    channel: Option<&Channel>,
+) -> Result<(Session, [u8; 16])> {
+    let scope = load_scope(db, scope_id)?;
+    authorize(db, &scope.origin, channel)?;
+    if !matches!(scope.state, ScopeState::Active | ScopeState::Draining) {
+        return Err(Error::Draining);
+    }
+    db.execute(
+        "UPDATE sessions SET revoked=1 WHERE scope=? AND revoked=0",
+        [scope_id],
+    )?;
+    let token = Uuid::new_v4().into_bytes();
+    let session = Session {
+        id: Uuid::new_v4().to_string(),
+        scope_id: scope_id.into(),
+        capability_hash: Sha256::digest(token).into(),
+    };
+    db.execute(
+        "INSERT INTO sessions(id,scope,capability) VALUES(?,?,?)",
+        params![session.id, session.scope_id, session.capability_hash],
+    )?;
+    Ok((session, token))
 }
 
 impl Store {
@@ -156,38 +220,7 @@ impl Store {
     /// Reconcile policy on an active scope. An old revision or a scope leaving
     /// service returns its current record; lifecycle transitions have their own authority.
     pub fn ensure_scope(&self, desired: &Scope, channel: Option<&Channel>) -> Result<Scope> {
-        self.write(|db| {
-            let current = match load_scope(db, &desired.id) {
-                Ok(scope) => scope,
-                Err(Error::Missing(_)) => {
-                    insert_scope(db, desired, channel)?;
-                    return Ok(desired.clone());
-                }
-                Err(error) => return Err(error),
-            };
-            if current.origin != desired.origin || current.generation != desired.generation {
-                return Err(Error::Fenced);
-            }
-            authorize(db, &current.origin, channel)?;
-            validate_policy(desired)?;
-            if desired.revision < current.revision || current.state != ScopeState::Active {
-                return Ok(current);
-            }
-            let updated = Scope {
-                state: current.state.clone(),
-                ..desired.clone()
-            };
-            if updated != current {
-                if updated.limits.disk_quota_bytes < current.limits.disk_quota_bytes {
-                    crate::storage::check_quota(db, &updated, 0, 0)?;
-                }
-                db.execute(
-                    "UPDATE scopes SET data=? WHERE id=?",
-                    params![encode(&updated)?, updated.id],
-                )?;
-            }
-            Ok(updated)
-        })
+        self.write(|db| ensure_scope(db, desired, channel))
     }
 
     pub fn scope(&self, id: &str) -> Result<Scope> {
@@ -261,28 +294,7 @@ impl Store {
         scope_id: &str,
         channel: Option<&Channel>,
     ) -> Result<(Session, [u8; 16])> {
-        self.write(|db| {
-            let scope = load_scope(db, scope_id)?;
-            authorize(db, &scope.origin, channel)?;
-            if !matches!(scope.state, ScopeState::Active | ScopeState::Draining) {
-                return Err(Error::Draining);
-            }
-            db.execute(
-                "UPDATE sessions SET revoked=1 WHERE scope=? AND revoked=0",
-                [scope_id],
-            )?;
-            let token = Uuid::new_v4().into_bytes();
-            let session = Session {
-                id: Uuid::new_v4().to_string(),
-                scope_id: scope_id.into(),
-                capability_hash: Sha256::digest(token).into(),
-            };
-            db.execute(
-                "INSERT INTO sessions(id,scope,capability) VALUES(?,?,?)",
-                params![session.id, session.scope_id, session.capability_hash],
-            )?;
-            Ok((session, token))
-        })
+        self.write(|db| issue_session(db, scope_id, channel))
     }
     pub fn authenticate_session(&self, id: &str, token: &[u8]) -> Result<Session> {
         let hash: Digest = Sha256::digest(token).into();

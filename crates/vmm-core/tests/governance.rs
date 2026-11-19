@@ -65,6 +65,10 @@ fn replacement_epoch_fences_commands_without_revoking_accepted_scope_or_session(
         store.accept_command(&new, "alloc", u64::MAX),
         Err(Error::Fenced)
     ));
+    let offline = store.operator_remote_allocation("alloc").unwrap();
+    assert_eq!(offline.allocation_id, "alloc");
+    assert_eq!(offline.scope, scope);
+    assert!(offline.display_label.is_empty());
     let latest = store.connect("reg", u64::MAX).unwrap();
     store
         .transition_scope("alloc", 1, ScopeState::Draining, Some(&latest))
@@ -78,6 +82,14 @@ fn replacement_epoch_fences_commands_without_revoking_accepted_scope_or_session(
     store
         .transition_scope("alloc", 2, ScopeState::Retained, Some(&latest))
         .unwrap();
+    assert_eq!(
+        store
+            .operator_remote_allocation("alloc")
+            .unwrap()
+            .scope
+            .state,
+        ScopeState::Retained
+    );
     assert!(matches!(
         store.authenticate_session(&replacement.id, &new_token),
         Err(Error::Fenced)
@@ -93,6 +105,27 @@ fn replacement_epoch_fences_commands_without_revoking_accepted_scope_or_session(
             .revision,
         4
     );
+    store.disconnect(&latest).unwrap();
+    assert_eq!(
+        store
+            .operator_remote_allocation("alloc")
+            .unwrap()
+            .scope
+            .state,
+        ScopeState::Released
+    );
+    let local = Scope {
+        id: "local".into(),
+        origin: Origin::Local,
+        ..scope
+    };
+    store.create_scope(&local, None).unwrap();
+    for id in ["local", "missing"] {
+        assert!(matches!(
+            store.operator_remote_allocation(id),
+            Err(Error::Missing("allocation"))
+        ));
+    }
 }
 
 #[test]

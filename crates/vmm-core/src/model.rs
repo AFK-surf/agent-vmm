@@ -6,6 +6,7 @@ pub type Digest = [u8; 32];
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CapacityDimension {
     ComputeSlots,
+    Pids,
     StorageHeadroom,
 }
 
@@ -13,6 +14,7 @@ impl CapacityDimension {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::ComputeSlots => "CAPACITY_DIMENSION_COMPUTE_SLOTS",
+            Self::Pids => "CAPACITY_DIMENSION_PIDS",
             Self::StorageHeadroom => "CAPACITY_DIMENSION_STORAGE_HEADROOM",
         }
     }
@@ -181,6 +183,8 @@ pub struct SandboxDefinition {
     pub manifest_digest: Digest,
     pub read_only_root: bool,
     pub root_overlay: Option<RootOverlay>,
+    #[serde(default)]
+    pub pids_max: Option<u64>,
     pub mounts: Vec<Mount>,
     pub host_shares: Vec<HostShareMount>,
     /// None inherits the image setting; Some(empty) explicitly clears it.
@@ -254,6 +258,8 @@ pub struct RouteBinding {
     pub source: BootIdentity,
     pub export: ServiceExport,
     pub vip: Ipv4Addr,
+    #[serde(default)]
+    pub virtual_service_name: String,
 }
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ServiceRoute {

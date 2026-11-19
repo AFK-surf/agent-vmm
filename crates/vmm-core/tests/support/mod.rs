@@ -69,6 +69,7 @@ impl Fixture {
                 quota_bytes: 128,
                 used_bytes: 0,
             }),
+            pids_max: None,
             mounts: vec![Mount {
                 volume_id: "data".into(),
                 guest_path: "/data".into(),

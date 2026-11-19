@@ -48,6 +48,14 @@ pub struct Reconciliation {
     pub unowned: Vec<VMIncarnation>,
 }
 
+fn validate_sandbox_pids(definition: &SandboxDefinition, scope: &Scope) -> Result<()> {
+    match definition.pids_max {
+        Some(0) => Err(Error::Invalid("sandbox pids")),
+        Some(pids) if pids > scope.limits.pids_max => Err(Error::Capacity(CapacityDimension::Pids)),
+        _ => Ok(()),
+    }
+}
+
 impl Core {
     pub async fn define_sandbox(&self, definition: &SandboxDefinition) -> Result<()> {
         let _guard = self.store.effects.lock().await;
@@ -59,6 +67,7 @@ impl Core {
         }
         self.store.write(|db| {
             let scope = active(db, &key.scope_id)?;
+            validate_sandbox_pids(definition, &scope)?;
             let bound: bool = db.query_row(
                 "SELECT EXISTS(SELECT 1 FROM image_refs WHERE scope=? AND digest=?)",
                 params![key.scope_id, definition.manifest_digest],
@@ -118,6 +127,7 @@ impl Core {
             if !matches!(scope.state, ScopeState::Active | ScopeState::Draining) {
                 return Err(Error::Draining);
             }
+            validate_sandbox_pids(&sb.definition, &scope)?;
             let conflict: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM mounts wanted JOIN mounts owner
                 ON (owner.scope,owner.volume)=(wanted.scope,wanted.volume)
                 JOIN sandboxes live ON (live.scope,live.id,live.generation)=(owner.scope,owner.sandbox,owner.generation)

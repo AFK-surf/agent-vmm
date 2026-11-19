@@ -5,14 +5,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let directory = format!("{api}/{package}/v1");
         for entry in std::fs::read_dir(&directory)? {
             let path = entry?.path();
-            if path.extension().is_some_and(|extension| extension == "proto") {
+            if path
+                .extension()
+                .is_some_and(|extension| extension == "proto")
+            {
                 protos.push(path);
             }
         }
         println!("cargo:rerun-if-changed={directory}");
     }
     protos.sort();
+    let descriptor = std::path::PathBuf::from(std::env::var("OUT_DIR")?).join("agent-vmm.bin");
     tonic_prost_build::configure()
+        .file_descriptor_set_path(descriptor)
         .extern_path(".google.rpc", "crate::google::rpc")
         // The RemoteController RPC is itself named `Connect`, so omit tonic's
         // transport convenience constructor while retaining typed RPC clients.

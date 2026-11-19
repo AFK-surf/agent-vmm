@@ -5,6 +5,7 @@ mod lifecycle;
 mod list;
 mod model;
 mod receipt;
+mod remote;
 mod route;
 mod storage;
 mod store;
@@ -12,6 +13,7 @@ mod store;
 pub use lifecycle::Reconciliation;
 pub use model::*;
 pub use receipt::*;
+pub use remote::{RemoteAllocation, RemoteInventory, RemoteScopePolicy};
 pub use store::Store;
 
 use backend::Dom0Backend;

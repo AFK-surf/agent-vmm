@@ -107,6 +107,25 @@ impl Store {
         })
     }
 
+    /// Restart an operation whose caller has reconciled or can safely resume its effects.
+    pub fn resume_operation(&self, key: RequestKey<'_>, request: &[u8]) -> Result<()> {
+        let fingerprint: Digest = Sha256::digest(request).into();
+        self.write(|db| {
+            let receipt = read_receipt(db, key)?.ok_or(Error::Missing("receipt"))?;
+            if receipt.fingerprint != Some(fingerprint) {
+                return Err(Error::Conflict("request fingerprint"));
+            }
+            if !matches!(receipt.state, ReceiptState::Retryable | ReceiptState::Interrupted) {
+                return Err(Error::Conflict("operation cannot be resumed"));
+            }
+            db.execute(
+                "UPDATE receipts SET state='running',response=X'' WHERE domain=? AND scope=? AND request=?",
+                key.parts(),
+            )?;
+            Ok(())
+        })
+    }
+
     pub fn finish_operation(
         &self,
         key: RequestKey<'_>,

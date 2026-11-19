@@ -54,8 +54,11 @@ impl Store {
                 }
                 tx.execute_batch(include_str!("schema.sql"))?;
             }
-            (0x564d4d43, 1) => (),
+            (0x564d4d43, 1 | 2) => (),
             _ => return Err(Error::Conflict("unsupported database schema")),
+        }
+        if version < 2 {
+            tx.execute_batch(include_str!("remote_schema.sql"))?;
         }
         tx.execute("UPDATE registrations SET connected=0 WHERE connected=1", [])?;
         // A previous host cannot publish a terminal reply after ownership changes.

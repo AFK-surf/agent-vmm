@@ -303,6 +303,42 @@ async fn capacity_and_interrupted_start_preserve_identity_and_locks() {
 }
 
 #[tokio::test]
+async fn sandbox_pids_must_fit_the_current_scope_at_definition_and_start() {
+    let f = Fixture::new();
+    f.provision("one").await;
+    let mut scope = f.core.store.scope("one").unwrap();
+    let mut definition = Fixture::definition("one", "vm", AccessMode::ReadOnly);
+    definition.pids_max = Some(0);
+    assert!(matches!(
+        f.core.define_sandbox(&definition).await,
+        Err(Error::Invalid("sandbox pids"))
+    ));
+    definition.pids_max = Some(scope.limits.pids_max + 1);
+    assert!(matches!(
+        f.core.define_sandbox(&definition).await,
+        Err(Error::Capacity(CapacityDimension::Pids))
+    ));
+    definition.pids_max = Some(scope.limits.pids_max);
+    f.core.define_sandbox(&definition).await.unwrap();
+    assert_eq!(
+        f.core.store.sandbox(&definition.key).unwrap().definition,
+        definition
+    );
+
+    scope.limits.pids_max -= 1;
+    scope.revision += 1;
+    f.core.store.ensure_scope(&scope, None).unwrap();
+    assert!(matches!(
+        f.core.start(&definition.key).await,
+        Err(Error::Capacity(CapacityDimension::Pids))
+    ));
+    assert_eq!(
+        f.core.store.sandbox(&definition.key).unwrap().state,
+        SandboxState::Defined
+    );
+}
+
+#[tokio::test]
 async fn routes_replay_exact_revision_and_reject_stale_or_unverified_endpoints() {
     let f = Fixture::new();
     f.provision("one").await;
@@ -315,18 +351,29 @@ async fn routes_replay_exact_revision_and_reject_stale_or_unverified_endpoints()
         port: 80,
     };
     f.core.publish_export(&export).await.unwrap();
-    let binding = RouteBinding {
+    let mut binding = RouteBinding {
         id: "route".into(),
         source: vm.boot.clone(),
         export,
         vip: [192, 0, 2, 1].into(),
+        virtual_service_name: String::new(),
     };
     let first = f.core.bind_route(&binding).await.unwrap();
     assert!(first.revision > 0);
+    {
+        let db = rusqlite::Connection::open(f.directory.path().join("host.db")).unwrap();
+        db.busy_timeout(std::time::Duration::from_secs(5)).unwrap();
+        db.execute(
+            "UPDATE routes SET binding=json_remove(binding,'$.virtual_service_name') WHERE revision=?",
+            [first.revision],
+        ).unwrap();
+    }
     assert_eq!(first, f.core.bind_route(&binding).await.unwrap());
     f.core.revoke_route("route", first.revision).await.unwrap();
+    binding.virtual_service_name = "web.internal".into();
     let second = f.core.bind_route(&binding).await.unwrap();
     assert!(second.revision > first.revision);
+    assert_eq!(second.binding.virtual_service_name, "web.internal");
     assert!(matches!(
         f.core.revoke_route("route", first.revision).await,
         Err(Error::Fenced)
