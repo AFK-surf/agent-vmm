@@ -120,7 +120,24 @@ impl LocalOperator {
             error: err.message().to_owned(),
             ..Default::default()
         });
-        let (state, reason) = match &self.backend {
+        let (state, reason) = self.backend_health(&vm).await;
+        Ok(h::GetSystemHealthSummaryResponse {
+            collected_at: now,
+            health: Some(h::HealthStatus {
+                state: state as i32,
+                components: vec![h::ComponentHealth {
+                    component: "dom0".into(),
+                    state: state as i32,
+                    reason: reason.into(),
+                    observed_at: now,
+                }],
+            }),
+            vm: Some(vm),
+            ..Default::default()
+        })
+    }
+    async fn backend_health<'a>(&self, vm: &'a h::Vm) -> (h::HealthState, &'a str) {
+        match &self.backend {
             _ if vm.state() != h::VmState::Running => (
                 h::HealthState::Unavailable,
                 if vm.error.is_empty() {
@@ -138,22 +155,19 @@ impl LocalOperator {
                     _ => (h::HealthState::Degraded, "backend observation unavailable"),
                 }
             }
-        };
-        Ok(h::GetSystemHealthSummaryResponse {
-            collected_at: now,
-            health: Some(h::HealthStatus {
-                state: state as i32,
-                components: vec![h::ComponentHealth {
-                    component: "dom0".into(),
-                    state: state as i32,
-                    reason: reason.into(),
-                    observed_at: now,
-                }],
-            }),
-            vm: Some(vm),
-            ..Default::default()
-        })
+        }
     }
+
+    pub async fn remote_observation(&self) -> (h::HealthState, Option<DiskSample>, bool) {
+        let configured = self.disk_sample.is_some();
+        let Ok(vm) = self.snapshot().await else {
+            return (h::HealthState::Unavailable, None, configured);
+        };
+        let ((health, _), disk) =
+            tokio::join!(self.backend_health(&vm), self.sample_disk(vm.state()));
+        (health, disk, configured)
+    }
+
     async fn environments(
         &self,
         req: h::ListLocalEnvironmentPageRequest,
@@ -198,7 +212,13 @@ impl LocalOperator {
             .snapshot()
             .await
             .map_or(h::VmState::Stopped, |vm| vm.state());
-        let sample = if vm_state == h::VmState::Running
+        Ok(self
+            .inventory
+            .disk(vm_state, self.sample_disk(vm_state).await))
+    }
+
+    async fn sample_disk(&self, vm_state: h::VmState) -> Option<DiskSample> {
+        if vm_state == h::VmState::Running
             && let Some(sample) = self.disk_sample.clone()
         {
             tokio::time::timeout(
@@ -211,8 +231,7 @@ impl LocalOperator {
             .and_then(Result::ok)
         } else {
             None
-        };
-        Ok(self.inventory.disk(vm_state, sample))
+        }
     }
     fn mcp(&self) -> Result<Arc<super::McpManagement>, Status> {
         self.mcp

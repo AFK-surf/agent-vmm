@@ -23,6 +23,7 @@ pub mod carrier;
 mod guest;
 
 mod entry;
+mod observation;
 pub use entry::main_from_args;
 
 pub mod tunnel;

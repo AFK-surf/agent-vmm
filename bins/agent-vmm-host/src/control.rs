@@ -113,7 +113,7 @@ impl ControlListener {
 /// Expose the backend and API readiness independently during host startup.
 pub async fn serve_local(
     path: &Path,
-    api: vmm_compat::operator::LocalOperator,
+    api: impl Into<Arc<vmm_compat::operator::LocalOperator>>,
     core: Option<vmm_core::Core>,
     shutdown: impl Future<Output = ()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
@@ -138,7 +138,7 @@ pub async fn serve_local(
             .set_service_status(name, tonic_health::ServingStatus::NotServing)
             .await;
     }
-    let api = Arc::new(api);
+    let api = api.into();
     let (stop, stopped) = tokio::sync::oneshot::channel();
     let server = Server::builder()
         .max_concurrent_streams(128)
@@ -206,11 +206,15 @@ pub(crate) async fn serve_online(
         trust: None,
         budgets: Default::default(),
     };
+    let api = Arc::new(api);
+    let (observations, latest) =
+        tokio::sync::watch::channel(crate::observation::sample(&api).await);
     registrations.enable_connectors(
         core.clone(),
         defaults,
         send,
         node.as_ref().map(|n| n.observations()),
+        Arc::new(move || latest.borrow().clone()),
     )?;
     let (stop, mut operator_stop) = tokio::sync::watch::channel(false);
     let mut mcp_stop = stop.subscribe();
@@ -221,7 +225,7 @@ pub(crate) async fn serve_online(
     let tunnel = crate::tunnel::serve(core.store.clone(), runtime, recv, async move {
         let _ = tunnel_stop.changed().await;
     });
-    let operator = serve_local(path, api, Some(core), async move {
+    let operator = serve_local(path, api.clone(), Some(core), async move {
         let _ = operator_stop.changed().await;
     });
     let mut data_stop = stop.subscribe();
@@ -233,10 +237,22 @@ pub(crate) async fn serve_online(
         }
         Ok(())
     };
+    let mut observation_stop = stop.subscribe();
+    let refresh = async {
+        tokio::select! {
+            _ = observation_stop.changed() => {},
+            _ = crate::observation::refresh(&api, observations) => {},
+        }
+        Ok(())
+    };
     let servers = async {
-        tokio::try_join!(operator, data, async { Ok(tunnel.await?) }, async {
-            Ok(mcp.await?)
-        })?;
+        tokio::try_join!(
+            operator,
+            data,
+            refresh,
+            async { Ok(tunnel.await?) },
+            async { Ok(mcp.await?) }
+        )?;
         Ok(())
     };
     tokio::pin!(servers);

@@ -32,7 +32,7 @@ pub struct ConnectorConfig {
     pub observe: Option<Arc<dyn Fn() -> Observation + Send + Sync>>,
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Observation {
     pub health: Option<remote::RemoteObservationHealth>,
     pub usage: Option<remote::RemoteObservationUsage>,

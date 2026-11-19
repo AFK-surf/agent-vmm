@@ -124,26 +124,29 @@ fn dispatch(context: &Context, command: &str, rest: &[String], input: &mut dyn R
         }
         _ => {}
     }
-    let mut paths = platform::lifecycle_paths(context, &request)?;
     match command {
         "install-operation-ack" => Err(err("upgrade_required: installation handoff was replaced by registration claim")),
-        "registration-claim" | "registration-recover" => register(context, &mut paths, command, args::parse_install("registration-claim", &arguments)?, input),
+        "registration-claim" | "registration-recover" => register(context, &request, command, args::parse_install("registration-claim", &arguments)?, input),
         "install" | "host-repair" | "repair" => {
             let kind = if command == "install" { "install" } else { "repair" };
             let parsed = args::parse_install(kind, &arguments)?;
             if parsed.descriptor_stdin {
                 // The Comma installer gives the registration with the installation.
-                return register(context, &mut paths, "registration-claim", parsed, input);
+                return register(context, &request, "registration-claim", parsed, input);
             }
+            let paths = platform::lifecycle_paths(context, &request)?;
             install(context, &paths, kind, parsed)
         }
         "drain" => {
-            let request = Request::new("drain", &args::parse_request_id(&arguments)?);
+            let request_id = args::parse_request_id(&arguments)?;
+            let paths = platform::lifecycle_paths(context, &request)?;
+            let request = Request::new("drain", &request_id);
             Reply::receipt(operation::run(context, &paths, request, &mut || platform::drain_service(context, &paths, Deadline::after(HOST_STOP_TIMEOUT))))
         }
-        "host-update" | "update" => update(context, &paths, &arguments, input),
+        "host-update" | "update" => update(context, &request, &arguments, input),
         "registration-remove" | "registration-revoke" => {
             let parsed = args::parse_registration_state(&arguments, Some(RemoteRegistrationState::Draining))?;
+            let paths = platform::lifecycle_paths(context, &request)?;
             let request_id = or_new(parsed.request_id);
             let request = Request::retryable("registration-remove", &request_id, &parsed.registration_id);
             Reply::receipt(operation::run(context, &paths, request, &mut || {
@@ -157,6 +160,7 @@ fn dispatch(context: &Context, command: &str, rest: &[String], input: &mut dyn R
                 _ => None,
             };
             let parsed = args::parse_registration_state(&arguments, fixed)?;
+            let paths = platform::lifecycle_paths(context, &request)?;
             let request_id = or_new(parsed.request_id);
             let kind = if fixed.is_some() { command.to_string() } else { format!("registration-{}", parsed.state.as_str_name()) };
             let request = Request::retryable(&kind, &request_id, &parsed.registration_id);
@@ -166,6 +170,7 @@ fn dispatch(context: &Context, command: &str, rest: &[String], input: &mut dyn R
         }
         "uninstall" => {
             let (purge, request_id) = args::parse_uninstall(&arguments)?;
+            let paths = platform::lifecycle_paths(context, &request)?;
             let request = Request::new("remove", &request_id);
             Reply::receipt(operation::run(context, &paths, request, &mut || platform::remove_service(context, &paths, purge, Deadline::after(HOST_STOP_TIMEOUT))))
         }
@@ -194,23 +199,28 @@ fn local_operator(context: &Context, command: &str, request: &ServiceRequest, ar
     })
 }
 
-fn register(context: &Context, paths: &mut Paths, command: &str, parsed: InstallArgs, input: &mut dyn Read) -> Result<Reply> {
+fn register(context: &Context, service: &ServiceRequest, command: &str, parsed: InstallArgs, input: &mut dyn Read) -> Result<Reply> {
     if parsed.request_id.is_empty() {
         return Err(err("registration-claim requires --request-id"));
     }
-    let authorization = match (command, parsed.descriptor_stdin) {
+    let provided = match (command, parsed.descriptor_stdin) {
         ("registration-recover", false) => return Err(err("registration-recover requires fresh authorization on stdin")),
-        ("registration-recover", true) => Authorization::Recovery(RecoveryDescriptor::decode(&read_input(input, RECOVERY_DESCRIPTOR_LIMIT)?)?),
-        (_, true) => Authorization::Claim(ClaimDescriptor::decode(&read_input(input, CLAIM_DESCRIPTOR_LIMIT)?)?),
-        (_, false) => Authorization::saved(context, paths, &parsed.request_id)?,
+        ("registration-recover", true) => Some(Authorization::Recovery(RecoveryDescriptor::decode(&read_input(input, RECOVERY_DESCRIPTOR_LIMIT)?)?)),
+        (_, true) => Some(Authorization::Claim(ClaimDescriptor::decode(&read_input(input, CLAIM_DESCRIPTOR_LIMIT)?)?)),
+        (_, false) => None,
+    };
+    let mut paths = platform::lifecycle_paths(context, service)?;
+    let authorization = match provided {
+        Some(authorization) => authorization,
+        None => Authorization::saved(context, &paths, &parsed.request_id)?,
     };
     let registration_id = authorization.registration_id().to_string();
     // A recovery of a historical request continues that request and names this one as its correlation.
-    let request_id = registration::original_request_id(context, paths, &registration_id, &parsed.request_id, command)?;
+    let request_id = registration::original_request_id(context, &paths, &registration_id, &parsed.request_id, command)?;
     if request_id != parsed.request_id {
         paths.correlation_request_id = Some(parsed.request_id.clone());
     }
-    let paths = &*paths;
+    let paths = &paths;
     let mut registrar = Registrar::new(context, paths, authorization);
     let request = Request::retryable(command, &request_id, &registration_id);
     Reply::receipt(operation::run(context, paths, request, &mut || registrar.run(command, &request_id, parsed.disable_pairing)))
@@ -232,9 +242,10 @@ fn install(context: &Context, paths: &Paths, kind: &str, parsed: InstallArgs) ->
     }))
 }
 
-fn update(context: &Context, paths: &Paths, arguments: &[String], input: &mut dyn Read) -> Result<Reply> {
+fn update(context: &Context, service: &ServiceRequest, arguments: &[String], input: &mut dyn Read) -> Result<Reply> {
     let parsed = args::parse_update(arguments)?;
     let preparation = parsed.preparation_failure_stdin.then(|| args::decode_preparation_failure(&read_input(input, 4096)?)).transpose()?;
+    let paths = &platform::lifecycle_paths(context, service)?;
     let request = Request {
         release_id: parsed.target_release_id.clone(),
         artifact_sha256: parsed.artifact_sha256.clone(),

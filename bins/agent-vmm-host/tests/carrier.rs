@@ -190,3 +190,6 @@ async fn host_process_drives_carrier_and_adopts_its_running_boot() {
     carrier.await.unwrap().unwrap();
     daemon.abort();
 }
+
+#[path = "carrier/observation.rs"]
+mod observation;

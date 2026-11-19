@@ -133,3 +133,19 @@ fn the_invocations_of_comma_are_accepted() {
     }
     assert!(checked >= 30, "only {checked} invocations were checked");
 }
+
+#[test]
+fn root_rejects_invalid_commands_before_system_setup() {
+    let mut fake = Fake::new();
+    std::sync::Arc::get_mut(&mut fake).unwrap().euid = 0;
+    for arguments in [vec!["install", "--unknown-flag"], vec!["unknown-command"], vec!["install-operation-ack"]] {
+        let arguments: Vec<_> = arguments.into_iter().map(String::from).collect();
+        let mut diagnostics = Vec::new();
+        assert_eq!(run(&fake.context(), &arguments, &mut std::io::empty(), &mut Vec::new(), &mut diagnostics), 1);
+        assert!(fake.commands.lock().unwrap().is_empty(), "{arguments:?} invoked a system command");
+        #[cfg(target_os = "linux")]
+        if arguments[0] == "install" {
+            assert!(String::from_utf8_lossy(&diagnostics).contains("install and repair accept"));
+        }
+    }
+}

@@ -41,5 +41,6 @@ security-framework-sys = { version = "2.17", features = ["OSX_10_15"] }
 security-framework = { version = "3.7", features = ["OSX_10_15"] }
 
 [dev-dependencies]
+tonic = { version = "0.14", features = ["tls-ring"] }
 rcgen = "0.14"
 vmm-l4hctl = { path = "../../crates/vmm-l4hctl" }

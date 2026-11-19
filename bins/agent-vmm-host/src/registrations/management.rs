@@ -12,6 +12,7 @@ use vmm_remote_salix::{Connector, ConnectorConfig, Gateway, RuntimeSession};
 use zeroize::Zeroizing;
 
 pub(super) struct ConnectorRuntime {
+    observe: Arc<dyn Fn() -> vmm_remote_salix::Observation + Send + Sync>,
     core: Core,
     shape: Limits,
     sessions: mpsc::Sender<RuntimeSession>,
@@ -86,7 +87,7 @@ impl ExternalRegistrations {
                 connection: config,
                 scope_defaults: runtime.shape.clone(),
                 runtime: runtime.sessions.clone(),
-                observe: None,
+                observe: Some(runtime.observe.clone()),
             },
         );
         if let Some(endpoint) = runtime.endpoint.clone() {
@@ -106,6 +107,7 @@ impl ExternalRegistrations {
         endpoint: Option<
             tokio::sync::watch::Receiver<agent_vmm_proto::trust::v1::EndpointObservation>,
         >,
+        observe: Arc<dyn Fn() -> vmm_remote_salix::Observation + Send + Sync>,
     ) -> Result<(), Status> {
         let mut state = self.lock()?;
         state.runtime = Some(ConnectorRuntime {
@@ -113,6 +115,7 @@ impl ExternalRegistrations {
             shape,
             sessions,
             endpoint,
+            observe,
         });
         let mut cursor = None;
         loop {
