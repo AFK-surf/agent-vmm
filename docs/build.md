@@ -50,7 +50,7 @@ Build a Linux arm64 data worker before packaging:
 cargo build --release --locked --target aarch64-unknown-linux-gnu \
   --manifest-path data/agent-vmm-data/Cargo.toml
 AGENT_VMM_GUEST_BUNDLE=GUEST_DIRECTORY \
-  AGENT_VMM_DATA_WORKER=data/agent-vmm-data/target/aarch64-unknown-linux-gnu/release/agent-vmm-data \
+  AGENT_VMM_DATA_WORKER=target/aarch64-unknown-linux-gnu/release/agent-vmm-data \
   OUTPUT_DIRECTORY=HOST_DIRECTORY build/host-linux/package.sh
 ```
 

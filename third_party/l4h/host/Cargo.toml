@@ -1,0 +1,37 @@
+[workspace]
+resolver = "2"
+members = ["l4h-abi", "l4h-partition", "l4h-host", "l4h-ipc", "l4h-task", "l4h-rt", "l4h-root", "l4h-vmmgr", "l4h-vmm", "l4h-blkd", "l4h-netd", "l4h-netcore", "l4h-nicdrv", "l4h-nicd-virtio", "l4h-nicd-gvnic", "l4h-nicd-ena", "l4h-nicd-ixgbe", "l4h-nicd-e1000e", "l4h-nicd-mlx5", "l4h-nicd-r8125", "l4h-trustd", "l4h-memd", "l4h-logd", "l4h-usbd", "l4h-virtio"]
+default-members = ["l4h-root"]
+
+[workspace.package]
+edition = "2024"
+license = "GPL-2.0-only"
+version = "0.1.0"
+
+[workspace.dependencies]
+sel4 = { path = "../third_party/rust-sel4/crates/sel4" }
+sel4-root-task = { path = "../third_party/rust-sel4/crates/sel4-root-task" }
+l4h-abi = { path = "l4h-abi" }
+l4h-partition = { path = "l4h-partition" }
+sha2 = { version = "0.10", default-features = false, features = ["force-soft"] }
+
+[profile.dev]
+panic = "abort"
+opt-level = 1
+
+# Hashing guest images (vmmgr) and signing reports (trustd) at full speed.
+[profile.dev.package]
+sha2.opt-level = 3
+p256.opt-level = 3
+primeorder.opt-level = 3
+elliptic-curve.opt-level = 3
+crypto-bigint.opt-level = 3
+ecdsa.opt-level = 3
+
+[profile.release]
+panic = "abort"
+debug = true
+# Defence in depth (DESIGN.md §10, "Integer arithmetic"): an overflow the
+# code's own checks missed stops the component instead of wrapping past
+# a bound check.
+overflow-checks = true

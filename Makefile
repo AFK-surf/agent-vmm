@@ -1,7 +1,7 @@
 PROTO_BASE_REF ?= origin/master
 GOTESTPACKAGES ?= ./...
 
-.PHONY: check fmt-check vet test tidy-check check-generated check-swift-generated e2e proto proto-docs cli-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-data-worker lint-data-worker audit-data-worker
+.PHONY: check fmt-check vet test tidy-check check-generated check-swift-generated e2e proto proto-docs cli-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
 
 check: fmt-check vet test tidy-check proto-check check-generated
 
@@ -59,11 +59,17 @@ install-bundle:
 e2e:
 	sh test/e2e/run.sh
 
+test-rust:
+	cargo test --workspace --locked
+
+lint-rust:
+	cargo clippy --workspace --locked --all-targets -- -D warnings
+
 test-data-worker:
-	cargo test --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
+	cargo test --locked --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
 
 lint-data-worker:
-	cargo clippy --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets -- -D warnings
+	cargo clippy --locked --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets -- -D warnings
 
 audit-data-worker:
-	cargo audit --file data/agent-vmm-data/Cargo.lock
+	cargo audit --file Cargo.lock

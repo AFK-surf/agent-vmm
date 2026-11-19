@@ -1,0 +1,125 @@
+# Build what l4h ships for x86_64 and keep it as workflow artifacts:
+# - the UEFI applications, one per seL4 variant plus FL4, each with its
+#   matching guest kernel and build SDK (tools/build-efi.sh);
+# - l4h-bios-x86_64.tar.xz, the same for BIOS machines (tools/mkbios.sh);
+# - l4h-debug-x86_64.tar.xz, the same build unstripped, for decoding fault
+#   addresses and computing launch digests;
+# - l4h-debug-fl4-x86_64.tar.xz, the FL4 stack unstripped and its source pin;
+# - l4h-dom0-x86_64.tar.xz, the dom0 userspace tools (tools/build-dom0.sh);
+# - l4h-attest.py, the verifier of attestation reports;
+# - l4h-manual.pdf, the user manual, showing the tag it was built for.
+# Tests run separately in test.yml; building and publishing never wait
+# for test results.
+# A pushed v* tag also publishes them, with their checksums, as a GitHub
+# release.  aarch64 has no shipped artifacts yet (DESIGN.md §11).
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  # Must match tools/source-pins.sh (cache key of the Linux tarball).
+  LINUX_VERSION: 6.18.64
+  L4H_LINUX_CC: ccache gcc
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CARGO_TERM_COLOR: always
+
+jobs:
+  x86_64:
+    name: Release artifacts (x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    container:
+      image: debian:trixie@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6
+    steps:
+      # Freeze apt inputs as well as the base image. Keep the snapshot when
+      # reproducing this revision, including the TeX and GRUB packages.
+      - name: Freeze Debian packages and install git
+        run: |
+          rm -f /etc/apt/sources.list.d/debian.sources
+          cat > /etc/apt/sources.list <<'SOURCES'
+          deb [check-valid-until=no] http://snapshot.debian.org/archive/debian/20261114T000000Z/ trixie main
+          deb [check-valid-until=no] http://snapshot.debian.org/archive/debian-security/20261114T000000Z/ trixie-security main
+          SOURCES
+          apt-get update -q
+          apt-get install -y -q --no-install-recommends git ca-certificates
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
+        with:
+          submodules: true
+          fetch-depth: 0
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: build/dl
+          key: linux-${{ env.LINUX_VERSION }}
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4
+        with:
+          path: .ccache
+          key: ccache-release-${{ github.sha }}
+          restore-keys: |
+            ccache-release-
+            ccache-x86_64-
+      - name: Set up
+        run: tools/ci-setup.sh x86_64
+      - name: Install manual build tools
+        run: |
+          apt-get install -y -q --no-install-recommends \
+              latexmk texlive-latex-recommended texlive-latex-extra texlive-pictures \
+              lmodern texlive-fonts-recommended
+      - name: Build
+        # Release builds: optimised host, no kernel assertions or debug syscalls.
+        env:
+          L4H_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: |
+          tools/build-release.sh
+      - name: Verify an independent rebuild
+        env:
+          L4H_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
+        run: tools/check-reproducible.sh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: l4h-x86_64
+          path: |
+            build/efi/l4h-*.efi
+            build/efi/l4h-*.tar.xz
+            build/efi/l4h-attest.py
+            build/efi/l4h-manual.pdf
+            build/efi/SHA256SUMS
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          apt-get install -y -q --no-install-recommends gh
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+              --title "l4h $GITHUB_REF_NAME" --generate-notes \
+              build/efi/l4h-generic.efi build/efi/l4h-xapic-nopcid.efi \
+              build/efi/l4h-skim-xapic-nopcid.efi \
+              build/efi/l4h-fl4.efi build/efi/l4h-debug-fl4-x86_64.tar.xz \
+              build/efi/l4h-bios-x86_64.tar.xz \
+              build/efi/l4h-dom0-x86_64.tar.xz build/efi/l4h-debug-x86_64.tar.xz \
+              build/efi/l4h-attest.py build/efi/l4h-manual.pdf build/efi/SHA256SUMS
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
+        with:
+          name: logs-release
+          path: |
+            build/efi/*.log
+            docs/manual/*.log
+            build/reproducibility.*/rebuild.log
+            build/reproducibility.*/source/build/efi/*.log

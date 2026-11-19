@@ -1,0 +1,675 @@
+//! blkd <-> client (l4h-vmm) block request queue.
+//!
+//! A channel is one shared region: a header, a submission ring and a
+//! completion ring of fixed-size entries.  Data is never copied here:
+//! requests carry guest-physical segments, which blkd validates against
+//! the client's I/O pool (configured by l4h-root) and translates for DMA.
+//! Guest RAM is never a DMA target.
+
+pub const MAX_SEGS: usize = 16;
+pub const RING_SIZE: usize = 128;
+/// What a client offers its guest and holds it to (l4h-vmm): at most
+/// SEG_MAX data segments in a request (virtio-blk's seg_max), each at most
+/// SEG_SIZE_MAX bytes (the largest size_max, what the guest's swiotlb maps
+/// at once).  blkd holds every client to their product, MAX_REQUEST_BYTES
+/// (3.5 MiB, DiskWindow::check_request): what a client can have in flight,
+/// and so how long its requests can keep a device busy, is bounded
+/// whatever its VMM lets through.
+pub const SEG_MAX: usize = MAX_SEGS - 2;
+pub const SEG_SIZE_MAX: u32 = 256 << 10;
+pub const MAX_REQUEST_BYTES: u64 = SEG_MAX as u64 * SEG_SIZE_MAX as u64;
+
+pub const OP_READ: u32 = 0;
+pub const OP_WRITE: u32 = 1;
+pub const OP_FLUSH: u32 = 4;
+pub const OP_DISCARD: u32 = 11;
+pub const DISCARD_RANGE_SIZE: usize = 16;
+pub const MAX_DISCARD_SECTORS: u32 = (MAX_REQUEST_BYTES / 512) as u32;
+
+pub const STATUS_OK: u32 = 0;
+pub const STATUS_IOERR: u32 = 1;
+pub const STATUS_UNSUPP: u32 = 2;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Seg {
+    pub gpa: u64,
+    pub len: u32,
+    /// SEG_WRITE: the device writes this segment (reads from the disk).
+    pub flags: u32,
+}
+
+pub const SEG_WRITE: u32 = 1;
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Req {
+    pub id: u64,
+    pub op: u32,
+    pub nr_segs: u32,
+    pub sector: u64,
+    /// For OP_DISCARD only. A discard has no data segments.
+    pub discard_sectors: u32,
+    pub segs: [Seg; MAX_SEGS],
+}
+
+impl Req {
+    fn bytes(&self) -> u64 {
+        if self.op == OP_DISCARD {
+            u64::from(self.discard_sectors) * 512
+        } else {
+            self.segs[..self.nr_segs as usize].iter().map(|s| s.len as u64).sum()
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct Resp {
+    pub id: u64,
+    pub status: u32,
+    pub reserved: u32,
+}
+
+#[repr(C)]
+pub struct Channel {
+    /// Requests: the client produces, blkd consumes; then responses.
+    /// Each side keeps its own index (crate::spsc).
+    pub sq: crate::spsc::RingIdx,
+    pub cq: crate::spsc::RingIdx,
+    /// Written by blkd before it sets `ready`.
+    pub capacity_sectors: u64,
+    pub read_only: u32,
+    pub ready: u32,
+    /// Logical block size in bytes (512 or 4096); requests must be aligned.
+    pub block_size: u32,
+    /// Written by l4h-root before `call::add`: blkd completes flushes at once
+    /// and the VMM offers the guest none (l4h_abi::BLK_VOLATILE).
+    pub volatile: u32,
+    /// Written by blkd before it sets `ready`: the data segments of a
+    /// request the device takes, 1 to SEG_MAX, which the VMM offers its
+    /// guest as seg_max.
+    pub seg_max: u32,
+    /// Maximum sectors in one discard, or zero if the device has no discard.
+    pub discard_max_sectors: u32,
+    pub reserved: [u32; 8],
+    /// Written by l4h-root before `call::add`; copied into private driver state.
+    pub lba_start: u64,
+    pub pool: Pool,
+    pub reqs: [Req; RING_SIZE],
+    pub resps: [Resp; RING_SIZE],
+}
+
+/// blkd CSpace slots (beyond the common ones).
+pub const BLKD_SLOT_IRQ: u64 = 16;
+/// I/O port capability of a legacy virtio device (BlkdConfig::legacy_io).
+pub const BLKD_SLOT_IOPORT: u64 = 17;
+/// Notification of the client, badged with its "done" bit.
+pub const BLKD_SLOT_CLIENT_DONE: u64 = 32;
+/// Attachments per disk: a node's sandboxes each take one or two windows of
+/// a disk, and read-only windows may be shared by many.
+pub const MAX_CLIENTS: usize = 512;
+pub const CHANNEL_PAGES: usize = core::mem::size_of::<Channel>().div_ceil(4096);
+pub const STAGING_SIZE: usize = 1 << 20;
+use crate::badges::driver as recv;
+use crate::errno::{EBUSY, EINVAL, ENOSPC, Errno};
+
+crate::senders! {
+    /// Who posts in the mailbox: l4h-root alone.
+    pub enum Sender in recv {
+        Root: mailbox;
+    }
+}
+
+crate::protocol! {
+    /// Root's requests to blkd (crate::mailbox, crate::wire::protocol): an
+    /// answer's first word is 0 or an errno, its value follows.  A failed
+    /// blkd answers wire::FAILED.  Label 1 is unused: blkd publishes its
+    /// units instead (Published).
+    pub mod call (from: Sender) {
+        /// Attach what `check` allowed in the slot it gave, `client`: the
+        /// channel's window (n = 0) or the n extents in staging.  blkd
+        /// checks again (Reservations::admits) and builds the client's
+        /// ExtentTable at extent_va(client).
+        Add / add = 2 from [Root] (client: usize, unit: usize, dom0: bool, n: usize) -> ();
+        /// Drain and forget a client.  EAGAIN while it still drains, for
+        /// root to ask again (blkd answers within a second, and reads the
+        /// client's channel no more); EBUSY if the device stopped
+        /// completing what it had.
+        Remove / remove = 3 from [Root] (client: usize) -> ();
+        /// Write `length` bytes of staging at `sector` of `unit`: a
+        /// STATUS_* (u64::MAX: the device failed), or the errno the range
+        /// is refused with.
+        Write / write = 4 from [Root] (sector: u64, length: usize, unit: usize) -> u64;
+        /// Flush `unit`: a STATUS_* as `write`.
+        Flush / flush = 5 from [Root] (unit: usize) -> u64;
+        /// Reserve a dom0 boot range, before anything attaches: its slot
+        /// (refused if it conflicts or no slot is left).
+        Reserve / reserve = 6 from [Root] (unit: usize, start: u64, sectors: u64, read_only: bool) -> usize;
+        /// Whether a client may attach the window `start`, `sectors` (0:
+        /// to the end) of `unit`, or with n > 0 the n extents in staging,
+        /// (start, sectors) pairs in guest order: the slot `add` must use
+        /// and the guest disk, or EINVAL, EBUSY, ENOSPC.  Changes nothing.
+        /// `dom0`: the client may claim a boot range reserved for exactly
+        /// this window, whose slot is then the answer (root asks so only
+        /// for dom0's windows, and takes that slot for nothing else).
+        Check / check = 7 from [Root] (unit: usize, start: u64, sectors: u64, read_only: bool, dom0: bool, n: usize) -> Checked;
+        /// The start and sectors of a client's kth extent in guest order.
+        Extent / extent = 8 from [Root] (client: usize, k: usize) -> (u64, u64);
+        /// Discard an unattached range of a unit: the same status as Write.
+        Discard / discard = 9 from [Root] (sector: u64, sectors: u64, unit: usize) -> u64;
+        /// `crate::TEST_INJECT` only: stop for good without failing, as a
+        /// compromised blkd might.
+        TestHang / test_hang = 0x7e58 from [Root] () -> ();
+    }
+}
+const _: () = assert!(call::Request::MAX_WORDS <= crate::mailbox::ARGS
+    && call::Request::MAX_REPLY_WORDS <= crate::mailbox::ANSWER);
+
+crate::wire_struct! {
+    /// What `check` allows: the slot, the guest disk's sectors, whether
+    /// it is read-only.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub struct Checked {
+        pub slot: usize,
+        pub sectors: u64,
+        pub read_only: bool,
+    }
+}
+
+/// What blkd publishes for root (host::mailbox::PUBLISHED_OFFSET), once it
+/// has set up the controller; it does not change after.
+#[repr(C)]
+pub struct Published {
+    /// Non-zero once the rest is written.
+    pub ready: core::sync::atomic::AtomicU64,
+    pub units: core::sync::atomic::AtomicU64,
+    pub unit: [PublishedUnit; MAX_UNITS],
+}
+
+#[repr(C)]
+pub struct PublishedUnit {
+    /// In 512-byte sectors.
+    pub capacity: core::sync::atomic::AtomicU64,
+    pub block_size: core::sync::atomic::AtomicU64,
+    pub read_only: core::sync::atomic::AtomicU64,
+    /// blkd_scsi_addr for virtio-scsi, else 0.
+    pub address: core::sync::atomic::AtomicU64,
+}
+const _: () = assert!(core::mem::size_of::<Published>() <= 4096);
+
+/// Units per controller, at most.
+pub const MAX_UNITS: usize = 16;
+
+/// A virtio-scsi unit address: target and LUN.
+pub const fn blkd_scsi_addr(target: u8, lun: u16) -> u64 {
+    target as u64 | (lun as u64) << 8
+}
+
+/// Client channels have their own range: SHARED_VA holds other mappings
+/// (e.g. the console ring 8 MiB in).
+pub const CHANNEL_VA: usize = 0x2800_0000_0000;
+pub const CHANNEL_STRIDE: usize = 0x20000;
+const _: () = assert!(CHANNEL_PAGES * 4096 <= CHANNEL_STRIDE);
+
+pub const fn channel_va(client: usize) -> usize {
+    CHANNEL_VA + client * CHANNEL_STRIDE
+}
+
+/// A virtio-pci structure: BAR-relative location, mapped by l4h-root.
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PciRegion {
+    pub va: u64,
+    pub len: u64,
+}
+
+pub const BLKD_VIRTIO: u32 = 0;
+pub const BLKD_NVME: u32 = 1;
+pub const BLKD_VIRTIO_SCSI: u32 = 2;
+pub const BLKD_AHCI: u32 = 3;
+
+/// Configuration of one persistent physical-controller driver.
+#[repr(C)]
+pub struct BlkdConfig {
+    pub kind: u32,
+    /// Legacy virtio device: base of its I/O BAR 0, reached with the
+    /// capability in BLKD_SLOT_IOPORT; 0 for a modern device.
+    pub legacy_io: u32,
+    /// Controller registers: NVMe BAR0, AHCI BAR5.
+    pub bar0: PciRegion,
+    pub pci_bdf: u32,
+    /// Controller interrupt: MSI-X entry zero, or plain MSI for AHCI.
+    pub msi_data: u32,
+    pub msi_address: u64,
+    pub common: PciRegion,
+    pub notify: PciRegion,
+    pub notify_off_multiplier: u32,
+    pub reserved0: u32,
+    pub isr: PciRegion,
+    pub device: PciRegion,
+    pub msix_table: PciRegion,
+    /// DMA memory: physically contiguous, mapped at dma_va.
+    pub dma_va: u64,
+    pub dma_paddr: u64,
+    pub dma_size: u64,
+
+}
+
+/// The data region of a client: segments must lie in its I/O pool, and are
+/// translated with one offset.  Shared with tests/fuzz-virtq.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Pool {
+    pub gpa: u64,
+    pub paddr: u64,
+    pub size: u64,
+}
+
+impl Pool {
+    /// The physical address of guest-physical [gpa, gpa + len), if it lies
+    /// in the pool (len > 0).
+    pub fn translate(&self, gpa: u64, len: u64) -> Option<u64> {
+        let off = gpa.checked_sub(self.gpa)?;
+        let end = off.checked_add(len)?;
+        if len > 0 && end <= self.size { self.paddr.checked_add(off) } else { None }
+    }
+}
+
+/// Disk windows must address whole blocks on every supported device.
+pub const WINDOW_ALIGN: u64 = 8;
+
+/// A checked, finite, 4 KiB aligned window in 512-byte sectors.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DiskWindow {
+    pub start: u64,
+    pub sectors: u64,
+}
+
+impl DiskWindow {
+    pub fn new(start: u64, sectors: u64, capacity: u64) -> Option<Self> {
+        let sectors = if sectors == 0 { capacity.checked_sub(start)? } else { sectors };
+        (start % WINDOW_ALIGN == 0 && sectors > 0 && sectors % WINDOW_ALIGN == 0
+            && start.checked_add(sectors)? <= capacity).then_some(Self { start, sectors })
+    }
+
+    /// Explicit ranges in 512-byte sectors: start:count, start:end or
+    /// start:end-N (leave N sectors at the end). Resolve against this
+    /// boot's capacity, rounding the end down to a complete block after
+    /// subtracting N. All numbers contain decimal digits only. At most
+    /// one end-relative range is allowed, after every fixed range in
+    /// physical disk order, so losing geometry cannot introduce overlaps.
+    /// Invalid input never expands a range to the rest of the disk.
+    pub fn parse_list<const N: usize>(text: &str, capacity: u64) -> Option<([Self; N], usize)> {
+        let mut windows = [Self { start: 0, sectors: 0 }; N];
+        let mut len = 0;
+        let mut end_start = None;
+        let number = |s: &str| {
+            if !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit()) { s.parse::<u64>().ok() } else { None }
+        };
+        for entry in text.split(',') {
+            if len == N { return None; }
+            let (start, sectors) = entry.split_once(':')?;
+            let start = number(start)?;
+            let relative = sectors == "end" || sectors.starts_with("end-");
+            let sectors = if relative {
+                let tail = if sectors == "end" { 0 } else { number(&sectors[4..])? };
+                (capacity.checked_sub(tail)? & !(WINDOW_ALIGN - 1)).checked_sub(start)?
+            } else {
+                number(sectors)?
+            };
+            if sectors == 0 { return None; }
+            let window = Self::new(start, sectors, capacity)?;
+            if relative {
+                if end_start.replace(start).is_some() || windows[..len].iter().any(|w| w.start + w.sectors > start) {
+                    return None;
+                }
+            } else if end_start.is_some_and(|end| window.start + window.sectors > end) {
+                return None;
+            }
+            if windows[..len].iter().any(|w| window.overlaps(*w)) { return None; }
+            windows[len] = window;
+            len += 1;
+        }
+        Some((windows, len))
+    }
+
+    pub fn overlaps(self, other: Self) -> bool {
+        self.start < other.start + other.sectors && other.start < self.start + self.sectors
+    }
+
+    /// Whether a window may not be attached next to `other`: they overlap
+    /// and either can write. Read-only windows may share sectors, e.g. one
+    /// system image used by many guests.
+    pub fn conflicts(self, read_only: bool, other: Self, other_read_only: bool) -> bool {
+        self.overlaps(other) && !(read_only && other_read_only)
+    }
+}
+
+impl DiskWindow {
+    /// Validate a snapshotted request before it reaches a hardware driver.
+    /// Both the window and pool come from l4h-root, never from the guest.
+    pub fn check_request(self, req: &Req, pool: Pool, block_size: u32, read_only: bool) -> Result<u64, u32> {
+        if req.nr_segs as usize > MAX_SEGS || !matches!(block_size, 512 | 4096) {
+            return Err(STATUS_IOERR);
+        }
+        let device_writes = match req.op {
+            OP_READ => true,
+            OP_WRITE if !read_only => false,
+            OP_DISCARD if !read_only && req.nr_segs == 0 => false,
+            OP_FLUSH if req.nr_segs == 0 => return Ok(0),
+            _ => return Err(STATUS_IOERR),
+        };
+        let segs = &req.segs[..req.nr_segs as usize];
+        let bytes = req.bytes();
+        let sector = self.start.checked_add(req.sector).ok_or(STATUS_IOERR)?;
+        if bytes == 0 || bytes > MAX_REQUEST_BYTES || bytes % block_size as u64 != 0 || sector % (block_size as u64 / 512) != 0
+            || req.sector.checked_add(bytes / 512).is_none_or(|end| end > self.sectors) {
+            return Err(STATUS_IOERR);
+        }
+        for seg in segs {
+            if seg.flags & !SEG_WRITE != 0 || (seg.flags & SEG_WRITE != 0) != device_writes
+                || pool.translate(seg.gpa, seg.len as u64).is_none() {
+                return Err(STATUS_IOERR);
+            }
+        }
+        Ok(sector)
+    }
+}
+
+/// A 4 KiB aligned physical range of a unit, in 512-byte sectors, and
+/// where it starts in its guest's disk.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Extent {
+    pub start: u64,
+    pub sectors: u64,
+    pub offset: u64,
+}
+
+impl Extent {
+    fn end(&self) -> u64 { self.start + self.sectors }
+}
+
+/// Extents of one guest disk.  LVM has no small limit: a long-lived LV
+/// that was extended many times has hundreds of segments.
+pub const MAX_EXTENTS: usize = 4096;
+/// Every extent of a disk with more than one is at least this long (4 MiB,
+/// LVM's default physical extent).  A request is at most
+/// MAX_REQUEST_BYTES, so it crosses at most one boundary.
+pub const MIN_EXTENT_SECTORS: u64 = 8192;
+const _: () = assert!(MAX_REQUEST_BYTES <= MIN_EXTENT_SECTORS * 512);
+
+/// A client's extent table, built by blkd at extent_va(client) in frames
+/// only blkd maps: the extents sorted by start, and their indices in guest
+/// order.  Only the pages holding the first n entries of each are mapped
+/// (table_pages).
+#[repr(C)]
+pub struct ExtentTable {
+    pub n: u32,
+    pub reserved: u32,
+    pub order: [u16; MAX_EXTENTS],
+    pub extents: [Extent; MAX_EXTENTS],
+}
+
+pub const EXTENT_VA: usize = 0x2c00_0000_0000;
+pub const EXTENT_STRIDE: usize = 0x20000;
+const _: () = assert!(core::mem::size_of::<ExtentTable>() <= EXTENT_STRIDE);
+
+pub const fn extent_va(client: usize) -> usize {
+    EXTENT_VA + client * EXTENT_STRIDE
+}
+
+/// The pages of an ExtentTable that hold n entries: two runs, the second
+/// starting where the first ends at the earliest.
+pub fn table_pages(n: usize) -> [core::ops::Range<usize>; 2] {
+    let order = core::mem::offset_of!(ExtentTable, order) + 2 * n;
+    let extents = core::mem::offset_of!(ExtentTable, extents);
+    let first = 0..order.div_ceil(4096);
+    let second = (extents / 4096).max(first.end)..(extents + 24 * n).div_ceil(4096);
+    [first, second]
+}
+
+/// Radix of the CNode root keeps blkd's mappings of a client's frames in
+/// (l4h-root's blkd::attach): a slot for each of `attach_pages`.
+pub const ATTACH_KEEP_BITS: usize = 10;
+
+/// The frames root makes for a client of `n` extents (0 for a window) and
+/// blkd maps: its channel, and the pages of its extent table that blkd
+/// builds (`table_pages`).
+pub fn attach_pages(n: usize) -> usize {
+    CHANNEL_PAGES + table_pages(n.max(1)).iter().map(|r| r.len()).sum::<usize>()
+}
+
+/// Up to two pieces of one request, in different extents: (device sector,
+/// bytes), and how many there are.
+pub type Pieces = ([(u64, u64); 2], usize);
+
+/// A guest disk: `extents` sorted by start, `order` their indices in guest
+/// order.  Checked with `check` before anything reads it as a disk.
+#[derive(Clone, Copy)]
+pub struct Volume<'a> {
+    pub order: &'a [u16],
+    pub extents: &'a [Extent],
+}
+
+impl<'a> Volume<'a> {
+    /// The table at `p`, with `n` entries: none beyond them is read.
+    ///
+    /// # Safety
+    /// The pages table_pages(n) of `p` are mapped and stay so for 'a.
+    pub unsafe fn at(p: *const ExtentTable, n: usize) -> Self {
+        unsafe {
+            Volume {
+                order: core::slice::from_raw_parts(core::ptr::addr_of!((*p).order).cast(), n),
+                extents: core::slice::from_raw_parts(core::ptr::addr_of!((*p).extents).cast(), n),
+            }
+        }
+    }
+
+    /// Fill `order` and `extents` (as long as `raw`) from `raw`, (start,
+    /// sectors) in guest order, and check them against a unit of `capacity`
+    /// sectors.  EINVAL if they are no disk.
+    pub fn build(raw: impl Iterator<Item = (u64, u64)>, order: &'a mut [u16], extents: &'a mut [Extent],
+        capacity: u64) -> Result<Volume<'a>, Errno> {
+        let mut offset = 0u64;
+        for ((e, o), (i, (start, sectors))) in extents.iter_mut().zip(order.iter_mut()).zip(raw.enumerate()) {
+            *e = Extent { start, sectors, offset };
+            *o = i as u16;
+            offset = offset.checked_add(sectors).ok_or(EINVAL)?;
+        }
+        extents.sort_unstable_by_key(|e| e.start);
+        // `order` holds 0..n: sorted by offset, it is the guest order.
+        order.sort_unstable_by_key(|&o| extents[o as usize].offset);
+        let v = Volume { order, extents };
+        v.check(capacity)?;
+        Ok(v)
+    }
+
+    /// Whether this is a disk on a unit of `capacity` sectors: 1 to
+    /// MAX_EXTENTS extents, each a valid window and, if there are several,
+    /// at least MIN_EXTENT_SECTORS; sorted and disjoint; and each extent in
+    /// `order` starting where the one before it ends.
+    pub fn check(&self, capacity: u64) -> Result<(), Errno> {
+        let (n, e) = (self.extents.len(), self.extents);
+        let ok = (1..=MAX_EXTENTS).contains(&n) && self.order.len() == n
+            && e.iter().all(|x| DiskWindow::new(x.start, x.sectors, capacity).is_some_and(|w| w.sectors == x.sectors)
+                && (n == 1 || x.sectors >= MIN_EXTENT_SECTORS))
+            && e.windows(2).all(|w| w[0].end() <= w[1].start)
+            && self.order.iter().all(|&o| (o as usize) < n)
+            && e[self.order[0] as usize].offset == 0
+            && self.order.windows(2).all(|w| {
+                let (a, b) = (&e[w[0] as usize], &e[w[1] as usize]);
+                a.offset.checked_add(a.sectors) == Some(b.offset)
+            });
+        // Offsets grow strictly along `order`, so no index repeats.
+        if ok && self.last().offset.checked_add(self.last().sectors).is_some() { Ok(()) } else { Err(EINVAL) }
+    }
+
+    fn last(&self) -> &Extent { &self.extents[self.order[self.order.len() - 1] as usize] }
+
+    /// Guest sectors.
+    pub fn sectors(&self) -> u64 { self.last().offset + self.last().sectors }
+
+    /// The extent that is `k`th in guest order.
+    pub fn nth(&self, k: usize) -> Option<Extent> {
+        self.order.get(k).map(|&o| self.extents[o as usize])
+    }
+
+    /// Validate a snapshotted request (as DiskWindow::check_request) and
+    /// map it to the device: one piece, or two if it crosses an extent
+    /// boundary.  A request that would need more fails.  A flush has none.
+    pub fn map(&self, req: &Req, pool: Pool, block_size: u32, read_only: bool) -> Result<Pieces, u32> {
+        let whole = DiskWindow { start: 0, sectors: self.sectors() };
+        let g = whole.check_request(req, pool, block_size, read_only)?;
+        if req.op == OP_FLUSH { return Ok(([(0, 0); 2], 0)); }
+        let bytes = req.bytes();
+        let k = self.order.partition_point(|&o| self.extents[o as usize].offset <= g) - 1;
+        let e = self.nth(k).unwrap();
+        // Extents are as long as a unit's capacity, which the device
+        // reports: in bytes they may not fit in a u64.
+        let first = bytes.min((e.offset + e.sectors - g).saturating_mul(512));
+        let mut pieces = ([(e.start + (g - e.offset), first), (0, 0)], 1);
+        if first < bytes {
+            let next = self.nth(k + 1).ok_or(STATUS_IOERR)?;
+            if bytes - first > next.sectors.saturating_mul(512) { return Err(STATUS_IOERR); }
+            pieces.0[1] = (next.start, bytes - first);
+            pieces.1 = 2;
+        }
+        Ok(pieces)
+    }
+}
+
+/// Whether two lists of extents, each sorted and disjoint, share a sector.
+pub fn overlap(a: &[Extent], b: &[Extent]) -> bool {
+    let (mut i, mut j) = (0, 0);
+    while i < a.len() && j < b.len() {
+        if a[i].end() <= b[j].start { i += 1 }
+        else if b[j].end() <= a[i].start { j += 1 }
+        else { return true }
+    }
+    false
+}
+
+/// What a slot holds of a unit: a client's extents (sorted), or a dom0
+/// boot range.
+#[derive(Clone, Copy, Debug)]
+pub struct Hold<'a> {
+    pub unit: usize,
+    pub extents: &'a [Extent],
+    pub read_only: bool,
+}
+
+/// A dom0 boot range.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reserved {
+    pub unit: usize,
+    pub window: DiskWindow,
+    pub read_only: bool,
+}
+
+/// blkd's record of dom0's boot ranges.  With the attached clients
+/// (`active`: what slot i's client holds), it is the one place that
+/// decides who may use which sectors; l4h-root only asks.  A reservation
+/// lives until host reboot.  Only dom0 can claim it, and only for exactly
+/// its range; while unclaimed it occupies its sectors for attachments and
+/// provisioning.  Slots are shared with clients: a claim attaches in the
+/// reservation's slot.
+pub struct Reservations<const N: usize> {
+    pub slots: [Option<Reserved>; N],
+    /// The slots' ranges as extents, for overlap.
+    ranges: [Extent; N],
+}
+
+impl<const N: usize> Default for Reservations<N> {
+    fn default() -> Self { Self::new() }
+}
+
+impl<const N: usize> Reservations<N> {
+    pub const fn new() -> Self {
+        Self { slots: [None; N], ranges: [Extent { start: 0, sectors: 0, offset: 0 }; N] }
+    }
+
+    fn hold(&self, i: usize) -> Option<Hold<'_>> {
+        self.slots[i].map(|r| Hold { unit: r.unit, extents: core::slice::from_ref(&self.ranges[i]), read_only: r.read_only })
+    }
+
+    fn claimable<'a>(&self, i: usize, active: &impl Fn(usize) -> Option<Hold<'a>>, want: &Hold, dom0: bool) -> bool {
+        dom0 && active(i).is_none() && want.extents.len() == 1 && self.slots[i].is_some_and(|r| r.unit == want.unit
+            && (r.window.start, r.window.sectors) == (want.extents[0].start, want.extents[0].sectors))
+    }
+
+    /// Whether `want` conflicts with a client or with a reservation it
+    /// cannot claim.
+    fn busy<'a>(&self, active: &impl Fn(usize) -> Option<Hold<'a>>, want: &Hold, dom0: bool) -> bool {
+        let conflicts = |h: &Hold| h.unit == want.unit && !(want.read_only && h.read_only) && overlap(want.extents, h.extents);
+        // A claimed reservation is represented by its client.
+        (0..N).any(|i| match active(i) {
+            Some(a) => conflicts(&a),
+            None => self.hold(i).is_some_and(|r| conflicts(&r) && !self.claimable(i, active, want, dom0)),
+        })
+    }
+
+    /// The slot `want` may attach in: EBUSY if it conflicts with a client
+    /// or with a reservation it cannot claim, ENOSPC if no slot is free.
+    pub fn slot<'a>(&self, active: &impl Fn(usize) -> Option<Hold<'a>>, want: &Hold, dom0: bool) -> Result<usize, Errno> {
+        if self.busy(active, want, dom0) { return Err(EBUSY); }
+        (0..N).find(|&i| self.claimable(i, active, want, dom0))
+            .or_else(|| (0..N).find(|&i| active(i).is_none() && self.slots[i].is_none()))
+            .ok_or(ENOSPC)
+    }
+
+    /// Whether `want` may attach in slot `i`, which `slot` gave it before
+    /// clients were removed: it conflicts with nothing, and `i` is free or
+    /// a reservation it claims.  Removals since may have freed a lower
+    /// slot, or a reservation `want` could claim, without making `i`
+    /// wrong: another slot holding the same range of a reservation only
+    /// keeps more from others.
+    pub fn admits<'a>(&self, active: &impl Fn(usize) -> Option<Hold<'a>>, want: &Hold, dom0: bool, i: usize) -> bool {
+        i < N && !self.busy(active, want, dom0)
+            && (self.claimable(i, active, want, dom0) || (active(i).is_none() && self.slots[i].is_none()))
+    }
+
+    /// Keep `r` (a range of dom0's boot plan) from other users.
+    pub fn reserve<'a>(&mut self, active: &impl Fn(usize) -> Option<Hold<'a>>, r: Reserved) -> Result<usize, Errno> {
+        let range = Extent { start: r.window.start, sectors: r.window.sectors, offset: 0 };
+        let want = Hold { unit: r.unit, extents: core::slice::from_ref(&range), read_only: r.read_only };
+        let i = self.slot(active, &want, false)?;
+        self.slots[i] = Some(r);
+        self.ranges[i] = range;
+        Ok(i)
+    }
+
+    /// Check an explicit provisioning range. Zero sectors never means
+    /// "to the end" for a write or discard.
+    pub fn check_provision_range<'a>(&self, active: &impl Fn(usize) -> Option<Hold<'a>>,
+        unit: usize, start: u64, sectors: u64, capacity: u64) -> Result<(), Errno> {
+        let window = DiskWindow::new(start, sectors, capacity).filter(|_| sectors != 0).ok_or(EINVAL)?;
+        if self.unattached(active, unit, window) { Ok(()) } else { Err(EBUSY) }
+    }
+
+    /// Whether provisioning may modify `window` of `unit`: no client and no
+    /// reservation touches it, read-only or not.
+    pub fn unattached<'a>(&self, active: &impl Fn(usize) -> Option<Hold<'a>>, unit: usize, window: DiskWindow) -> bool {
+        let w = [Extent { start: window.start, sectors: window.sectors, offset: 0 }];
+        !(0..N).flat_map(|i| [active(i), self.hold(i)]).flatten().any(|h| h.unit == unit && overlap(&w, h.extents))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every frame of an attachment has its slot in root's keep CNode,
+    /// for any number of extents: past it, the mapping of the last frames
+    /// would land outside the CNode.
+    #[test]
+    fn an_attachment_fits_its_keep_cnode() {
+        for n in [0, 1, 2, 3, 100, 170, 171, 1000, 2048, MAX_EXTENTS - 1, MAX_EXTENTS] {
+            let pages = attach_pages(n);
+            assert_eq!(pages, CHANNEL_PAGES + table_pages(n.max(1)).into_iter().flatten().count(), "{n}");
+            assert!(pages <= 1 << ATTACH_KEEP_BITS, "{n} extents: {pages} pages");
+        }
+        assert_eq!(attach_pages(0), attach_pages(1));
+    }
+}

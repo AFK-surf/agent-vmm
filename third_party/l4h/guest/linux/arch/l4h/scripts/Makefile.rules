@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-2.0
+# ===========================================================================
+# arch/l4h: generic definitions
+# ===========================================================================
+
+# Objects built against the host C library (build-time generators only).
+USER_OBJS := $(foreach file,$(USER_OBJS),$(obj)/$(file))
+
+$(USER_OBJS:.o=.%): \
+	c_flags = -Wp,-MD,$(depfile) $(USER_CFLAGS) $(CFLAGS_$(basetarget).o)

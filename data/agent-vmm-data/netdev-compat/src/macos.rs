@@ -104,10 +104,10 @@ unsafe fn add_address(iface: &mut Interface, entry: &libc::ifaddrs, socket: Opti
                 return;
             };
             let mask = mask_field::<4>(mask, offset_of!(libc::sockaddr_in, sin_addr));
-            if let Ok(net) = Ipv4Net::with_netmask(raw.into(), mask.into()) {
-                if !iface.ipv4.contains(&net) {
-                    iface.ipv4.push(net);
-                }
+            if let Ok(net) = Ipv4Net::with_netmask(raw.into(), mask.into())
+                && !iface.ipv4.contains(&net)
+            {
+                iface.ipv4.push(net);
             }
         }
         libc::AF_INET6 => {
@@ -124,14 +124,14 @@ unsafe fn add_address(iface: &mut Interface, entry: &libc::ifaddrs, socket: Opti
                 scope
             };
             let mask = mask_field::<16>(mask, offset_of!(libc::sockaddr_in6, sin6_addr));
-            if let Ok(net) = Ipv6Net::with_netmask(ip, mask.into()) {
-                if !iface.ipv6.contains(&net) {
-                    iface.ipv6.push(net);
-                    iface.ipv6_scope_ids.push(scope);
-                    iface
-                        .ipv6_addr_flags
-                        .push(ipv6_flags(socket, &iface.name, ip, scope));
-                }
+            if let Ok(net) = Ipv6Net::with_netmask(ip, mask.into())
+                && !iface.ipv6.contains(&net)
+            {
+                iface.ipv6.push(net);
+                iface.ipv6_scope_ids.push(scope);
+                iface
+                    .ipv6_addr_flags
+                    .push(ipv6_flags(socket, &iface.name, ip, scope));
             }
         }
         libc::AF_LINK => {

@@ -1,0 +1,270 @@
+#!/usr/bin/env bash
+# Production console rings, memory-hotplug scheduling and control failure
+# replies, root's filter of NIC drivers' configuration writes, AMD-Vi leaf
+# entries and IVHD device entries, dom0 boot
+# planning, block reservations and service replies, and host log
+# publication, wraparound and concurrent readers/writers. Also exercises
+# endpoint fairness, bounded network batches, VMM CPU budgets, malformed
+# replies, hotplug retries and USB DMA ownership. --qemu
+# also checks hypercalls under sustained console kicks.
+set -euo pipefail
+root=$(cd "$(dirname "$0")/.." && pwd)
+out=$root/build/devicetest
+mkdir -p "$out"
+# Compile the actual C functions against narrow mocks of their environment.
+# Keep extraction explicit so a source reorganization fails this test instead
+# of silently testing an obsolete copy of the implementation.
+python3 - "$root" "$out" <<'PY'
+import pathlib
+import sys
+
+root, out = map(pathlib.Path, sys.argv[1:])
+writer = (root / 'guest/provider/sys.c').read_text()
+start = writer.index('static void console_put(')
+end = writer.index('void l4h_power(int how)', start)
+(out / 'console-writer.inc').write_text(writer[start:end])
+driver = (root / 'guest/linux/arch/l4h/drivers/memhp.c').read_text()
+parts = []
+for signature in ['static long mem_call(', 'static void memhp_work_fn(struct work_struct *w)\n{', 'static irqreturn_t memhp_interrupt(']:
+    start = driver.index(signature)
+    end = driver.index('\n}', start) + 2
+    parts.append(driver[start:end])
+(out / 'memhp-driver.inc').write_text('\n\n'.join(parts) + '\n')
+# Use the complete block-service loop and handlers with mock hardware and
+# IPC. Only the bare-metal entry attributes and driver declarations differ.
+blkd = (root / 'host/l4h-blkd/src/main.rs').read_text()
+start = blkd.index('use core::ops::{Deref, DerefMut};')
+(out / 'blkd-main.inc').write_text(blkd[start:])
+# USB ownership transitions: only hardware and completion publication are
+# mocked; run the production recovery and Disable Slot ordering.
+usbd = (root / 'host/l4h-usbd/src/main.rs').read_text()
+def method(source, signature):
+    start = source.index(signature)
+    return source[start:source.index('\n    }', start) + len('\n    }')]
+def function(source, signature):
+    start = source.index(signature)
+    return source[start:source.index('\n}', start) + len('\n}')]
+pci = (root / 'host/l4h-root/src/pci.rs').read_text()
+(out / 'pci-identity.inc').write_text('impl Pci {\n' + method(pci, '    pub fn identity(') + '\n}\n')
+nicd = (root / 'host/l4h-root/src/nicd.rs').read_text()
+(out / 'nicd-cfg.inc').write_text('\n'.join(function(nicd, f) for f in ['fn cap_holding(', 'fn cap_len(', 'fn cap_write_bits(']))
+amdvi = (root / 'host/l4h-root/src/amdvi.rs').read_text()
+(out / 'amdvi-pte.inc').write_text('\n'.join(line for line in amdvi.splitlines()
+    if line.startswith(('const PTE_', 'const LEVELS:', 'const IOVA_END:'))) + '\n' + function(amdvi, 'fn leaf_pte('))
+# The IVHD device entries, read into the real DevInfo::set.
+(out / 'amdvi-ivhd.inc').write_text(function(amdvi, 'impl DevInfo {') + '\n' + function(amdvi, 'fn u16_at(')
+    + '\nimpl AmdVi {\n' + method(amdvi, '    fn devices(') + '\n}\n')
+root_main = (root / 'host/l4h-root/src/main.rs').read_text()
+nic_branch = '        } else if nicd::is_network(&d, &nicd::ids_of(&d, &pci), cfg.nic_pin(netd::bdf(&d)).is_some()) {'
+start = root_main.index(nic_branch) + len(nic_branch)
+end = root_main.index('        } else if usb::is_xhci(&d) {', start)
+usb = (root / 'host/l4h-root/src/usb.rs').read_text()
+root_ctl = (root / 'host/l4h-root/src/ctl.rs').read_text()
+pci_start = root_ctl.index('        abi::CTL_PCI_LIST => {')
+pci_end = root_ctl.index('        abi::CTL_PARTITION_INFO => {', pci_start)
+(out / 'pci-owners.inc').write_text(function(usb, 'pub fn pci_owner(') + '\n'
+    + function(root_ctl, 'fn put_list<T: Copy>') + '''
+fn pci_page(h: &mut Host, first: u64, data: &mut [u8; abi::CTL_DATA_MAX]) -> usize {
+    let a = [first, 0, 0, 0, 0, 0];
+    let mut vals = [0; 6];
+    match abi::CTL_PCI_LIST {
+''' + root_ctl[pci_start:pci_end] + '''
+        _ => unreachable!(),
+    }
+    vals[0] as usize
+}
+fn record_nic(d: Device, pci: &Pci, cfg: &Cfg) -> abi::CtlPci {
+    let mut entry = pci.identity(&d);
+    let record = &mut entry;
+''' + root_main[start:end] + '''
+    entry
+}
+''')
+(out / 'usb-recovery.inc').write_text('impl Usbd {\n' + '\n'.join(
+    method(usbd, sig) for sig in ['    fn recover_command(', '    fn set_deq(', '    fn cancel(', '    fn recover_all(']) + '\n}\n')
+# The VMM's production network backend and root's USB completion path.
+component = (root / 'host/l4h-task/src/component.rs').read_text()
+(out / 'vmm-audit.inc').write_text('impl Component {\n' + '\n'.join(method(component, sig) for sig in [
+    '    fn audit_vmm_copy(', '    fn audit_vmm_source(', '    pub fn give_live(']) + '\n}\n')
+root_usb = (root / 'host/l4h-root/src/usb.rs').read_text()
+(out / 'usb-attach.inc').write_text(function(root_usb, 'fn quarantine(') + '\n' + function(root_usb, 'pub fn poll('))
+netd = (root / 'host/l4h-netd/src/main.rs').read_text()
+rx_full = function(netd, 'fn rx_full(').replace('    unsafe {', '    peer_before_load(p);\n    unsafe {', 1)
+(out / 'net-backlog.inc').write_text(next(line for line in netd.splitlines() if line.startswith('const BACKLOG_BUDGET:'))
+    + '\nimpl Netd {\n' + method(netd, '    fn rx_backlog(') + '\n}\n'
+    + rx_full + '\n' + function(netd, 'fn rx_put('))
+ipc = (root / 'host/l4h-ipc/src/lib.rs').read_text()
+(out / 'ipc-failure.inc').write_text('#[derive(Clone, Copy)]\n' + function(ipc, 'pub struct Bound {')
+    + '\n' + function(ipc, 'impl Bound {') + '\n' + function(ipc, 'pub fn fail('))
+start = usbd.index('    fn reset(&mut self, error: bool)')
+end = usbd.index('\n    }', start) + len('\n    }')
+reset = usbd[start:end]
+start = usbd.index('            abi::OP_SLOT_DISABLE => {')
+start = usbd.index('{', start)
+end = usbd.index('\n            abi::OP_ADDRESS =>', start)
+disable = usbd[start:end].rstrip().removesuffix(',')
+(out / 'usb-lifetime.inc').write_text('impl Usbd {\n' + reset + '\nfn disable(&mut self, r: &Request) -> i32 ' + disable + '\n}\n')
+# Keep the production boot sequence and reservation lifecycle intact.
+vmmgr = (root / 'host/l4h-vmmgr/src/main.rs').read_text()
+start = vmmgr.index('pub fn boot_dom0(')
+end = vmmgr.index('\n}', vmmgr.index('fn dom0_start(', start)) + 2
+(out / 'dom0-boot.inc').write_text(vmmgr[start:end])
+blkd = (root / 'host/l4h-root/src/blkd.rs').read_text()
+reservations = blkd[blkd.index('pub const WINDOW_ALIGN:'):blkd.index('/// Mapping attributes for device registers.')]
+reservations += blkd[blkd.index('pub struct Attachment {'):blkd.index('struct Blkd {')]
+for f in ['pub fn cut_off(', 'fn removed(']:
+    start = blkd.index(f)
+    reservations += blkd[start:blkd.index('\n}', start) + 2] + '\n'
+(out / 'blk-reservations.inc').write_text(reservations)
+# A deleted guest's memory and I/O pool, and what each removal frees.
+vmmgr = (root / 'host/l4h-root/src/vmmgr.rs').read_text()
+(out / 'zombie.inc').write_text(vmmgr[vmmgr.index('pub struct Zombie {'):vmmgr.index('fn guest_arg(id: usize)')])
+# Exercise both public block-attachment operations before any backend call.
+ctl = (root / 'host/l4h-vmmgr/src/ctl.rs').read_text()
+start = ctl.index('fn vm_arg(')
+end = ctl.index('\n}', start) + 2
+vm_arg = ctl[start:end]
+start = ctl.index('        abi::CTL_BLK_ATTACH => {')
+end = ctl.index('        abi::CTL_CONSOLE_READ => {', start)
+(out / 'blk-attach.inc').write_text(vm_arg + '''
+fn execute(h: &mut Vmmgr, caller: usize, op: u32, a: &[u64; 6]) -> Result<(), Errno> {
+    match op {
+''' + ctl[start:end] + '''
+        _ => unreachable!(),
+    }
+}
+''')
+start = ctl.index('        abi::CTL_VM_START => {')
+end = ctl.index('        abi::CTL_VM_DESTROY => {', start)
+(out / 'vm-start.inc').write_text(vm_arg + '''
+fn execute(h: &mut Vmmgr, caller: usize, req: &abi::CtlReq) -> Result<(), Errno> {
+    let a = &req.args;
+    match req.op {
+''' + ctl[start:end] + '''
+        _ => unreachable!(),
+    }
+}
+''')
+PY
+cc -std=c11 -O2 -Wall -Wextra -Werror -I "$root/include" -I "$out" \
+    -c "$root/tests/console-guest.c" -o "$out/console-guest.o"
+cc -std=c11 -O2 -Wall -Wextra -Werror -Wno-unused-parameter -I "$root/include" -I "$out" \
+    "$root/tests/memhp-events.c" -o "$out/memhp-events"
+"$out/memhp-events"
+rustc +stable --edition=2024 --crate-name l4h_abi --crate-type rlib \
+    "$root/host/l4h-abi/src/lib.rs" -o "$out/libl4h_abi.rlib"
+rustc +stable --edition=2024 --crate-name l4h_host --crate-type rlib \
+    --extern l4h_abi="$out/libl4h_abi.rlib" \
+    "$root/host/l4h-host/src/lib.rs" -o "$out/libl4h_host.rlib"
+L4H_PCI_IDENTITY_TEST_SRC="$out/pci-identity.inc" L4H_PCI_OWNERS_TEST_SRC="$out/pci-owners.inc" \
+    rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/pci-identity.rs" -o "$out/pci-identity-tests"
+"$out/pci-identity-tests"
+L4H_NICD_CFG_TEST_SRC="$out/nicd-cfg.inc" rustc +stable --edition=2024 --test \
+    "$root/tests/nicd-cfg.rs" -o "$out/nicd-cfg-tests"
+"$out/nicd-cfg-tests"
+L4H_AMDVI_PTE_TEST_SRC="$out/amdvi-pte.inc" rustc +stable --edition=2024 --test \
+    "$root/tests/amdvi-pte.rs" -o "$out/amdvi-pte-tests"
+"$out/amdvi-pte-tests"
+L4H_AMDVI_IVHD_TEST_SRC="$out/amdvi-ivhd.inc" rustc +stable --edition=2024 --test \
+    "$root/tests/amdvi-ivhd.rs" -o "$out/amdvi-ivhd-tests"
+"$out/amdvi-ivhd-tests"
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/mailbox.rs" -o "$out/mailbox-tests"
+"$out/mailbox-tests"
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/ipc.rs" -o "$out/ipc-tests"
+"$out/ipc-tests" --test-threads=1
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/vmm-net.rs" -o "$out/vmm-net-tests"
+"$out/vmm-net-tests"
+L4H_VMM_AUDIT_TEST_SRC="$out/vmm-audit.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/vmm-audit.rs" -o "$out/vmm-audit-tests"
+"$out/vmm-audit-tests"
+L4H_USB_ATTACH_TEST_SRC="$out/usb-attach.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/usb-attach.rs" -o "$out/usb-attach-tests"
+"$out/usb-attach-tests"
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/vmm-sched.rs" -o "$out/vmm-sched-tests"
+"$out/vmm-sched-tests" --test-threads=1
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/memhp.rs" -o "$out/memhp-tests"
+"$out/memhp-tests"
+L4H_USB_LIFETIME_TEST_SRC="$out/usb-lifetime.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" "$root/tests/usb-lifetime.rs" -o "$out/usb-lifetime-tests"
+"$out/usb-lifetime-tests"
+L4H_USB_RECOVERY_TEST_SRC="$out/usb-recovery.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" "$root/tests/usb-recovery.rs" -o "$out/usb-recovery-tests"
+"$out/usb-recovery-tests"
+L4H_NET_BACKLOG_TEST_SRC="$out/net-backlog.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/net-backlog.rs" -o "$out/net-backlog-tests"
+"$out/net-backlog-tests" --test-threads=1
+# Mailboxes carry their edge's protocol all the way to the request.
+types=(--edition=2024 --crate-type rlib -L dependency="$out" --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/ipc-types.rs")
+rustc +stable "${types[@]}" -o "$out/ipc-types.rlib"
+for variant in wrong_protocol wrong_edge replace_edge; do
+    if rustc +stable "${types[@]}" --cfg "$variant" -o "$out/ipc-types-$variant.rlib" 2>"$out/ipc-types-$variant.log"; then
+        echo "IPC type check accepted $variant" >&2
+        exit 1
+    fi
+done
+grep -Fq 'error[E0271]' "$out/ipc-types-wrong_protocol.log"
+grep -Fq 'error[E0080]' "$out/ipc-types-wrong_edge.log"
+grep -Fq 'error[E0616]' "$out/ipc-types-replace_edge.log"
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    -C link-arg="$out/console-guest.o" "$root/tests/console.rs" -o "$out/console-tests"
+"$out/console-tests"
+L4H_IPC_FAILURE_TEST_SRC="$out/ipc-failure.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/control-failure.rs" -o "$out/control-failure-tests"
+"$out/control-failure-tests"
+L4H_DOM0_BOOT_TEST_SRC="$out/dom0-boot.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/dom0-boot.rs" -o "$out/dom0-boot-tests"
+"$out/dom0-boot-tests"
+L4H_BLK_RESERVATIONS_TEST_SRC="$out/blk-reservations.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" "$root/tests/blk-reservations.rs" -o "$out/blk-reservations-tests"
+"$out/blk-reservations-tests"
+L4H_ZOMBIE_TEST_SRC="$out/zombie.inc" rustc +stable --edition=2024 --test "$root/tests/zombie.rs" -o "$out/zombie-tests"
+"$out/zombie-tests"
+L4H_BLK_ATTACH_TEST_SRC="$out/blk-attach.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/blk-attach.rs" -o "$out/blk-attach-tests"
+"$out/blk-attach-tests"
+L4H_VM_START_TEST_SRC="$out/vm-start.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" "$root/tests/vm-start.rs" -o "$out/vm-start-tests"
+"$out/vm-start-tests"
+rustc +stable --edition=2024 --crate-type rlib --crate-name l4h_virtio \
+    "$root/host/l4h-virtio/src/lib.rs" -o "$out/libl4h_virtio.rlib"
+rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" --extern actual_virtio="$out/libl4h_virtio.rlib" \
+    "$root/tests/ahci.rs" -o "$out/ahci-tests"
+"$out/ahci-tests"
+L4H_BLKD_TEST_SRC="$out/blkd-main.inc" rustc +stable --edition=2024 --test -L dependency="$out" \
+    --extern l4h_host="$out/libl4h_host.rlib" \
+    "$root/tests/blk-ipc.rs" -o "$out/blk-ipc-tests"
+"$out/blk-ipc-tests"
+rustc +stable --edition=2024 --test --crate-name l4h_host -L dependency="$out" \
+    --extern l4h_abi="$out/libl4h_abi.rlib" \
+    "$root/host/l4h-host/src/lib.rs" -o "$out/host-tests"
+"$out/host-tests"
+if [ "${1:-}" = --qemu ]; then
+    if [ "${L4H_ARCH:-x86_64}" = x86_64 ]; then
+        "$root/tests/run-vmmfairtest.sh"
+        "$root/tests/run-vmmguardtest.sh"
+    fi
+    # shellcheck source=tools/guest-env.sh
+    source "$root/tools/guest-env.sh"
+    "$l4h_cc" -O2 -Wall -Wextra -Werror -static "$root/tests/guest/console-stress.c" -o "$out/console-stress"
+    "$root/tools/mkinitramfs.sh" "$out/console.cpio.gz" "$root/tests/guest/init-consoletest" "$out/console-stress" >/dev/null
+    L4H_DOM0_VCPUS=4 "$root/tools/run-dom0.sh" "$out/console.cpio.gz" console=hvc0 $((90 * l4h_test_slow)) >"$out/qemu-output.log" 2>&1
+    grep -aq 'CONSOLETEST: PASS' "$root/build/qemu.log"
+    if grep -aq 'CONSOLETEST: FAIL' "$root/build/qemu.log"; then
+        exit 1
+    fi
+    echo 'CONSOLETEST: PASS (QEMU, continuous console output and RTC hypercalls)'
+fi

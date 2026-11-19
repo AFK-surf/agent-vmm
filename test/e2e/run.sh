@@ -30,7 +30,7 @@ if [ "$prepare_status" -eq 0 ]; then
 fi
 
 if [ "$prepare_status" -eq 0 ] && [ -z "${AGENT_VMM_E2E_DATA_BINARY:-}" ]; then
-  (cd "$repository" && cargo build --locked --release --manifest-path data/agent-vmm-data/Cargo.toml && cp data/agent-vmm-data/target/release/agent-vmm-data "$data_worker_binary")
+  (cd "$repository" && cargo build --locked --release -p agent-vmm-data --target-dir "$scratch/rust" && cp "$scratch/rust/release/agent-vmm-data" "$data_worker_binary")
   prepare_status=$?
 fi
 

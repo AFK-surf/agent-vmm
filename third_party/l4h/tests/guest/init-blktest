@@ -1,0 +1,68 @@
+#!/bin/sh
+# Block pass-through test: /dev/vda is an ext4 image prepared by
+# tests/run-blktest.sh with /hello.txt; write /guest.txt back.
+mount -t proc proc /proc
+mount -t sysfs sys /sys
+mount -t devtmpfs dev /dev
+echo "BLKTEST: start"
+fail() { echo "BLKTEST: FAIL: $*"; poweroff -f; }
+[ -b /dev/vda ] || fail "no /dev/vda"
+echo "BLKTEST: vda $(cat /sys/block/vda/size) sectors"
+dd if=/dev/vda of=/dev/null bs=1M count=16 2>/dev/null || fail "raw read"
+mount -t ext4 /dev/vda /mnt || fail "mount"
+grep -q "hello from the host" /mnt/hello.txt || fail "hello.txt content"
+# Write a few MiB with a known pattern and read it back after a remount.
+dd if=/dev/urandom of=/tmp/pat bs=1M count=8 2>/dev/null
+cp /tmp/pat /mnt/pat || fail "write"
+echo "written by the l4h guest" > /mnt/guest.txt
+sync
+umount /mnt || fail "umount"
+echo 3 > /proc/sys/vm/drop_caches
+mount -t ext4 /dev/vda /mnt || fail "remount"
+cmp /tmp/pat /mnt/pat || fail "readback mismatch"
+# I/O pool pressure: 8 parallel direct writers, then readers, need more
+# bounce buffers than the I/O pool holds.  The block layer waits for room,
+# and every byte must arrive intact.
+echo "BLKTEST: $(cat /sys/block/vda/queue/max_segment_size)-byte segments, $(cat /sys/block/vda/queue/max_segments) per request"
+dd if=/dev/urandom of=/tmp/pat4 bs=1M count=4 2>/dev/null
+for i in 1 2 3 4 5 6 7 8; do
+    dd if=/tmp/pat4 of=/mnt/p$i bs=1M oflag=direct 2>/dev/null &
+done
+wait
+sync
+echo 3 > /proc/sys/vm/drop_caches
+for i in 1 2 3 4 5 6 7 8; do
+    dd if=/mnt/p$i of=/tmp/r$i bs=1M iflag=direct 2>/dev/null &
+done
+wait
+for i in 1 2 3 4 5 6 7 8; do
+    cmp /tmp/pat4 /tmp/r$i || fail "parallel direct I/O mismatch ($i)"
+    rm -f /mnt/p$i /tmp/r$i
+done
+echo "BLKTEST: parallel direct I/O through the I/O pool: ok"
+umount /mnt
+# Writes to the second disk on a shared controller stay on that disk.
+if [ -b /dev/vdb ]; then
+    echo "BLKTEST: vdb $(cat /sys/block/vdb/size) sectors"
+    mount -t ext4 /dev/vda /mnt || fail "vda for concurrent disks"
+    dd if=/tmp/pat4 of=/mnt/two-disks bs=1M oflag=direct 2>/dev/null &
+    first=$!
+    dd if=/tmp/pat4 of=/dev/vdb bs=1M oflag=direct 2>/dev/null &
+    second=$!
+    wait "$first" || fail "concurrent vda write"
+    wait "$second" || fail "concurrent vdb write"
+    sync
+    cmp /tmp/pat4 /mnt/two-disks || fail "concurrent vda readback"
+    umount /mnt || fail "vda after concurrent write"
+    echo "BLKTEST: concurrent disks: ok"
+    dd if=/dev/vdb of=/tmp/rb bs=1M count=4 iflag=direct 2>/dev/null || fail "vdb read"
+    cmp /tmp/pat4 /tmp/rb || fail "vdb readback mismatch"
+    echo 3 > /proc/sys/vm/drop_caches
+    mount -t ext4 /dev/vda /mnt || fail "vda after vdb writes"
+    grep -q "hello from the host" /mnt/hello.txt || fail "vda changed by vdb writes"
+    cmp /tmp/pat /mnt/pat || fail "vda data changed by vdb writes"
+    umount /mnt
+    echo "BLKTEST: second disk independent: ok"
+fi
+echo "BLKTEST: PASS"
+poweroff -f

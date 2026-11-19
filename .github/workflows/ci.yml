@@ -29,10 +29,8 @@ jobs:
         run: |
           rustup toolchain install 1.96.0 --profile minimal --component clippy
           rustup default 1.96.0
-      - name: Test and lint the data worker
-        run: |
-          make test-data-worker lint-data-worker
-          cargo check --locked -p agent-vmm-proto --manifest-path crates/agent-vmm-proto/Cargo.toml
+      - name: Test and lint the Rust workspace
+        run: make test-rust lint-rust
 
   linux-arm64:
     name: Go / Linux arm64

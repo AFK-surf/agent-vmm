@@ -1,0 +1,24 @@
+drm/virtio: offer ARGB8888 on the primary plane
+
+The primary plane took XRGB8888 only, in the host's byte order, though
+framebuffers may be XRGB8888 or ARGB8888.  Android's composer
+(Cuttlefish's ranchu, its client target BGRA_8888) commits ARGB8888
+framebuffers: the atomic check failed ("invalid pixel format AR24") and
+the composer gave up presenting.  The plane now offers ARGB8888 too.
+
+The Android kernels offer all eight 32-bit formats of the virtio-gpu
+protocol.  Without blob scanouts, the host shows a resource in the format
+it was created with, and dumb buffers are always created B8G8R8X8, so
+only the two formats with that byte order display correctly; the alpha
+channel is not used for the scanout.
+
+--- a/drivers/gpu/drm/virtio/virtgpu_plane.c
++++ b/drivers/gpu/drm/virtio/virtgpu_plane.c
+@@ -35,6 +35,7 @@
+
+ static const uint32_t virtio_gpu_formats[] = {
+ 	DRM_FORMAT_HOST_XRGB8888,
++	DRM_FORMAT_HOST_ARGB8888,
+ };
+ 
+ static const uint32_t virtio_gpu_cursor_formats[] = {

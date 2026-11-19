@@ -1,0 +1,290 @@
+From ba43aeab608d437e6a5d02c65059e5b784bdfbc6 Mon Sep 17 00:00:00 2001
+From: l4h <z@univalence.me>
+Date: Sat, 17 Oct 2026 08:30:23 -0700
+Subject: [PATCH] tcb: add seL4_TCB_ReadFPU and seL4_TCB_WriteFPU
+
+Allow a holder of a TCB capability to read or replace the thread's
+floating point / vector register state via a frame it owns. This is
+needed by user-level OS personalities (signal frames, ptrace, fork) that
+manage threads running foreign code.
+
+Any live copy of the state is flushed (possibly from a remote core) before
+the transfer, and loaded again afterwards if the target is the caller
+itself: it returns to user level without passing through switchToThread(),
+which is where the FPU is loaded, and would otherwise fault on its next
+FPU instruction. (A target running on another core has been stalled off
+it, as for every TCB invocation.) Images written by user level are
+sanitised so that loading them cannot fault in the kernel; on x86, MXCSR
+is masked with the CPU's MXCSR_MASK, read with FXSAVE at boot.
+---
+ include/arch/x86/arch/model/statedata.h   |   1 +
+ libsel4/include/interfaces/object-api.xml |  56 ++++++++++++
+ libsel4/include/sel4/constants.h          |  13 +++
+ src/arch/x86/machine/fpu.c                |  10 +++
+ src/arch/x86/model/statedata.c            |   3 +
+ src/object/tcb.c                          | 104 ++++++++++++++++++++++
+ 6 files changed, 187 insertions(+)
+
+diff --git a/include/arch/x86/arch/model/statedata.h b/include/arch/x86/arch/model/statedata.h
+index 478c3344e..1474abcd2 100644
+--- a/include/arch/x86/arch/model/statedata.h
++++ b/include/arch/x86/arch/model/statedata.h
+@@ -71,6 +71,7 @@ extern x86_arch_global_state_t x86KSGlobalState[CONFIG_MAX_NUM_NODES] ALIGN(L1_C
+ extern asid_pool_t *x86KSASIDTable[];
+ extern uint32_t x86KScacheLineSizeBits;
+ extern user_fpu_state_t x86KSnullFpuState ALIGN(MIN_FPU_ALIGNMENT);
++extern uint32_t x86KSmxcsrMask;
+ 
+ #ifdef CONFIG_IOMMU
+ extern uint32_t x86KSnumDrhu;
+diff --git a/libsel4/include/interfaces/object-api.xml b/libsel4/include/interfaces/object-api.xml
+index b0590847e..5362400fe 100644
+--- a/libsel4/include/interfaces/object-api.xml
++++ b/libsel4/include/interfaces/object-api.xml
+@@ -860,6 +860,62 @@
+                 </description>
+             </error>
+         </method>
++        <method id="TCBReadFPU" name="ReadFPU" manual_name="Read FPU State" manual_label="tcb_readfpu">
++            <brief>
++                Copy the floating-point and vector register state of the target TCB into a frame.
++            </brief>
++            <description>
++                The architecture-defined FPU save area of the thread (the XSAVE image on x86,
++                the V registers followed by FPSR and FPCR on AArch64) is written to the frame
++                at the given byte offset. The size of the area is <texttt text="seL4_FPUStateSize"/>.
++                If the thread's state is live in a CPU's FPU it is saved first.
++            </description>
++            <param dir="in" name="frame" type="seL4_CPtr" description="Capability to a writable, non-device frame."/>
++            <param dir="in" name="offset" type="seL4_Word" description="Byte offset into the frame. Must be a multiple of 64."/>
++            <error name="seL4_IllegalOperation">
++                <description>
++                    The <texttt text="_service"/> is a CPtr to a capability of the wrong type, or the kernel was built without FPU support.
++                </description>
++            </error>
++            <error name="seL4_InvalidCapability">
++                <description>
++                    The <texttt text="frame"/> is not a writable, non-device frame capability.
++                </description>
++            </error>
++            <error name="seL4_InvalidArgument">
++                <description>
++                    The <texttt text="offset"/> is misaligned or the save area does not fit in the frame.
++                </description>
++            </error>
++        </method>
++
++        <method id="TCBWriteFPU" name="WriteFPU" manual_name="Write FPU State" manual_label="tcb_writefpu">
++            <brief>
++                Replace the floating-point and vector register state of the target TCB from a frame.
++            </brief>
++            <description>
++                The inverse of <texttt text="seL4_TCB_ReadFPU"/>. The kernel sanitises the image so
++                that it cannot fault when loaded (on x86, reserved MXCSR bits and XSAVE header
++                fields are cleared and the feature bitmap is restricted to the kernel's feature set).
++            </description>
++            <param dir="in" name="frame" type="seL4_CPtr" description="Capability to a readable, non-device frame."/>
++            <param dir="in" name="offset" type="seL4_Word" description="Byte offset into the frame. Must be a multiple of 64."/>
++            <error name="seL4_IllegalOperation">
++                <description>
++                    The <texttt text="_service"/> is a CPtr to a capability of the wrong type, or the kernel was built without FPU support.
++                </description>
++            </error>
++            <error name="seL4_InvalidCapability">
++                <description>
++                    The <texttt text="frame"/> is not a readable, non-device frame capability.
++                </description>
++            </error>
++            <error name="seL4_InvalidArgument">
++                <description>
++                    The <texttt text="offset"/> is misaligned or the save area does not fit in the frame.
++                </description>
++            </error>
++        </method>
+     </interface>
+ 
+     <interface name="seL4_CNode" manual_name="CNode">
+diff --git a/libsel4/include/sel4/constants.h b/libsel4/include/sel4/constants.h
+index c356a1395..4ed7d52e7 100644
+--- a/libsel4/include/sel4/constants.h
++++ b/libsel4/include/sel4/constants.h
+@@ -69,6 +69,19 @@ typedef enum {
+     SEL4_FORCE_LONG_ENUM(seL4_LookupFailureType),
+ } seL4_LookupFailureType;
+ 
++/* Size in bytes of the FPU save area transferred by seL4_TCB_ReadFPU/WriteFPU. */
++#if defined(CONFIG_ARCH_X86)
++#define seL4_FPUStateSize CONFIG_XSAVE_SIZE
++#elif defined(CONFIG_ARCH_AARCH64)
++#define seL4_FPUStateSize (64 * 8 + 8)
++#elif defined(CONFIG_ARCH_RISCV) && defined(CONFIG_RISCV_EXT_D)
++#define seL4_FPUStateSize (32 * 8 + 4 + 4)
++#elif defined(CONFIG_ARCH_RISCV)
++#define seL4_FPUStateSize (32 * 4 + 4)
++#else
++#define seL4_FPUStateSize 0
++#endif
++
+ /* Flags to be used with seL4_TCB_Set_Flags */
+ typedef enum {
+     seL4_TCBFlag_NoFlag = 0x0,
+diff --git a/src/arch/x86/machine/fpu.c b/src/arch/x86/machine/fpu.c
+index 4b92d546c..cef881ed8 100644
+--- a/src/arch/x86/machine/fpu.c
++++ b/src/arch/x86/machine/fpu.c
+@@ -33,6 +33,16 @@ BOOT_CODE bool_t Arch_initFpu(void)
+     /* Initialize the fpu state */
+     finit();
+ 
++    /* FXSAVE stores the supported MXCSR bits (MXCSR_MASK) at byte 28 of its
++     * image; 0 means the default of every bit but DAZ. */
++    {
++        BOOT_BSS static uint8_t fxsave_image[512] ALIGN(16);
++        uint32_t mxcsr_mask;
++        asm volatile("fxsave %0" : "=m"(fxsave_image));
++        memcpy(&mxcsr_mask, fxsave_image + 28, sizeof(mxcsr_mask));
++        x86KSmxcsrMask = mxcsr_mask ? mxcsr_mask : 0xffbf;
++    }
++
+     if (config_set(CONFIG_XSAVE)) {
+         uint64_t xsave_features;
+         uint32_t xsave_instruction;
+diff --git a/src/arch/x86/model/statedata.c b/src/arch/x86/model/statedata.c
+index 96d606761..b5f276425 100644
+--- a/src/arch/x86/model/statedata.c
++++ b/src/arch/x86/model/statedata.c
+@@ -42,6 +42,9 @@ uint32_t x86KScacheLineSizeBits;
+ /* A valid initial FPU state, copied to every new thread. */
+ user_fpu_state_t x86KSnullFpuState ALIGN(MIN_FPU_ALIGNMENT);
+ 
++/* The MXCSR bits that the CPU supports: setting any other faults. */
++uint32_t x86KSmxcsrMask;
++
+ /* Number of IOMMUs (DMA Remapping Hardware Units) */
+ uint32_t x86KSnumDrhu;
+ 
+diff --git a/src/object/tcb.c b/src/object/tcb.c
+index 0a264d9ec..0c19bf132 100644
+--- a/src/object/tcb.c
++++ b/src/object/tcb.c
+@@ -843,6 +843,102 @@ static exception_t decodeSetFlags(cap_t cap, word_t length, bool_t call, word_t
+     return EXCEPTION_NONE;
+ }
+ 
++#ifdef CONFIG_HAVE_FPU
++#ifdef CONFIG_ARCH_X86
++#define XSAVE_LEGACY_MXCSR_OFFSET 24
++#define XSAVE_HEADER_OFFSET 512
++#define XSAVE_HEADER_SIZE 64
++#endif
++
++/* Make an FPU image supplied by user level safe to load. */
++static void sanitiseFpuState(user_fpu_state_t *state)
++{
++#ifdef CONFIG_ARCH_X86
++    uint8_t *raw = (uint8_t *)state;
++    uint32_t mxcsr;
++    memcpy(&mxcsr, raw + XSAVE_LEGACY_MXCSR_OFFSET, sizeof(mxcsr));
++    /* Unsupported bits (all above 15, and DAZ on some CPUs) fault on
++     * load. */
++    mxcsr &= x86KSmxcsrMask;
++    memcpy(raw + XSAVE_LEGACY_MXCSR_OFFSET, &mxcsr, sizeof(mxcsr));
++#ifdef CONFIG_XSAVE
++    uint64_t header[XSAVE_HEADER_SIZE / sizeof(uint64_t)];
++    memcpy(header, raw + XSAVE_HEADER_OFFSET, sizeof(header));
++    header[0] &= CONFIG_XSAVE_FEATURE_SET;            /* XSTATE_BV */
++    if (config_set(CONFIG_XSAVE_XSAVEC) || config_set(CONFIG_XSAVE_XSAVES)) {
++        header[1] = BIT(63) | CONFIG_XSAVE_FEATURE_SET; /* compacted format */
++    } else {
++        header[1] = 0;                                 /* XCOMP_BV, standard format */
++    }
++    for (word_t i = 2; i < ARRAY_SIZE(header); i++) {
++        header[i] = 0;
++    }
++    memcpy(raw + XSAVE_HEADER_OFFSET, header, sizeof(header));
++#endif
++#else
++    (void)state;
++#endif
++}
++
++/* What libsel4 tells callers is what the kernel copies. */
++compile_assert(fpu_state_size_matches_libsel4, seL4_FPUStateSize == sizeof(user_fpu_state_t))
++
++static exception_t decodeFPUTransfer(cap_t cap, word_t length, word_t *buffer, bool_t toFrame)
++{
++    if (length < 1 || current_extra_caps.excaprefs[0] == NULL) {
++        userError("TCB %sFPU: Truncated message.", toFrame ? "Read" : "Write");
++        current_syscall_error.type = seL4_TruncatedMessage;
++        return EXCEPTION_SYSCALL_ERROR;
++    }
++
++    word_t offset = getSyscallArg(0, buffer);
++    cap_t frameCap = current_extra_caps.excaprefs[0]->cap;
++
++    if (cap_get_capType(frameCap) != cap_frame_cap ||
++        cap_frame_cap_get_capFIsDevice(frameCap) ||
++        cap_frame_cap_get_capFVMRights(frameCap) == VMKernelOnly ||
++        (toFrame && cap_frame_cap_get_capFVMRights(frameCap) != VMReadWrite)) {
++        userError("TCB %sFPU: Invalid frame cap.", toFrame ? "Read" : "Write");
++        current_syscall_error.type = seL4_InvalidCapability;
++        current_syscall_error.invalidCapNumber = 1;
++        return EXCEPTION_SYSCALL_ERROR;
++    }
++
++    word_t frameSize = BIT(pageBitsForSize(cap_frame_cap_get_capFSize(frameCap)));
++    if (offset % 64 != 0 || offset >= frameSize || frameSize - offset < sizeof(user_fpu_state_t)) {
++        userError("TCB %sFPU: Invalid offset.", toFrame ? "Read" : "Write");
++        current_syscall_error.type = seL4_InvalidArgument;
++        current_syscall_error.invalidArgumentNumber = 0;
++        return EXCEPTION_SYSCALL_ERROR;
++    }
++
++    tcb_t *thread = TCB_PTR(cap_thread_cap_get_capTCBPtr(cap));
++    void *frame = (void *)(cap_frame_cap_get_capFBasePtr(frameCap) + offset);
++
++    setThreadState(NODE_STATE(ksCurThread), ThreadState_Restart);
++
++    /* Flush any live copy of the state (possibly on another core) back
++     * into the TCB. */
++    bool_t owned = nativeThreadUsingFPU(thread);
++    fpuRelease(thread);
++    if (toFrame) {
++        memcpy(frame, &thread->tcbArch.tcbContext.fpuState, sizeof(user_fpu_state_t));
++    } else {
++        memcpy(&thread->tcbArch.tcbContext.fpuState, frame, sizeof(user_fpu_state_t));
++        sanitiseFpuState(&thread->tcbArch.tcbContext.fpuState);
++    }
++    /* The caller returns to user level without passing through
++     * switchToThread(), which is the only place that loads the FPU: load it
++     * again if the caller is the target, or its next FPU instruction faults.
++     * A target running on another core has already been stalled off it by
++     * remoteTCBStall() and reloads its FPU when it is switched to again. */
++    if (owned && thread == NODE_STATE(ksCurThread)) {
++        switchLocalFpuOwner(thread);
++    }
++    return EXCEPTION_NONE;
++}
++#endif /* CONFIG_HAVE_FPU */
++
+ /* The following functions sit in the syscall error monad, but include the
+  * exception cases for the preemptible bottom end, as they call the invoke
+  * functions directly.  This is a significant deviation from the Haskell
+@@ -945,6 +1041,14 @@ exception_t decodeTCBInvocation(word_t invLabel, word_t length, cap_t cap,
+     case TCBSetFlags:
+         return decodeSetFlags(cap, length, call, buffer);
+ 
++#ifdef CONFIG_HAVE_FPU
++    case TCBReadFPU:
++        return decodeFPUTransfer(cap, length, buffer, true);
++
++    case TCBWriteFPU:
++        return decodeFPUTransfer(cap, length, buffer, false);
++#endif
++
+     default:
+         /* Haskell: "throw IllegalOperation" */
+         userError("TCB: Illegal operation.");
+-- 
+2.47.3
+

@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/agent-vmm-proto",
+    "crates/vmm-l4hctl",
+    "data/agent-vmm-data",
+    "data/agent-vmm-data/netdev-compat",
+]
+exclude = ["third_party/l4h"]
+
+[workspace.package]
+edition = "2024"
+
+[patch.crates-io]
+netdev = { path = "data/agent-vmm-data/netdev-compat" }

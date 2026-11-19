@@ -1,0 +1,17 @@
+[package]
+name = "l4h-trustd"
+edition.workspace = true
+license.workspace = true
+version.workspace = true
+
+[dependencies]
+l4h-abi.workspace = true
+l4h-rt = { path = "../l4h-rt" }
+l4h-virtio = { path = "../l4h-virtio" }
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+sha2.workspace = true
+# The AML interpreter for the ACPI start method (AMD fTPM).  Pinned past
+# 6.1.1, where comparing buffers longer than 4 bytes (every _DSM's UUID
+# check) panics.
+acpi = { git = "https://github.com/rust-osdev/acpi", rev = "a69a4df", default-features = false, features = ["aml"] }
+log = { version = "0.4", default-features = false }

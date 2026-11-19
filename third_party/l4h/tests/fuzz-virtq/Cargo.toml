@@ -1,0 +1,14 @@
+[package]
+name = "fuzz-virtq"
+edition = "2024"
+license = "GPL-2.0-only"
+version = "0.1.0"
+description = "Randomised test of l4h-vmm's virtqueue parsing against hostile guests"
+
+[dependencies]
+l4h-abi = { path = "../../host/l4h-abi" }
+l4h-host = { path = "../../host/l4h-host" }
+
+[profile.release]
+debug-assertions = true
+overflow-checks = true
