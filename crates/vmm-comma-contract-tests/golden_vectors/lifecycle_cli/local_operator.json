@@ -1,0 +1,247 @@
+{
+  "_comment": "stdout of the local-* commands (protojson of host.v1 OperatorService responses, agent-vmm internal/lifecycle/local_operator.go:31-92) as parsed by Cue clients/apps/electron/src/main/modules/compute-node/local-operator.ts. `accept` is the zod verdict; a rejected page makes the whole local overview `unavailable` (local-operator.ts:253-264).",
+  "decimal": [
+    {"value": "0", "accept": true, "source": "Cue local-operator.ts:12-18"},
+    {"value": "1", "accept": true, "source": "Cue local-operator.ts:12-18"},
+    {"value": "18446744073709551615", "accept": true, "source": "Cue local-operator.ts:17"},
+    {"value": "9999999999999999999", "accept": true, "source": "Cue local-operator.ts:17"},
+    {"value": "18446744073709551616", "accept": false, "source": "Cue local-operator.ts:17"},
+    {"value": "99999999999999999999", "accept": false, "source": "Cue local-operator.ts:17"},
+    {"value": "100000000000000000000", "accept": false, "source": "Cue local-operator.ts:17"},
+    {"value": "01", "accept": false, "source": "Cue local-operator.ts:16"},
+    {"value": "", "accept": false, "source": "Cue local-operator.ts:16"},
+    {"value": "-1", "accept": false, "source": "Cue local-operator.ts:16"},
+    {"value": "1.0", "accept": false, "source": "Cue local-operator.ts:16"},
+    {"value": "1e3", "accept": false, "source": "Cue local-operator.ts:16"},
+    {"value": 1, "accept": false, "source": "Cue local-operator.ts:12-13 (z.string())"}
+  ],
+  "local_environments": [
+    {
+      "name": "Electron e2e fixture",
+      "source": "Cue clients/apps/electron/e2e/compute-node-lifecycle.spec.ts:29",
+      "value": {"collectedAt": "2026-11-19T12:00:00.000Z", "bootId": "fixture-boot", "environments": [{"id": "fixture-local-env", "origin": "local", "state": "observed_active", "revision": "1", "privateDiskBytes": "1", "sampledAt": "2026-11-19T12:00:00.000Z"}]},
+      "accept": true
+    },
+    {
+      "name": "remote environment with allocation identity",
+      "source": "Cue local-operator.ts:19-39,189-216; agent-vmm api/host/v1/operator.proto LocalEnvironmentSummary",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "nextCursor": "env-2", "environments": [{"id": "env-1", "origin": "remote", "state": "vm_stopped", "stateObservedAt": "2026-11-19T11:59:00Z", "registrationId": "registration-1", "allocationId": "alloc-1", "allocationGeneration": "3", "revision": "18446744073709551615", "partial": true}]},
+      "accept": true
+    },
+    {
+      "name": "empty page omits environments (protojson drops empty repeated fields)",
+      "source": "Cue local-operator.ts:37-38 (.default([])); protojson default emission",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1"},
+      "accept": true
+    },
+    {
+      "name": "missing bootId defaults to empty string",
+      "source": "Cue local-operator.ts:20",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z"},
+      "accept": true
+    },
+    {
+      "name": "revision omitted (protojson drops a zero uint64) is rejected",
+      "source": "Cue local-operator.ts:32",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": [{"id": "env-1", "origin": "local", "state": "unknown"}]},
+      "accept": false
+    },
+    {
+      "name": "numeric revision is rejected (uint64 must be a JSON string)",
+      "source": "Cue local-operator.ts:12-18,32",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": [{"id": "env-1", "origin": "local", "state": "unknown", "revision": 1}]},
+      "accept": false
+    },
+    {
+      "name": "enum-style origin is rejected (origin is a plain string field)",
+      "source": "Cue local-operator.ts:27",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": [{"id": "env-1", "origin": "LOCAL", "state": "unknown", "revision": "1"}]},
+      "accept": false
+    },
+    {
+      "name": "unknown state is rejected",
+      "source": "Cue local-operator.ts:28",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": [{"id": "env-1", "origin": "local", "state": "running", "revision": "1"}]},
+      "accept": false
+    },
+    {
+      "name": "33 environments exceed the page bound",
+      "source": "Cue local-operator.ts:37",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": "@repeat33"},
+      "accept": false
+    },
+    {
+      "name": "missing collectedAt is rejected",
+      "source": "Cue local-operator.ts:21",
+      "value": {"bootId": "b", "environments": []},
+      "accept": false
+    },
+    {
+      "name": "empty id is rejected",
+      "source": "Cue local-operator.ts:26",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "b", "environments": [{"id": "", "origin": "local", "state": "unknown", "revision": "1"}]},
+      "accept": false
+    }
+  ],
+  "local_disk": [
+    {
+      "name": "Electron e2e fixture with the full breakdown",
+      "source": "Cue clients/apps/electron/e2e/compute-node-lifecycle.spec.ts:30,72-82",
+      "value": {"collectedAt": "2026-11-19T12:00:00.000Z", "bootId": "fixture-boot", "guestStateFs": {"usedBytes": "1024", "capacityBytes": "4096", "importReservationBytes": "512", "imageRuntimeBytes": "700", "buildCacheBytes": "300", "privateBytes": "1", "otherBytes": "23", "breakdownSampledAt": "2026-11-19T12:00:00.000Z"}},
+      "accept": true,
+      "expect_disk": {"usedBytes": "1024", "capacityBytes": "4096", "importReservationBytes": "512", "imageRuntimeBytes": "700", "buildCacheBytes": "300", "privateBytes": "1", "otherBytes": "23", "breakdownSampledAt": "2026-11-19T12:00:00.000Z"}
+    },
+    {
+      "name": "sparse state disk: zero-valued accounting stays present as \"0\"",
+      "source": "Cue local-operator.ts:50-56; agent-vmm api/host/v1/resources.proto DiskAccounting (optional uint64)",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "vmState": "VM_STATE_RUNNING", "guestStateFs": {"usedBytes": "0", "committedBytes": "0", "capacityBytes": "68719476736", "importReservationBytes": "0", "systemReserveBytes": "1073741824", "metadataReserveBytes": "0"}},
+      "accept": true,
+      "expect_disk": {"usedBytes": "0", "capacityBytes": "68719476736", "importReservationBytes": "0"}
+    },
+    {
+      "name": "partial breakdown is dropped, totals stay",
+      "source": "Cue local-operator.ts:40-66",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "guestStateFs": {"usedBytes": "10", "capacityBytes": "20", "importReservationBytes": "1", "imageRuntimeBytes": "5", "buildCacheBytes": "2"}},
+      "accept": true,
+      "expect_disk": {"usedBytes": "10", "capacityBytes": "20", "importReservationBytes": "1"}
+    },
+    {
+      "name": "breakdown with a timestamp that has no offset is dropped",
+      "source": "Cue local-operator.ts:45 (datetime({offset:true}))",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "guestStateFs": {"usedBytes": "10", "capacityBytes": "20", "importReservationBytes": "1", "imageRuntimeBytes": "5", "buildCacheBytes": "2", "privateBytes": "1", "otherBytes": "2", "breakdownSampledAt": "2026-11-19T12:00:00"}},
+      "accept": true,
+      "expect_disk": {"usedBytes": "10", "capacityBytes": "20", "importReservationBytes": "1"}
+    },
+    {
+      "name": "VM stopped: guestStateFs absent with a reason",
+      "source": "Cue local-operator.ts:50,67; agent-vmm api/host/v1/operator.proto GetLocalDiskSummaryResponse",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "vmState": "VM_STATE_STOPPED", "unavailableReason": "vm_stopped"},
+      "accept": true,
+      "expect_disk": null
+    },
+    {
+      "name": "guestStateFs without importReservationBytes (unset proto3 optional) is rejected",
+      "source": "Cue local-operator.ts:51-55",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "guestStateFs": {"usedBytes": "10", "capacityBytes": "20"}},
+      "accept": false
+    },
+    {
+      "name": "numeric byte counts are rejected",
+      "source": "Cue local-operator.ts:12-18,52-54",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "guestStateFs": {"usedBytes": 10, "capacityBytes": 20, "importReservationBytes": 1}},
+      "accept": false
+    },
+    {
+      "name": "null guestStateFs is rejected (omit instead)",
+      "source": "Cue local-operator.ts:50-67 (zod optional rejects null)",
+      "value": {"collectedAt": "2026-11-19T12:00:00Z", "bootId": "boot-1", "guestStateFs": null},
+      "accept": false
+    }
+  ],
+  "local_registrations": [
+    {
+      "name": "pinned shape",
+      "source": "Cue local-operator.ts:154-174; agent-vmm api/host/v1/operator.proto LocalRegistrationMetadata",
+      "value": {"registrations": [{"id": "registration-1", "revision": "4", "state": "REMOTE_REGISTRATION_STATE_ENABLED"}], "nextCursor": "registration-1"},
+      "accept": true
+    },
+    {"name": "empty response", "source": "Cue local-operator.ts:167-168", "value": {}, "accept": true},
+    {
+      "name": "numeric revision is rejected",
+      "source": "Cue local-operator.ts:161",
+      "value": {"registrations": [{"id": "registration-1", "revision": 4}]},
+      "accept": false
+    }
+  ],
+  "local_plan": [
+    {
+      "name": "environment plan",
+      "source": "Cue local-operator.ts:69-83,407-415; agent-vmm api/host/v1/resources.proto LocalDisposalPlan",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "id": "env-1"},
+      "value": {"plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-1", "revision": "7", "namespaceId": "ns-1", "displayName": "Shell", "environmentCount": "1"}},
+      "accept": true
+    },
+    {
+      "name": "registration plan without environments omits environmentCount",
+      "source": "Cue local-operator.ts:79",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_REGISTRATION", "id": "registration-1"},
+      "value": {"plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_REGISTRATION", "targetId": "registration-1", "revision": "2", "activityUnknown": true}},
+      "accept": true
+    },
+    {
+      "name": "revision zero (omitted by protojson) is rejected",
+      "source": "Cue local-operator.ts:77,413",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "id": "env-1"},
+      "value": {"plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-1"}},
+      "accept": false
+    },
+    {
+      "name": "explicit revision \"0\" is refused as a changed target",
+      "source": "Cue local-operator.ts:410-415",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "id": "env-1"},
+      "value": {"plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-1", "revision": "0"}},
+      "accept": false
+    },
+    {
+      "name": "plan for another target is refused",
+      "source": "Cue local-operator.ts:410-415",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "id": "env-1"},
+      "value": {"plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-2", "revision": "1"}},
+      "accept": false
+    },
+    {
+      "name": "numeric enum is rejected",
+      "source": "Cue local-operator.ts:72-75",
+      "target": {"kind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "id": "env-1"},
+      "value": {"plan": {"targetKind": 1, "targetId": "env-1", "revision": "1"}},
+      "accept": false
+    }
+  ],
+  "local_operation": [
+    {
+      "name": "running disposal",
+      "source": "Cue local-operator.ts:84-97,435-451,513-519; agent-vmm internal/host/operation/convert.go:12, internal/host/store/local_disposal.go:144,192",
+      "plan_target_id": "env-1",
+      "value": {"operation": {"id": "op-1", "kind": "local-disposal", "resource": {"kind": "environment", "environmentId": "env-1"}, "state": "OPERATION_STATE_RUNNING", "stage": "stop", "requestId": "9d6f1e0a-49a8-4f8e-8f3f-1a5b9e0c2d11", "startedAt": "2026-11-19T12:00:00Z", "updatedAt": "2026-11-19T12:00:01Z"}},
+      "accept": true,
+      "expect_outcome": "pending"
+    },
+    {
+      "name": "succeeded disposal",
+      "source": "Cue local-operator.ts:446-449",
+      "plan_target_id": "env-1",
+      "value": {"operation": {"id": "op-1", "kind": "local-disposal", "resource": {"kind": "environment", "environmentId": "env-1"}, "state": "OPERATION_STATE_SUCCEEDED", "requestId": "r"}},
+      "accept": true,
+      "expect_outcome": "completed"
+    },
+    {
+      "name": "registration disposal names the registration as environmentId",
+      "source": "Cue local-operator.ts:193-195,517-518; agent-vmm internal/host/store/local_disposal.go:192",
+      "plan_target_id": "registration-1",
+      "value": {"operation": {"id": "op-2", "kind": "local-disposal", "resource": {"kind": "environment", "environmentId": "registration-1"}, "state": "OPERATION_STATE_RUNNING", "requestId": "r"}},
+      "accept": true,
+      "expect_outcome": "pending"
+    },
+    {
+      "name": "operation of another kind is rejected",
+      "source": "Cue local-operator.ts:89",
+      "plan_target_id": "env-1",
+      "value": {"operation": {"id": "op-1", "kind": "cleanup", "resource": {"kind": "environment", "environmentId": "env-1"}, "requestId": "r"}},
+      "accept": false
+    },
+    {
+      "name": "operation for another target is refused",
+      "source": "Cue local-operator.ts:513-519",
+      "plan_target_id": "env-1",
+      "value": {"operation": {"id": "op-1", "kind": "local-disposal", "resource": {"kind": "environment", "environmentId": "env-2"}, "requestId": "r"}},
+      "accept": false
+    },
+    {
+      "name": "missing requestId is rejected",
+      "source": "Cue local-operator.ts:88",
+      "plan_target_id": "env-1",
+      "value": {"operation": {"id": "op-1", "kind": "local-disposal", "resource": {"kind": "environment", "environmentId": "env-1"}}},
+      "accept": false
+    }
+  ]
+}

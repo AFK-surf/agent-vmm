@@ -1,0 +1,328 @@
+{
+  "_comment": "Outputs of agent-vmm-lifecycle as Cue consumers parse them. Each case names the consumer rule (Cue file:line at de4b430da7) and what that consumer does with the value. `expect` is the consumer verdict the Rust helper must preserve.",
+  "version_report": [
+    {
+      "name": "pinned Go helper shape",
+      "source": "agent-vmm internal/lifecycle/operation_state.go:82-84; Cue clients/apps/electron/src/main/modules/compute-node/host-preparation.ts:277-286, host-maintenance.ts:171-182",
+      "value": {"contractVersion": 1, "component": "agent-vmm-host", "version": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "release_id": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "currentSchema": 31, "minimumSchema": 1},
+      "expect": {"contract": "ok", "installed_release_id": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb"}
+    },
+    {
+      "name": "minimal fields Electron reads",
+      "source": "Cue clients/apps/electron/src/main/test/compute-node-host-preparation.test.ts:234",
+      "value": {"contractVersion": 1, "release_id": "local-release"},
+      "expect": {"contract": "ok", "installed_release_id": "local-release"}
+    },
+    {
+      "name": "no contractVersion is too_old",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance-protocol.ts:8-18",
+      "value": {"release_id": "legacy"},
+      "expect": {"contract": "too_old", "installed_release_id": "legacy"}
+    },
+    {
+      "name": "contractVersion 2 is too_new",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance-protocol.ts:4-5,17",
+      "value": {"contractVersion": 2, "release_id": "future"},
+      "expect": {"contract": "too_new", "installed_release_id": "future"}
+    },
+    {
+      "name": "string contractVersion is too_old",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance-protocol.ts:15",
+      "value": {"contractVersion": "1", "release_id": "x"},
+      "expect": {"contract": "too_old", "installed_release_id": "x"}
+    },
+    {
+      "name": "missing release_id leaves installation unreadable",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance.ts:167,179-182; test compute-node-host-preparation.test.ts:890",
+      "value": {"contractVersion": 1},
+      "expect": {"contract": "ok", "installed_release_id": null}
+    }
+  ],
+  "status": [
+    {
+      "name": "ready host, registration present and enabled",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/runtime-adapter.ts:150-203; test compute-node-service.test.ts:244",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "appInstalled": true, "hostInstalled": true, "hostObserved": true, "hostLoaded": true, "hostRunning": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": true, "registrationRead": "present", "registrationState": "enabled", "dataSchema": 31},
+      "expect": {"connector": "ready", "host": "ready", "readability": "readable", "registration": "present", "registrationState": "enabled"}
+    },
+    {
+      "name": "host loaded but unhealthy is degraded",
+      "source": "Cue runtime-adapter.ts:151-158,192-198",
+      "registration_id": null,
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": false, "connectorInstalled": true, "connectorLoaded": false},
+      "expect": {"connector": "stopped", "host": "degraded", "readability": "readable"}
+    },
+    {
+      "name": "missing hostReadable/hostHealthy keys can never be ready",
+      "source": "Cue runtime-adapter.ts:151-153,194-198",
+      "registration_id": null,
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "connectorInstalled": true},
+      "expect": {"connector": "stopped", "host": "stopped", "readability": "readable"}
+    },
+    {
+      "name": "not installed",
+      "source": "Cue runtime-adapter.ts:187-198",
+      "registration_id": null,
+      "value": {"contractVersion": 1, "hostInstalled": false, "hostLoaded": false, "hostReadable": false, "hostHealthy": false, "connectorInstalled": false, "connectorLoaded": false},
+      "expect": {"connector": "absent", "host": "absent", "readability": "readable"}
+    },
+    {
+      "name": "registration absent forces connector absent",
+      "source": "Cue runtime-adapter.ts:159-165,182-184; test compute-node-service.test.ts:1261",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": true, "registrationRead": "absent"},
+      "expect": {"connector": "absent", "host": "ready", "readability": "readable", "registration": "absent"}
+    },
+    {
+      "name": "queried registration without registrationRead is capability_missing and unreadable",
+      "source": "Cue runtime-adapter.ts:159-165,179-181,185-186,199",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": true},
+      "expect": {"connector": "degraded", "host": "ready", "readability": "unreadable", "registration": "unreadable", "reason": "capability_missing"}
+    },
+    {
+      "name": "operator unavailable while host stopped",
+      "source": "agent-vmm internal/lifecycle/status.go:83-86; Cue runtime-adapter.ts:159-165",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": false, "hostReadable": false, "hostHealthy": false, "connectorInstalled": true, "connectorLoaded": false, "registrationRead": "unreadable", "registrationReason": "operator_unavailable"},
+      "expect": {"connector": "degraded", "host": "stopped", "readability": "unreadable", "registration": "unreadable"}
+    },
+    {
+      "name": "remote protocol refusal is registration scoped",
+      "source": "Cue runtime-adapter.ts:175,417-441; agent-vmm internal/lifecycle/status.go:17-22",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": false, "registrationRead": "present", "registrationState": "enabled", "remoteProtocol": {"hostProtocol": "3", "minProtocol": 4, "maxProtocol": 4, "hostSide": "too_old"}},
+      "expect": {"connector": "stopped", "host": "ready", "readability": "readable", "registration": "present", "registrationState": "enabled", "remoteProtocol": {"hostProtocol": "3", "minProtocol": 4, "maxProtocol": 4, "hostSide": "too_old"}}
+    },
+    {
+      "name": "remote protocol with string numbers is ignored",
+      "source": "Cue runtime-adapter.ts:423-432",
+      "registration_id": "registration-1",
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": true, "registrationRead": "present", "remoteProtocol": {"hostProtocol": "3", "minProtocol": "4", "maxProtocol": "4", "hostSide": "too_old"}},
+      "expect": {"connector": "ready", "host": "ready", "readability": "readable", "registration": "present"}
+    },
+    {
+      "name": "host start failure STATE_SCHEMA_INCOMPATIBLE",
+      "source": "Cue runtime-adapter.ts:176,377-395",
+      "registration_id": null,
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": false, "hostReadable": false, "hostHealthy": false, "connectorInstalled": true, "hostStartFailure": {"code": "STATE_SCHEMA_INCOMPATIBLE", "dataSchema": 40}, "dataSchema": 40},
+      "expect": {"connector": "stopped", "host": "stopped", "readability": "readable", "hostStartFailure": {"code": "STATE_SCHEMA_INCOMPATIBLE", "dataSchema": 40}}
+    },
+    {
+      "name": "unknown host start failure code is dropped",
+      "source": "Cue runtime-adapter.ts:382-386",
+      "registration_id": null,
+      "value": {"contractVersion": 1, "hostInstalled": true, "hostLoaded": false, "hostReadable": false, "hostHealthy": false, "connectorInstalled": true, "hostStartFailure": {"code": "DISK_FULL"}},
+      "expect": {"connector": "stopped", "host": "stopped", "readability": "readable"}
+    },
+    {
+      "name": "status without contractVersion reports helper too_old",
+      "source": "Cue runtime-adapter.ts:172-174",
+      "registration_id": null,
+      "value": {"hostInstalled": true, "hostLoaded": true, "hostReadable": true, "hostHealthy": true, "connectorInstalled": true, "connectorLoaded": true},
+      "expect": {"connector": "ready", "host": "ready", "readability": "readable", "helperContractFailure": "too_old"}
+    }
+  ],
+  "maintenance_status": [
+    {
+      "name": "null means no receipt",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance.ts:150; agent-vmm internal/lifecycle/maintenance_darwin.go:52-55",
+      "intent_request_id": null,
+      "value": null,
+      "expect": {"result": "none"}
+    },
+    {
+      "name": "pinned Go receipt for a pending update",
+      "source": "agent-vmm internal/lifecycle/maintenance_darwin.go:16-67; Cue host-maintenance-protocol.ts:26-48",
+      "intent_request_id": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11",
+      "value": {"contractVersion": 1, "operationId": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11", "kind": "update", "attempt": 1, "version": 1, "requestId": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11", "action": "update", "dataPolicy": "preserve", "targetApp": "/Users/u/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app", "sourceApp": "/Users/u/Library/Application Support/Agent VMM Host/current/.maintenance-0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11/Agent VMM Host.app", "targetReleaseId": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "confirmSharedHost": true, "serviceMode": "agent", "serviceUser": "u", "disablePairing": false, "stage": "stop", "outcome": "pending", "retryable": false, "startedAt": 1795000000, "updatedAt": 1795000001},
+      "expect": {"result": "receipt", "phase": "stopping", "outcome": "pending"}
+    },
+    {
+      "name": "failed with host_start_failed keeps the code and failedPhase",
+      "source": "Cue host-maintenance.ts:225-249,531-543; test compute-node-host-maintenance.test.ts:405",
+      "intent_request_id": "r-1",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-1", "action": "reinstall", "dataPolicy": "preserve", "stage": "restore", "outcome": "failed", "retryable": true, "failureCode": "host_start_failed", "failureMessage": "Host did not start"},
+      "expect": {"result": "receipt", "phase": "failed", "failedPhase": "installing", "outcome": "failed", "failureCode": "host_start_failed"}
+    },
+    {
+      "name": "target_older_than_data is surfaced",
+      "source": "Cue host-maintenance.ts:244-247; test compute-node-host-maintenance.test.ts:382",
+      "intent_request_id": "r-2",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-2", "action": "update", "dataPolicy": "preserve", "stage": "preflight", "outcome": "failed", "retryable": false, "failureCode": "target_older_than_data"},
+      "expect": {"result": "receipt", "phase": "failed", "failedPhase": "preparing", "outcome": "failed", "failureCode": "target_older_than_data"}
+    },
+    {
+      "name": "other failure codes are not forwarded to the renderer",
+      "source": "Cue host-maintenance.ts:244-247",
+      "intent_request_id": "r-3",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-3", "action": "uninstall", "dataPolicy": "reset", "stage": "reset", "outcome": "failed", "retryable": true, "failureCode": "owner_busy"},
+      "expect": {"result": "receipt", "phase": "failed", "failedPhase": "removing", "outcome": "failed"}
+    },
+    {
+      "name": "succeeded settles as completed",
+      "source": "Cue host-maintenance.ts:233-235",
+      "intent_request_id": "r-4",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-4", "action": "update", "dataPolicy": "preserve", "stage": "settled", "outcome": "succeeded", "retryable": false},
+      "expect": {"result": "receipt", "phase": "completed", "outcome": "succeeded"}
+    },
+    {
+      "name": "registration receipt from the unified read is not a software task",
+      "source": "Cue host-maintenance.ts:151-153",
+      "intent_request_id": null,
+      "value": {"contractVersion": 1, "requestId": "claim-1", "kind": "registration-claim", "outcome": "succeeded"},
+      "expect": {"result": "none"}
+    },
+    {
+      "name": "receipt for another request is refused",
+      "source": "Cue host-maintenance.ts:155-156",
+      "intent_request_id": "mine",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "theirs", "action": "update", "dataPolicy": "preserve", "stage": "stop", "outcome": "pending"},
+      "expect": {"result": "error", "error": "another_request"}
+    },
+    {
+      "name": "actionable receipt without contractVersion is incompatible",
+      "source": "Cue host-maintenance-protocol.ts:45-48",
+      "intent_request_id": "r-5",
+      "value": {"version": 1, "requestId": "r-5", "action": "update", "dataPolicy": "preserve", "stage": "stop", "outcome": "pending"},
+      "expect": {"result": "error", "error": "contract_too_old"}
+    },
+    {
+      "name": "unknown outcome fails the schema",
+      "source": "Cue host-maintenance-protocol.ts:36",
+      "intent_request_id": "r-6",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-6", "action": "update", "dataPolicy": "preserve", "stage": "stop", "outcome": "running"},
+      "expect": {"result": "error", "error": "schema"}
+    },
+    {
+      "name": "failureCode longer than 128 fails the schema",
+      "source": "Cue host-maintenance-protocol.ts:39",
+      "intent_request_id": "r-7",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-7", "action": "update", "dataPolicy": "preserve", "stage": "stop", "outcome": "failed", "failureCode": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+      "expect": {"result": "error", "error": "schema"}
+    },
+    {
+      "name": "null optional field fails the schema (omit instead)",
+      "source": "Cue host-maintenance-protocol.ts:32-40 (zod optional rejects null)",
+      "intent_request_id": "r-8",
+      "value": {"contractVersion": 1, "version": 1, "requestId": "r-8", "action": "update", "dataPolicy": "preserve", "stage": "stop", "outcome": "pending", "failureMessage": null},
+      "expect": {"result": "error", "error": "schema"}
+    }
+  ],
+  "request_receipt": [
+    {
+      "name": "registration-claim receipt accepted",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/runtime-adapter.ts:264-295,342-375; agent-vmm internal/lifecycle/main.go:56-76",
+      "command": "registration-claim", "request_id": "request-1", "registration_id": "registration-1",
+      "value": {"operationId": "request-1", "requestId": "request-1", "kind": "registration-claim", "targetRegistrationId": "registration-1", "stage": "claim", "outcome": "pending", "attempt": 1, "startedAt": 1795000000, "updatedAt": 1795000001},
+      "expect": {"result": "receipt", "outcome": "pending", "retryable": false}
+    },
+    {
+      "name": "operationId stands in for requestId",
+      "source": "Cue runtime-adapter.ts:350",
+      "command": "registration-enable", "request_id": "enable-1", "registration_id": "registration-1",
+      "value": {"operationId": "enable-1", "kind": "registration-enable", "targetRegistrationId": "registration-1", "outcome": "succeeded"},
+      "expect": {"result": "receipt", "outcome": "succeeded", "retryable": false}
+    },
+    {
+      "name": "failed retryable claim with ticket_expired",
+      "source": "Cue runtime-adapter.ts:369-373; clients/apps/electron/src/main/modules/compute-node/index.ts:1147-1154",
+      "command": "registration-claim", "request_id": "request-2", "registration_id": "registration-1",
+      "value": {"requestId": "request-2", "kind": "registration-claim", "targetRegistrationId": "registration-1", "outcome": "failed", "retryable": true, "failureCode": "ticket_expired", "stage": "claim"},
+      "expect": {"result": "receipt", "outcome": "failed", "retryable": true, "failureCode": "ticket_expired", "rejectedClaimTicket": true}
+    },
+    {
+      "name": "recover acknowledges through correlationRequestId",
+      "source": "Cue runtime-adapter.ts:283-289; agent-vmm internal/lifecycle/main.go:185-193",
+      "command": "registration-recover", "request_id": "recover-2", "registration_id": "registration-1",
+      "value": {"requestId": "original-claim", "correlationRequestId": "recover-2", "kind": "registration-recover", "targetRegistrationId": "registration-1", "outcome": "pending"},
+      "expect": {"result": "receipt", "outcome": "pending", "retryable": false}
+    },
+    {
+      "name": "receipt for another registration is refused",
+      "source": "Cue runtime-adapter.ts:279-280",
+      "command": "registration-claim", "request_id": "request-3", "registration_id": "registration-1",
+      "value": {"requestId": "request-3", "kind": "registration-claim", "targetRegistrationId": "registration-9", "outcome": "pending"},
+      "expect": {"result": "error", "error": "another_registration"}
+    },
+    {
+      "name": "receipt of another action is refused",
+      "source": "Cue runtime-adapter.ts:281-282; test compute-node-maintenance-protocol.test.ts:50-53",
+      "command": "registration-enable", "request_id": "enable-2", "registration_id": "registration-1",
+      "value": {"requestId": "enable-2", "kind": "registration-claim", "targetRegistrationId": "registration-1", "outcome": "pending"},
+      "expect": {"result": "error", "error": "another_action"}
+    },
+    {
+      "name": "receipt with a different requestId is refused",
+      "source": "Cue runtime-adapter.ts:283-289",
+      "command": "registration-claim", "request_id": "request-4", "registration_id": "registration-1",
+      "value": {"requestId": "request-5", "kind": "registration-claim", "targetRegistrationId": "registration-1", "outcome": "pending"},
+      "expect": {"result": "error", "error": "not_acknowledged"}
+    },
+    {
+      "name": "unknown outcome is unreadable",
+      "source": "Cue runtime-adapter.ts:351-358",
+      "command": "registration-claim", "request_id": "request-6", "registration_id": "registration-1",
+      "value": {"requestId": "request-6", "kind": "registration-claim", "targetRegistrationId": "registration-1", "outcome": "running"},
+      "expect": {"result": "error", "error": "unreadable"}
+    },
+    {
+      "name": "null stdout on a tracked mutation is refused",
+      "source": "Cue runtime-adapter.ts:278-280,346",
+      "command": "registration-claim", "request_id": "request-7", "registration_id": "registration-1",
+      "value": null,
+      "expect": {"result": "error", "error": "another_registration"}
+    }
+  ],
+  "native_command_error": [
+    {
+      "name": "local operator gRPC failure",
+      "source": "agent-vmm internal/lifecycle/local_operator.go:108-116; Cue clients/apps/electron/src/main/modules/compute-node/command.ts:123-160, local-operator.ts:256-260",
+      "stdout": "{\"error\":{\"code\":\"Unimplemented\",\"reason\":\"LOCAL_OPERATOR_FAILED\"}}\n",
+      "expect": {"code": "Unimplemented", "reason": "LOCAL_OPERATOR_FAILED"}
+    },
+    {
+      "name": "request blocked by the local owner fence",
+      "source": "agent-vmm internal/lifecycle/operation_state.go:224-231; Cue clients/apps/electron/src/main/modules/compute-node/index.ts:1137-1145",
+      "stdout": "{\"error\":{\"code\":\"request_blocked\",\"reason\":\"local_owner_fence\",\"requestId\":\"request-1\"}}\n",
+      "expect": {"code": "request_blocked", "reason": "local_owner_fence", "requestId": "request-1"}
+    },
+    {
+      "name": "maintenance owner busy names only code and message",
+      "source": "agent-vmm internal/lifecycle/main_darwin.go:82-85; Cue command.ts:145-147",
+      "stdout": "{\"error\":{\"code\":\"owner_busy\",\"message\":\"another maintenance owner holds the lock\"}}\n",
+      "expect": {"code": "owner_busy", "reason": "operation_failed"}
+    },
+    {
+      "name": "failed lifecycle operation printed before a non-zero exit",
+      "source": "agent-vmm internal/lifecycle/main.go:200-205; Cue command.ts:148-155, account-service.ts:121-137",
+      "stdout": "{\"operationId\":\"r\",\"requestId\":\"r\",\"kind\":\"registration-claim\",\"outcome\":\"failed\",\"failureStage\":\"register\",\"failureCode\":\"cloud_unavailable\",\"startedAt\":1,\"updatedAt\":2}\n",
+      "expect": {"code": "cloud_unavailable", "reason": "register"}
+    },
+    {
+      "name": "failureCode without failureStage",
+      "source": "Cue command.ts:148-155",
+      "stdout": "{\"failureCode\":\"host_uninstalled\"}",
+      "expect": {"code": "host_uninstalled", "reason": "operation_failed"}
+    },
+    {
+      "name": "host uninstalled by its owner triggers a preserving reinstall",
+      "source": "Cue clients/apps/electron/src/main/modules/compute-node/index.ts:343-349",
+      "stdout": "{\"error\":{\"code\":\"host_uninstalled\",\"reason\":\"owner_uninstalled\"}}",
+      "expect": {"code": "host_uninstalled", "reason": "owner_uninstalled"}
+    },
+    {
+      "name": "non-JSON stdout yields no native error",
+      "source": "Cue command.ts:156-159",
+      "stdout": "lifecycle failed\n",
+      "expect": null
+    },
+    {
+      "name": "empty stdout yields no native error",
+      "source": "Cue command.ts:156-159",
+      "stdout": "",
+      "expect": null
+    }
+  ]
+}

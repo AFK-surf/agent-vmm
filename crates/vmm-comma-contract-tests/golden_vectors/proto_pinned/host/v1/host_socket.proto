@@ -1,0 +1,48 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+// HostSocket records an operator-approved Host Unix socket that an environment's containers reach
+// over TCP at a port of the Host virtual address. The Host connects each such flow to the socket.
+// An empty environment ID means every environment of this Host; an environment's own socket at the
+// same port takes its place there.
+message HostSocket {
+  string environment_id = 1;
+  uint32 port = 2;
+  string path = 3;
+  uint64 revision = 4;
+}
+
+// SetHostSocketRequest carries inputs for an operation that approves one Host Unix socket path at
+// one port for the selected environment, or for every environment when no environment is selected.
+// The socket need not exist yet: each flow connects to the path as it is then. A port that has a
+// socket already gets the new path.
+message SetHostSocketRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  uint32 port = 3;
+  string path = 4;
+}
+
+// RemoveHostSocketRequest carries inputs for an operation that removes the socket at one port of
+// the selected environment, or of every environment when none is selected, and closes its current
+// flows.
+message RemoveHostSocketRequest {
+  string request_id = 1;
+  string environment_id = 2;
+  uint32 port = 3;
+}
+
+// ListHostSocketsRequest carries inputs for an operation that reads operator-approved Host
+// sockets: all of them, or those the selected environment reaches.
+message ListHostSocketsRequest {
+  optional string environment_id = 1;
+}
+
+// ListHostSocketsResponse carries results from an operation that reads operator-approved Host
+// sockets.
+message ListHostSocketsResponse {
+  repeated HostSocket host_sockets = 1;
+}

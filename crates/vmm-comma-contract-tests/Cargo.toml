@@ -1,0 +1,17 @@
+[package]
+name = "vmm-comma-contract-tests"
+version = "0.1.0"
+edition = "2021"
+license = "AGPL-3.0-or-later"
+publish = false
+description = "Golden contract suite: what AFK-surf/Cue (Comma Electron, salix-vmm-gateway, Salix) requires of agent-vmm."
+
+[dependencies]
+base64 = "0.22"
+hex = "0.4"
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+serde_json = "1"
+sha2 = "0.10"
+
+[lints.rust]
+unsafe_code = "forbid"

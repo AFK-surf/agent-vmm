@@ -1,0 +1,94 @@
+{
+  "_comment": "Every argv/stdin that a Cue consumer gives agent-vmm-lifecycle (or `agent-vmm lifecycle` on Linux, or the managed CLI Helpers/agent-vmm). The Rust CLI must accept each `argv` exactly; `stdin_keys` is the complete key set a consumer may send (the pinned Go decoder rejects unknown keys, so the Rust decoder must accept at least these). `timeout_ms` is the consumer's kill deadline: the command must print its JSON and exit before it.",
+  "placeholders": {"<REQ>": "request id, [A-Za-z0-9_-]{1,128}", "<REG>": "registration id, [A-Za-z0-9_-]{1,128}", "<APP>": "absolute path of an Agent VMM Host.app"},
+  "invocations": [
+    {"id": "electron.version", "binary": "agent-vmm-lifecycle", "argv": ["version", "--json"], "stdin": "none", "timeout_ms": 5000, "stdout": "version_report", "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-maintenance.ts:171-178; host-preparation.ts:277-286"},
+    {"id": "electron.status", "binary": "agent-vmm-lifecycle", "argv": ["status", "--service-type", "agent"], "stdin": "empty", "timeout_ms": 15000, "stdout": "status", "source": "Cue clients/apps/electron/src/main/modules/compute-node/runtime-adapter.ts:5,145-149; command.ts:39"},
+    {"id": "electron.status.registration", "binary": "agent-vmm-lifecycle", "argv": ["status", "--service-type", "agent", "--registration-id", "<REG>"], "stdin": "empty", "timeout_ms": 15000, "stdout": "status", "source": "Cue runtime-adapter.ts:145-149"},
+    {"id": "electron.operation", "binary": "agent-vmm-lifecycle", "argv": ["operation", "--service-type", "agent", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 5000, "stdout": "request_receipt_or_null", "source": "Cue runtime-adapter.ts:112-125"},
+    {"id": "electron.operation.registration", "binary": "agent-vmm-lifecycle", "argv": ["operation", "--service-type", "agent", "--request-id", "<REQ>", "--registration-id", "<REG>"], "stdin": "empty", "timeout_ms": 5000, "stdout": "request_receipt_or_null", "source": "Cue runtime-adapter.ts:115-121; agent-vmm internal/lifecycle/operation_state.go:215-216"},
+    {"id": "electron.registration-claim", "binary": "agent-vmm-lifecycle", "argv": ["registration-claim", "--service-type", "agent", "--request-id", "<REQ>", "--descriptor-stdin"], "stdin": "claim_descriptor", "timeout_ms": 180000, "stdout": "request_receipt", "source": "Cue runtime-adapter.ts:241-252,397-401; test compute-node-maintenance-protocol.test.ts:18-25"},
+    {"id": "electron.registration-claim.resume", "binary": "agent-vmm-lifecycle", "argv": ["registration-claim", "--service-type", "agent", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 180000, "stdout": "request_receipt", "source": "Cue runtime-adapter.ts:253-263"},
+    {"id": "electron.registration-recover", "binary": "agent-vmm-lifecycle", "argv": ["registration-recover", "--service-type", "agent", "--request-id", "<REQ>", "--descriptor-stdin"], "stdin": "recovery_descriptor", "timeout_ms": 180000, "stdout": "request_receipt", "source": "Cue runtime-adapter.ts:92-106"},
+    {"id": "electron.registration-enable", "binary": "agent-vmm-lifecycle", "argv": ["registration-enable", "--service-type", "agent", "--registration-id", "<REG>", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 15000, "stdout": "request_receipt", "source": "Cue runtime-adapter.ts:230-239,403-415"},
+    {"id": "electron.registration-drain", "binary": "agent-vmm-lifecycle", "argv": ["registration-drain", "--service-type", "agent", "--registration-id", "<REG>", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 15000, "stdout": "ignored", "source": "Cue runtime-adapter.ts:304-310,403-415"},
+    {"id": "electron.registration-remove", "binary": "agent-vmm-lifecycle", "argv": ["registration-remove", "--service-type", "agent", "--registration-id", "<REG>", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 150000, "stdout": "ignored", "source": "Cue runtime-adapter.ts:312-327"},
+    {"id": "electron.repair", "binary": "agent-vmm-lifecycle", "argv": ["repair", "--service-type", "agent", "--request-id", "<REQ>"], "stdin": "empty", "timeout_ms": 15000, "stdout": "ignored", "source": "Cue runtime-adapter.ts:226-228,397-401"},
+    {"id": "electron.publish-host", "binary": "<staged>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["publish-host", "--source-app", "<APP>", "--service-type", "agent"], "stdin": "empty", "timeout_ms": 600000, "stdout": "ignored", "source": "Cue clients/apps/electron/src/main/modules/compute-node/host-preparation.ts:38,112,376-381"},
+    {"id": "electron.host-maintain", "binary": "<source>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["host-maintain", "--service-type", "auto"], "stdin": "maintenance_request", "timeout_ms": 900000, "stdout": "ignored_then_maintenance_status", "source": "Cue host-maintenance.ts:427-450"},
+    {"id": "electron.host-maintain.pending-update", "binary": "<source>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["host-maintain", "--service-type", "auto"], "stdin": "maintenance_request", "timeout_ms": 600000, "stdout": "ignored", "source": "Cue host-preparation.ts:429-443"},
+    {"id": "electron.maintenance-status", "binary": "agent-vmm-lifecycle", "argv": ["maintenance-status", "--service-type", "auto"], "stdin": "maintenance_status_request", "timeout_ms": 5000, "stdout": "maintenance_status", "source": "Cue host-maintenance.ts:141-149"},
+    {"id": "electron.local-environments", "binary": "agent-vmm-lifecycle", "argv": ["local-environments", "--service-type", "agent"], "stdin": "after_id_request", "timeout_ms": 20000, "stdout": "local_environments", "source": "Cue clients/apps/electron/src/main/modules/compute-node/local-operator.ts:144-152,180-185"},
+    {"id": "electron.local-disk", "binary": "agent-vmm-lifecycle", "argv": ["local-disk", "--service-type", "agent"], "stdin": "empty_object", "timeout_ms": 20000, "stdout": "local_disk", "source": "Cue local-operator.ts:186"},
+    {"id": "electron.local-registrations", "binary": "agent-vmm-lifecycle", "argv": ["local-registrations", "--service-type", "agent"], "stdin": "after_id_request", "timeout_ms": 20000, "stdout": "local_registrations", "source": "Cue local-operator.ts:154-174"},
+    {"id": "electron.local-plan", "binary": "agent-vmm-lifecycle", "argv": ["local-plan", "--service-type", "agent"], "stdin": "local_plan_request", "timeout_ms": 20000, "stdout": "local_plan", "source": "Cue local-operator.ts:407-409"},
+    {"id": "electron.local-execute", "binary": "agent-vmm-lifecycle", "argv": ["local-execute", "--service-type", "agent"], "stdin": "local_execute_request", "timeout_ms": 20000, "stdout": "local_operation", "source": "Cue local-operator.ts:424-437,476-478"},
+    {"id": "electron.local-operation", "binary": "agent-vmm-lifecycle", "argv": ["local-operation", "--service-type", "agent"], "stdin": "local_operation_request", "timeout_ms": 20000, "stdout": "local_operation", "source": "Cue local-operator.ts:476-477,544-546"},
+    {"id": "darwin-install.version", "binary": "<staged>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["version", "--json"], "stdin": "none", "stdout": "version_report", "source": "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:36-38"},
+    {"id": "darwin-install.publish-host", "binary": "<staged>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["publish-host", "--source-app", "<APP>", "--service-type", "agent"], "stdin": "inherited", "stdout": "ignored", "source": "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:45-46"},
+    {"id": "darwin-install.host-maintain", "binary": "<source>/Contents/Helpers/agent-vmm-lifecycle", "argv": ["host-maintain", "--service-type", "auto"], "stdin": "maintenance_request", "stdout": "ignored", "source": "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:51-53"},
+    {"id": "darwin-install.registration-claim", "binary": "agent-vmm-lifecycle", "argv": ["registration-claim", "--service-type", "agent", "--disable-personal-mesh-pairing", "--request-id", "<REQ>", "--descriptor-stdin"], "stdin": "claim_descriptor", "stdout": "ignored", "source": "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:59-60"},
+    {"id": "linux-install.install", "binary": "<release>/agent-vmm", "argv": ["lifecycle", "install", "--registration-stdin", "--request-id", "<REQ>"], "stdin": "claim_descriptor", "stdout": "ignored", "source": "Cue systems/apps/salix_store/priv/agent_vmm/linux-install.sh:32-39; test systems/apps/salix_store/test/headless_install_e2e_test.exs:69", "pinned_go_behavior": "REJECTED: agent-vmm internal/lifecycle/arguments.go:127-156 has no --registration-stdin (fatal). See CONTRACT_SPEC D-1."},
+    {"id": "provisioner.version", "binary": "agent-vmm-lifecycle", "argv": ["version", "--json"], "stdin": "none", "stdout": "version_report", "source": "Cue systems/connector/mac-mini-provisioner/main.go:801-822; systems/connector/mac-mini-provisioner-install.sh:245,252,274"},
+    {"id": "provisioner.status", "binary": "agent-vmm-lifecycle", "argv": ["status", "--service-type", "<agent|daemon>", "--service-user", "<USER>", "--shared-host"], "stdin": "inherited", "stdout": "status", "source": "Cue systems/connector/mac-mini-provisioner-install.sh:184-186"},
+    {"id": "provisioner.registration-claim", "binary": "agent-vmm-lifecycle", "argv": ["registration-claim", "--disable-personal-mesh-pairing", "--request-id", "<REQ>", "--descriptor-stdin", "--service-type", "<agent|daemon>", "--service-user", "<USER>"], "stdin": "claim_descriptor", "stdout": "request_receipt", "source": "Cue systems/connector/mac-mini-provisioner/registration.go:177; systems/connector/mac-mini-provisioner/main.go:852"},
+    {"id": "provisioner.registration-state", "binary": "agent-vmm-lifecycle", "argv": ["<registration-enable|registration-drain|registration-remove>", "--registration-id", "<REG>", "--request-id", "<REQ>", "--service-type", "<agent|daemon>", "--service-user", "<USER>"], "stdin": "none", "stdout": "request_receipt", "source": "Cue systems/connector/mac-mini-provisioner/registration.go:236"},
+    {"id": "provisioner.inspect", "binary": "Helpers/agent-vmm", "argv": ["inspect", "--json", "--lifecycle-helper", "<LIFECYCLE>", "--service-type", "<agent|daemon>", "--service-user", "<USER>"], "stdin": "none", "timeout_ms": 6000, "stdout": "managed_envelope", "source": "Cue systems/connector/mac-mini-provisioner/main.go:1141-1157"},
+    {"id": "provisioner.update", "binary": "Helpers/agent-vmm", "argv": ["update", "--json", "--request-id", "<REQ>", "--target-release-id", "<RELEASE>", "--artifact-url", "<URL>", "--artifact-sha256", "<SHA256>", "--artifact-size", "<SIZE>", "--lifecycle-helper", "<LIFECYCLE>"], "stdin": "none", "stdout": "managed_envelope", "source": "Cue systems/connector/mac-mini-provisioner/main.go:670-687"},
+    {"id": "bft.inspect", "binary": "Helpers/agent-vmm", "argv": ["inspect", "--json", "--lifecycle-helper", "<LIFECYCLE>"], "stdin": "none", "stdout": "managed_envelope", "source": "Cue systems/cli/bft/internal/commands/vmm.go:96-118"},
+    {"id": "bft.install", "binary": "agent-vmm-lifecycle", "argv": ["install", "--request-id", "<REQ>"], "stdin": "none", "stdout": "ignored", "source": "Cue systems/cli/bft/internal/commands/vmm.go:89-94"},
+    {"id": "bft.repair", "binary": "agent-vmm-lifecycle", "argv": ["repair", "--request-id", "<REQ>"], "stdin": "none", "stdout": "ignored", "source": "Cue systems/cli/bft/internal/commands/vmm.go:125-127"},
+    {"id": "bft.drain", "binary": "agent-vmm-lifecycle", "argv": ["drain", "--request-id", "<REQ>"], "stdin": "none", "stdout": "ignored", "source": "Cue systems/cli/bft/internal/commands/vmm.go:129-131"},
+    {"id": "bft.uninstall", "binary": "agent-vmm-lifecycle", "argv": ["uninstall", "--purge", "--request-id", "<REQ>"], "stdin": "none", "stdout": "ignored", "source": "Cue systems/cli/bft/internal/commands/vmm.go:133-140"},
+    {"id": "bft.registration-recover", "binary": "agent-vmm-lifecycle | agent-vmm lifecycle", "argv": ["registration-recover", "--request-id", "<REQ>", "--descriptor-stdin"], "stdin": "recovery_descriptor", "stdout": "request_receipt", "source": "Cue systems/cli/bft/internal/commands/vmm.go:465-476"}
+  ],
+  "stdin": {
+    "maintenance_request": {
+      "allowed_keys": ["version", "continue", "requestId", "action", "dataPolicy", "targetApp", "sourceApp", "targetReleaseId", "supersedesRequestId", "confirmSharedHost", "confirmDataDeletion"],
+      "source": "agent-vmm internal/lifecycle/maintenance_darwin.go:16-28 (DisallowUnknownFields at internal/lifecycle/main_darwin.go:26-27); Cue host-maintenance.ts:430-448, host-preparation.ts:432-441, darwin-install.sh:51",
+      "max_bytes": 16384,
+      "samples": [
+        {"name": "Electron update, explicit continue", "source": "Cue host-maintenance.ts:430-448", "value": {"version": 1, "requestId": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11", "action": "update", "dataPolicy": "preserve", "targetApp": "/Users/u/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app", "sourceApp": "/Users/u/Library/Application Support/Agent VMM Host/current/.maintenance-0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11/Agent VMM Host.app", "targetReleaseId": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "confirmSharedHost": true, "continue": true}},
+        {"name": "Electron uninstall with data reset, superseding", "source": "Cue host-maintenance.ts:430-448", "value": {"version": 1, "requestId": "5c1f6f4e-7d55-4a53-9d0a-3d7e1f1f2a22", "action": "uninstall", "dataPolicy": "reset", "targetApp": "/Users/u/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app", "supersedesRequestId": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11", "confirmSharedHost": true, "confirmDataDeletion": true}},
+        {"name": "Electron pending in-place update (request id is not a UUID)", "source": "Cue host-preparation.ts:384,432-441", "value": {"version": 1, "requestId": "comma-update-2f0c7f52-5a53-4a3c-8f6d-0d2b1a6f9e10", "action": "update", "dataPolicy": "preserve", "sourceApp": "/Users/u/Library/Application Support/Agent VMM Host/current/.Agent VMM Host.comma-update-2f0c7f52-5a53-4a3c-8f6d-0d2b1a6f9e10.app", "targetApp": "/Users/u/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app", "targetReleaseId": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "confirmSharedHost": true}},
+        {"name": "darwin-install.sh in-place update", "source": "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:49-53", "value": {"version": 1, "requestId": "req_01-update", "action": "update", "dataPolicy": "preserve", "sourceApp": "/Users/u/Library/Application Support/Agent VMM Host/current/.Agent VMM Host.req_01.app", "targetApp": "/Users/u/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app", "targetReleaseId": "agent-vmm-89b0c0a46885525342a657fbf19d0cc35f683bbb", "confirmSharedHost": true}}
+      ]
+    },
+    "maintenance_status_request": {
+      "allowed_keys": ["requestId"],
+      "source": "agent-vmm internal/lifecycle/main_darwin.go:28-37; Cue host-maintenance.ts:146",
+      "samples": [
+        {"name": "by request", "source": "Cue host-maintenance.ts:146", "value": {"requestId": "0b9d0b3e-6f0a-4d0e-9a39-0b1f2f7b9d11"}},
+        {"name": "latest", "source": "Cue host-maintenance.ts:146", "value": {}}
+      ]
+    },
+    "after_id_request": {
+      "allowed_keys": ["afterId"],
+      "source": "agent-vmm api/host/v1/operator.proto ListLocalEnvironmentPageRequest/ListLocalRegistrationPageRequest (protojson); Cue local-operator.ts:172,183",
+      "max_bytes": 8192,
+      "samples": [
+        {"name": "first page", "source": "Cue local-operator.ts:183", "value": {}},
+        {"name": "next page", "source": "Cue local-operator.ts:183", "value": {"afterId": "env-32"}}
+      ]
+    },
+    "empty_object": {"allowed_keys": [], "source": "Cue local-operator.ts:186", "max_bytes": 8192, "samples": [{"name": "local-disk", "source": "Cue local-operator.ts:186", "value": {}}]},
+    "local_plan_request": {
+      "allowed_keys": ["targetKind", "targetId"],
+      "source": "agent-vmm api/host/v1/operator.proto PlanLocalDisposalRequest; Cue local-operator.ts:408",
+      "max_bytes": 8192,
+      "samples": [{"name": "environment", "source": "Cue local-operator.ts:408", "value": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-1"}}]
+    },
+    "local_execute_request": {
+      "allowed_keys": ["requestId", "plan", "irreversibleConfirmation"],
+      "source": "agent-vmm api/host/v1/operator.proto ExecuteLocalDisposalRequest; Cue local-operator.ts:424-428 (the plan is echoed back exactly as parsed, passthrough keys included: local-operator.ts:82)",
+      "max_bytes": 8192,
+      "samples": [{"name": "confirmed plan", "source": "Cue local-operator.ts:424-428", "value": {"requestId": "9d6f1e0a-49a8-4f8e-8f3f-1a5b9e0c2d11", "plan": {"targetKind": "LOCAL_DISPOSAL_TARGET_KIND_ENVIRONMENT", "targetId": "env-1", "revision": "7", "namespaceId": "ns-1", "displayName": "Shell", "environmentCount": "1"}, "irreversibleConfirmation": true}}]
+    },
+    "local_operation_request": {
+      "allowed_keys": ["operationId"],
+      "source": "agent-vmm api/host/v1/operator.proto GetOperationRequest; Cue local-operator.ts:477,545",
+      "max_bytes": 8192,
+      "samples": [{"name": "by operation", "source": "Cue local-operator.ts:477", "value": {"operationId": "op-1"}}]
+    }
+  }
+}

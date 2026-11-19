@@ -1,0 +1,88 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+import "google/protobuf/timestamp.proto";
+import "trust/v1/trust.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+enum DeviceIdentityState {
+  DEVICE_IDENTITY_STATE_UNSPECIFIED = 0;
+  DEVICE_IDENTITY_STATE_READY = 1;
+  DEVICE_IDENTITY_STATE_NEEDS_REPAIR = 2;
+}
+
+enum ServiceListenerExposure {
+  SERVICE_LISTENER_EXPOSURE_UNSPECIFIED = 0;
+  // Any local user can connect using the owner's route authority.
+  SERVICE_LISTENER_EXPOSURE_DEVICE_LOOPBACK = 1;
+  SERVICE_LISTENER_EXPOSURE_LAN = 2;
+  SERVICE_LISTENER_EXPOSURE_DEVICE_USER_SOCKET = 3;
+}
+
+// ServiceListener reports one operator-approved listener and its route authority.
+message ServiceListener {
+  // Current socket observation. These fields are not persisted authorization.
+  optional bool available = 16;
+  string unavailable_reason = 17;
+  bool local = 12;
+  string environment_id = 13;
+  string container_id = 14;
+  uint32 target_port = 15;
+  string id = 1;
+  string mesh_id = 2;
+  string destination_device_id = 3;
+  string destination_export_id = 4;
+  ServiceListenerExposure exposure = 5;
+  string listen_address = 6;
+  string route_id = 7;
+  string capability_id = 8;
+  google.protobuf.Timestamp expires_at = 9;
+  uint64 revision = 10;
+  bool revoked = 11;
+}
+
+// PersonalMeshResponse returns the local verified mesh projection after an operator membership
+// action.
+message PersonalMeshResponse {
+  agentvmm.trust.v1.PersonalMeshDescriptor mesh_descriptor = 1;
+  agentvmm.trust.v1.MeshSnapshot snapshot = 2;
+  agentvmm.trust.v1.RegistryOperation pending_operation = 3;
+}
+
+// PersonalMeshPairingInvitation contains the bounded out-of-band material needed to join one
+// pairing exchange.
+message PersonalMeshPairingInvitation {
+  bytes session_id = 1;
+  string mesh_id = 2;
+  uint64 invite_revision = 3;
+  string manager_device_id = 4;
+  bytes manager_root_public_key = 5;
+  uint64 manager_root_key_revision = 6;
+  bytes endpoint_address_json = 7;
+  string invite_id = 8;
+  bytes nonce = 9;
+  google.protobuf.Timestamp expires_at = 10;
+  repeated agentvmm.trust.v1.MeshPermission permissions = 11;
+}
+
+enum PersonalMeshPairingState {
+  PERSONAL_MESH_PAIRING_STATE_UNSPECIFIED = 0;
+  PERSONAL_MESH_PAIRING_STATE_INVITED = 1;
+  PERSONAL_MESH_PAIRING_STATE_HANDSHAKING = 2;
+  PERSONAL_MESH_PAIRING_STATE_AWAITING_CONFIRM = 3;
+  PERSONAL_MESH_PAIRING_STATE_READY_TO_COMMIT = 4;
+  PERSONAL_MESH_PAIRING_STATE_COMMITTED = 5;
+  PERSONAL_MESH_PAIRING_STATE_REJECTED = 6;
+  PERSONAL_MESH_PAIRING_STATE_EXPIRED = 7;
+}
+
+enum PairingFailure {
+  PAIRING_FAILURE_UNSPECIFIED = 0;
+  PAIRING_FAILURE_CONTEXT_MISMATCH = 1;
+  PAIRING_FAILURE_TIMEOUT = 2;
+  PAIRING_FAILURE_AUTHENTICATION_FAILED = 3;
+  PAIRING_FAILURE_PROTOCOL_VIOLATION = 4;
+  PAIRING_FAILURE_CONNECTION_LOST = 5;
+}

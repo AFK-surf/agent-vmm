@@ -1,0 +1,11 @@
+[package]
+name = "agent-vmm-service-executor"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.96"
+license = "AGPL-3.0-or-later"
+publish = false
+
+# This program runs as root. It has no dependency other than libc: no network, no async runtime.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"

@@ -1,0 +1,208 @@
+syntax = "proto3";
+
+package agentvmm.host.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+import "host/v1/resources.proto";
+
+option go_package = "github.com/AFK-surf/agent-vmm/api/host/v1;hostv1";
+
+enum RemoteRegistrationState {
+  REMOTE_REGISTRATION_STATE_UNSPECIFIED = 0;
+  REMOTE_REGISTRATION_STATE_ENABLED = 1;
+  REMOTE_REGISTRATION_STATE_DRAINING = 2;
+  REMOTE_REGISTRATION_STATE_REVOKED = 3;
+}
+
+enum RemoteRegistrationOwnerKind {
+  REMOTE_REGISTRATION_OWNER_KIND_UNSPECIFIED = 0;
+  REMOTE_REGISTRATION_OWNER_KIND_EXTERNAL = 1;
+  REMOTE_REGISTRATION_OWNER_KIND_APPLIANCE = 2;
+}
+
+enum RemoteConnectionState {
+  reserved 3;
+  REMOTE_CONNECTION_STATE_UNSPECIFIED = 0;
+  REMOTE_CONNECTION_STATE_DISCONNECTED = 1;
+  REMOTE_CONNECTION_STATE_CONNECTED = 2;
+}
+
+enum RemoteEnrollmentState {
+  REMOTE_ENROLLMENT_STATE_UNSPECIFIED = 0;
+  REMOTE_ENROLLMENT_STATE_PENDING_CREDENTIAL = 1;
+  REMOTE_ENROLLMENT_STATE_READY = 2;
+  REMOTE_ENROLLMENT_STATE_SETUP_INCOMPLETE = 3;
+  REMOTE_ENROLLMENT_STATE_REVOKING = 4;
+}
+
+enum ConnectorPhase {
+  CONNECTOR_PHASE_UNSPECIFIED = 0;
+  CONNECTOR_PHASE_STOPPED = 1;
+  CONNECTOR_PHASE_ENROLLING = 2;
+  CONNECTOR_PHASE_CONNECTING = 3;
+  CONNECTOR_PHASE_CONNECTED = 4;
+  CONNECTOR_PHASE_RETRY_WAIT = 5;
+  CONNECTOR_PHASE_AUTH_FAILED = 6;
+  CONNECTOR_PHASE_CONFIG_ERROR = 7;
+}
+
+// ConnectorStatus observes transport recovery separately from registration admission state.
+message ConnectorStatus {
+  ConnectorPhase phase = 1;
+  string connector_release = 2;
+  google.protobuf.Timestamp observed_at = 3;
+  google.protobuf.Timestamp last_connected_at = 4;
+  google.protobuf.Timestamp disconnected_at = 5;
+  google.protobuf.Timestamp next_retry_at = 6;
+  uint32 reconnect_attempt = 7;
+  string failure_code = 8;
+  string failure_message = 9;
+  ControllerDomainMetrics domain_metrics = 10;
+  RemoteProtocolStatus remote_protocol = 11;
+}
+
+// RemoteProtocolStatus records the current controller protocol refusal for one registration.
+// It is absent after a successful connection and is not a lifecycle authority.
+message RemoteProtocolStatus {
+  string host_protocol = 1;
+  uint32 min_protocol = 2;
+  uint32 max_protocol = 3;
+  string host_side = 4;
+}
+
+// ControllerDomainMetrics reports sampled traffic and session diagnostics for one registration
+// domain.
+message ControllerDomainMetrics {
+  uint64 bytes_to_controller = 1;
+  uint64 bytes_to_runtime = 2;
+  uint64 send_stalls = 3;
+  uint64 window_blocked_millis = 4;
+  uint32 active_sessions = 5;
+  uint64 connector_restarts = 7;
+  uint64 reconciliations = 8;
+  uint64 last_stop_latency_millis = 9;
+  google.protobuf.Timestamp sampled_at = 10;
+}
+
+// RemotePoolPolicy bounds each requested environment contract. It does not reserve aggregate
+// allocation capacity.
+message RemotePoolPolicy {
+  ResourceLimits per_environment_limits = 3;
+  EgressMode max_egress_mode = 4;
+  google.protobuf.Duration stop_grace = 7;
+}
+
+// RemoteRegistration combines durable controller authority, admission policy, and separate
+// connector observations.
+message RemoteRegistration {
+  string id = 1;
+  string endpoint = 2;
+  string display_name = 3;
+  RemotePoolPolicy pool = 5;
+  uint64 revision = 6;
+  RemoteRegistrationState state = 7;
+  RemoteConnectionState connection_state = 8;
+  repeated RemoteAllocation allocations = 9;
+  RemoteEnrollmentState enrollment_state = 10;
+  string enrollment_error_code = 11;
+  string enrollment_error_message = 12;
+  ConnectorStatus connector_status = 13;
+  google.protobuf.Timestamp created_at = 14;
+  google.protobuf.Timestamp updated_at = 15;
+  RemoteRegistrationOwnerKind owner_kind = 16;
+  string installation_id = 17;
+  uint64 inventory_revision = 18;
+  ControllerDomainMetrics domain_metrics = 19;
+  uint64 pool_policy_revision = 20;
+  string source_request_id = 21;
+}
+
+// RemoteRegistrationConnection carries public connection and local pool configuration.
+message RemoteRegistrationConnection {
+  string request_id = 1;
+  string endpoint = 2;
+  string display_name = 3;
+  RemotePoolPolicy pool = 5;
+  string registration_id = 6;
+  bytes trust_bundle = 7;
+  reserved 8;
+  uint64 source_policy_revision = 9;
+}
+
+// BeginRemoteRevocationRequest carries inputs for an operation that records revocation intent
+// before stopping the registration's owned workload authority.
+message BeginRemoteRevocationRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+
+// CompleteRemoteRevocationRequest carries inputs for an operation that completes the selected
+// registration's durable revocation.
+message CompleteRemoteRevocationRequest {
+  string request_id = 1;
+  string registration_id = 2;
+  uint64 expected_revision = 3;
+}
+
+// UpdateRemotePoolRequest carries inputs for an operation that changes one registration's
+// allocation policy without reallocating existing workloads.
+message UpdateRemotePoolRequest {
+  string request_id = 1;
+  uint64 expected_revision = 2;
+  RemotePoolPolicy pool = 3;
+  string registration_id = 4;
+}
+
+// SetRemoteRegistrationStateRequest carries inputs for an operation that changes admission state
+// independently of connector transport connectivity.
+message SetRemoteRegistrationStateRequest {
+  string request_id = 1;
+  uint64 expected_revision = 2;
+  RemoteRegistrationState state = 3;
+  string registration_id = 4;
+}
+
+// GetRemoteRegistrationRequest carries inputs for an operation that reads the selected
+// registration, connector observation, and owned allocations.
+message GetRemoteRegistrationRequest {
+  string registration_id = 1;
+}
+
+enum AllocationState {
+  reserved 2;
+  reserved "ALLOCATION_STATE_LEASED";
+  ALLOCATION_STATE_UNSPECIFIED = 0;
+  ALLOCATION_STATE_READY = 1;
+  ALLOCATION_STATE_DRAINING = 3;
+  ALLOCATION_STATE_RETAINED = 4;
+  ALLOCATION_STATE_DISCARDED = 5;
+}
+
+// RemoteAllocation identifies durable allocation ownership, generation, policy, and retained
+// state.
+message RemoteAllocation {
+  string allocation_id = 1;
+  string display_label = 2;
+  ResourceLimits limits = 3;
+  EgressMode egress_mode = 4;
+  uint64 revision = 5;
+  AllocationState state = 6;
+  string environment_id = 8;
+  uint64 generation = 9;
+}
+
+// LocalRegistrationMetadata reports bounded local registration facts without contacting its
+// controller.
+message LocalRegistrationMetadata {
+  string id = 1;
+  uint64 revision = 2;
+  RemoteRegistrationState state = 3;
+}
+
+// ApplyRemoteRegistrationRequest saves an already claimed credential and public connection configuration.
+message ApplyRemoteRegistrationRequest {
+  RemoteRegistrationConnection registration = 1;
+  bytes credential = 2;
+}

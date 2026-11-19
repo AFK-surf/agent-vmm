@@ -1,0 +1,87 @@
+{
+  "_comment": "HTTP and descriptor contracts between the Host lifecycle owner and Salix. Descriptors are produced by Cue and consumed by agent-vmm; the claim request is produced by agent-vmm and validated by Salix.",
+  "claim_descriptor": {
+    "allowed_keys": ["version", "registration_id", "request_id", "claim_url", "ticket", "expires_at"],
+    "max_bytes": 4096,
+    "source": "Cue systems/apps/salix_store/lib/salix_store/agent_vmm_registrations/headless.ex:62-71; agent-vmm internal/lifecycle/registration_claim.go:24-25,31-38,83-109",
+    "cases": [
+      {"name": "headless install descriptor", "accept": true, "source": "Cue headless.ex:62-71 (Jason.encode!, DateTime.to_iso8601)", "value": {"version": 1, "registration_id": "reg_01HZX", "request_id": "req_01HZY", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "tkt_abcdefghijklmnopqrstuvwxyz012345", "expires_at": "2026-11-19T12:30:00.123456Z"}},
+      {"name": "loopback http is allowed for local stacks", "accept": true, "source": "Cue headless.ex:101-116; agent-vmm registration_claim.go:95-98", "value": {"version": 1, "registration_id": "reg-1", "claim_url": "http://127.0.0.1:4000/v1/compute/agent-vmm/registrations/claim", "ticket": "t", "expires_at": "2026-11-19T12:30:00Z"}},
+      {"name": "unknown key is rejected", "accept": false, "source": "agent-vmm registration_claim.go:84-85", "value": {"version": 1, "registration_id": "reg-1", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "t", "expires_at": "2026-11-19T12:30:00Z", "authorization": "x"}},
+      {"name": "version 2 is rejected", "accept": false, "source": "agent-vmm registration_claim.go:99", "value": {"version": 2, "registration_id": "reg-1", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "t", "expires_at": "2026-11-19T12:30:00Z"}},
+      {"name": "empty ticket is rejected", "accept": false, "source": "agent-vmm registration_claim.go:99", "value": {"version": 1, "registration_id": "reg-1", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "", "expires_at": "2026-11-19T12:30:00Z"}},
+      {"name": "registration id with a dot is rejected", "accept": false, "source": "agent-vmm registration_claim.go:27,99", "value": {"version": 1, "registration_id": "reg.1", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "t", "expires_at": "2026-11-19T12:30:00Z"}},
+      {"name": "non RFC 3339 expiry is rejected", "accept": false, "source": "agent-vmm registration_claim.go:103-105", "value": {"version": 1, "registration_id": "reg-1", "claim_url": "https://salix.comma.surf/v1/compute/agent-vmm/registrations/claim", "ticket": "t", "expires_at": "1795090434"}}
+    ]
+  },
+  "recovery_descriptor": {
+    "allowed_keys": ["version", "registration_id", "recovery_url", "authorization"],
+    "max_bytes": 8192,
+    "source": "Cue clients/apps/electron/src/main/modules/compute-node/install-authorization.ts:156-175; systems/cli/bft/internal/commands/vmm.go:465-476; agent-vmm internal/lifecycle/registration_recovery.go:26-50",
+    "cases": [
+      {"name": "Comma workspace recovery", "accept": true, "source": "Cue install-authorization.ts:166-174", "value": {"version": 1, "registration_id": "reg_01HZX", "recovery_url": "https://comma.surf/v1/comma/workspaces/ws_01/compute-nodes/agent-vmm/registrations/reg_01HZX/recovery", "authorization": "session-token"}},
+      {"name": "CFT org/project recovery", "accept": true, "source": "Cue systems/cli/bft/internal/commands/vmm.go:465", "value": {"version": 1, "registration_id": "reg-1", "recovery_url": "https://bft.example/v1/orgs/org-1/projects/proj-1/compute-nodes/agent-vmm/registrations/reg-1/recovery", "authorization": "token"}},
+      {"name": "URL names another registration", "accept": false, "source": "agent-vmm internal/lifecycle/registration_recovery.go:35-42", "value": {"version": 1, "registration_id": "reg-1", "recovery_url": "https://comma.surf/v1/comma/workspaces/ws/compute-nodes/agent-vmm/registrations/reg-2/recovery", "authorization": "t"}},
+      {"name": "query string is rejected", "accept": false, "source": "agent-vmm internal/lifecycle/registration_recovery.go:37-39", "value": {"version": 1, "registration_id": "reg-1", "recovery_url": "https://comma.surf/v1/comma/workspaces/ws/compute-nodes/agent-vmm/registrations/reg-1/recovery?x=1", "authorization": "t"}},
+      {"name": "plain http to a public host is rejected", "accept": false, "source": "agent-vmm internal/lifecycle/registration_recovery.go:42", "value": {"version": 1, "registration_id": "reg-1", "recovery_url": "http://comma.surf/v1/comma/workspaces/ws/compute-nodes/agent-vmm/registrations/reg-1/recovery", "authorization": "t"}},
+      {"name": "authorization with a newline is rejected", "accept": false, "source": "agent-vmm internal/lifecycle/registration_recovery.go:47", "value": {"version": 1, "registration_id": "reg-1", "recovery_url": "https://comma.surf/v1/comma/workspaces/ws/compute-nodes/agent-vmm/registrations/reg-1/recovery", "authorization": "a\nb"}}
+    ]
+  },
+  "claim_request": {
+    "method": "POST",
+    "path": "/v1/compute/agent-vmm/registrations/claim",
+    "headers": {"authorization": "RegistrationTicket <ticket>", "content-type": "application/json"},
+    "exact_keys": ["version", "registration_id", "device_id", "root_public_key", "root_key_revision", "candidate_credential"],
+    "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:231-264; agent-vmm internal/lifecycle/registration_claim.go:172-181,275-280 (internal/lifecycle/registration_recovery.go:143-149)",
+    "cases": [
+      {"name": "pinned Go request", "accept": true, "source": "agent-vmm registration_claim.go:173", "value": {"version": 1, "registration_id": "reg_01HZX", "device_id": "device-a", "root_public_key": "A2sX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKW", "root_key_revision": 3, "candidate_credential": "QUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOA=="}},
+      {"name": "extra key is rejected (exact_keys?)", "accept": false, "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:242-246", "value": {"version": 1, "registration_id": "reg-1", "device_id": "d", "root_public_key": "A2sX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKW", "root_key_revision": 3, "candidate_credential": "QUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOA==", "request_id": "r"}},
+      {"name": "candidate credential that is not 60 base64 characters is rejected", "accept": false, "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:249", "value": {"version": 1, "registration_id": "reg-1", "device_id": "d", "root_public_key": "A2sX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKW", "root_key_revision": 3, "candidate_credential": "QUFBQQ=="}},
+      {"name": "url-safe base64 public key is rejected (Base.decode64 is the standard alphabet)", "accept": false, "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:250", "value": {"version": 1, "registration_id": "reg-1", "device_id": "d", "root_public_key": "A2sX0fLhLEJH-Lzm5WOkQPJ3A32BLeszoPShOUXYmMKW", "root_key_revision": 3, "candidate_credential": "QUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOA=="}},
+      {"name": "version as a string is rejected", "accept": false, "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:235", "value": {"version": "1", "registration_id": "reg-1", "device_id": "d", "root_public_key": "A2sX0fLhLEJH+Lzm5WOkQPJ3A32BLeszoPShOUXYmMKW", "root_key_revision": 3, "candidate_credential": "QUFFQ0F3UUZCZ2NJQ1FvTERBME9EeEFSRWhNVUZSWVhHQmthR3h3ZEhoOA=="}}
+    ]
+  },
+  "claim_response": {
+    "source": "Cue systems/apps/salix_store/lib/salix_store/agent_vmm_connection_config.ex:12-47; agent-vmm internal/lifecycle/registration_claim.go:39-60,202-211",
+    "cases": [
+      {"name": "Salix connection config with the managed default pool policy", "accept": true, "source": "Cue systems/apps/salix_store/lib/salix_store/agent_vmm_connection_config.ex:16,37-43; systems/apps/salix_store/lib/salix_store/compute.ex:36-43", "value": {"version": 1, "registration_id": "reg_01HZX", "remote_connection": {"gateway_endpoint": "vmm-gateway.comma.surf:443", "trust_bundle": "LS0tLS1CRUdJTiBDRVJUSUZJQ0FURS0tLS0tCg==", "policy_revision": 4, "pool_policy": {"per_environment_limits": {"pids": 2048, "disk_bytes": 17179869184}, "max_egress_mode": "public_internet", "stop_grace_seconds": 10}}}},
+      {"name": "deny_all egress", "accept": true, "source": "Cue agent_vmm_connection_config.ex:53-55", "value": {"version": 1, "registration_id": "reg-1", "remote_connection": {"gateway_endpoint": "gw.example:8443", "trust_bundle": "LS0t", "policy_revision": 1, "pool_policy": {"per_environment_limits": {"pids": 1, "disk_bytes": 1}, "max_egress_mode": "deny_all", "stop_grace_seconds": 300}}}},
+      {"name": "zero policy revision is incomplete", "accept": false, "source": "agent-vmm registration_claim.go:206-208", "value": {"version": 1, "registration_id": "reg-1", "remote_connection": {"gateway_endpoint": "gw.example:8443", "trust_bundle": "LS0t", "policy_revision": 0, "pool_policy": {"per_environment_limits": {"pids": 1, "disk_bytes": 1}, "max_egress_mode": "deny_all", "stop_grace_seconds": 30}}}},
+      {"name": "enum-style egress mode is invalid", "accept": false, "source": "agent-vmm registration_claim.go:207", "value": {"version": 1, "registration_id": "reg-1", "remote_connection": {"gateway_endpoint": "gw.example:8443", "trust_bundle": "LS0t", "policy_revision": 1, "pool_policy": {"per_environment_limits": {"pids": 1, "disk_bytes": 1}, "max_egress_mode": "EGRESS_MODE_DENY_ALL", "stop_grace_seconds": 30}}}}
+    ]
+  },
+  "claim_errors": {
+    "body_shape": {"error": "<code>"},
+    "source": "Cue systems/apps/salix_web/lib/salix_web/router.ex:4692-4718; agent-vmm internal/lifecycle/registration_claim.go:258-280",
+    "status_by_code": {
+      "invalid_ticket": 401, "not_found": 401,
+      "ticket_expired": 410,
+      "registration_revoked": 403, "authorization_expired": 403, "authorization_changed": 403,
+      "host_identity_mismatch": 409, "credential_reauthorization_required": 409, "scope_host_bound": 409,
+      "unavailable": 503, "connection_config_unavailable": 503,
+      "invalid_request": 400
+    },
+    "host_recognized_codes": ["invalid_ticket", "not_found", "ticket_expired", "registration_revoked", "authorization_expired", "authorization_changed", "host_identity_mismatch", "credential_reauthorization_required", "scope_host_bound", "unavailable", "connection_config_unavailable", "invalid_request", "invalid_candidate_credential", "invalid_host_identity", "invalid_recovery_challenge", "invalid_recovery_proof", "recovery_target_unavailable", "original_subject_unknown"],
+    "electron_receipt_failure_codes": {"invalid_ticket": "rejectedClaimTicket", "ticket_expired": "rejectedClaimTicket"}
+  },
+  "recovery": {
+    "source": "agent-vmm internal/lifecycle/registration_recovery.go:80-141; Cue systems/apps/salix_store/lib/salix_store/agent_vmm_recovery.ex:1-37; systems/apps/comma_web/lib/comma_web/router.ex:3325,3463",
+    "challenge_request": {"method": "POST", "url": "<recovery_url>/challenge", "headers": {"authorization": "Bearer <authorization>", "content-type": "application/json"}, "body_keys": ["candidate_credential_hash"]},
+    "recovery_request": {"method": "POST", "url": "<recovery_url>", "headers": {"authorization": "Bearer <authorization>", "content-type": "application/json"}, "body_keys": ["candidate_credential", "proof"], "proof_keys": ["device_id", "root_public_key", "root_key_revision", "nonce", "signature"]},
+    "purpose": "agent-vmm/credential-replace/1",
+    "ttl_seconds": 120,
+    "wire_fields_in_order": ["audience", "subject", "session_id", "controller_binding", "environment_id", "registration_id", "candidate_credential_hash", "nonce"],
+    "wire_case": {
+      "name": "signed bytes of a recovery challenge",
+      "source": "Cue agent_vmm_recovery.ex:11-31",
+      "challenge": {"purpose": "agent-vmm/credential-replace/1", "audience": "https://comma.surf", "subject": "user-1", "session_id": "sess-1", "controller_binding": "binding-1", "environment_id": "env-1", "registration_id": "reg-1", "candidate_credential_hash": "aGFzaA==", "nonce": "nonce-1", "revision": 3, "expires_at": 1795090554},
+      "wire": "agent-vmm/credential-replace/1\naHR0cHM6Ly9jb21tYS5zdXJm\ndXNlci0x\nc2Vzcy0x\nYmluZGluZy0x\nZW52LTE\ncmVnLTE\nYUdGemFBPT0\nbm9uY2UtMQ\n3\n1795090554\n"
+    }
+  },
+  "install_scripts": {
+    "source": "Cue systems/apps/salix_store/priv/agent_vmm/{bootstrap.sh,darwin-install.sh,linux-install.sh}; systems/apps/salix_store/lib/salix_store/server_release_descriptor.ex:12-19",
+    "platforms": {"darwin-arm64": {"artifact": "Agent-VMM-Host.zip", "script": "darwin-install.sh"}, "linux-arm64": {"artifact": "Agent-VMM-Host.tar.gz", "script": "linux-install.sh"}},
+    "release_id_pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+    "pinned_release_id_pattern": "^agent-vmm-[0-9a-f]{40}$"
+  }
+}

@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__APP__/Contents/MacOS/agent-vmm-host</string>
+    <string>--bundle</string>
+    <string>__APP__/Contents/Resources/Guest</string>
+    <string>--instance</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/instance</string>
+    <string>--carrier-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/carrier.sock</string>
+    <string>--operator-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/operator.sock</string>
+    <string>--remote-compute-socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/remote-compute.sock</string>
+    <string>--database</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/host.sqlite</string>
+    <string>--session-directory</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/sessions</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ExitTimeOut</key>
+  <integer>90</integer>
+  <key>StandardOutPath</key>
+  <string>__LOGS__/host.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOGS__/host.stderr.log</string>
+</dict>
+</plist>

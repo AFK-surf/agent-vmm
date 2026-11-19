@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>__LABEL__</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>__APP__/Contents/Helpers/agent-vmm-carrier</string>
+    <string>--state-size</string>
+    <string>68719476736</string>
+    <string>--bundle</string>
+    <string>__APP__/Contents/Resources/Guest</string>
+    <string>--instance</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/instance</string>
+    <string>--socket</string>
+    <string>__HOME__/Library/Application Support/AgentVMM/carrier.sock</string>
+    <string>--serial-log</string>
+    <string>__HOME__/Library/Logs/AgentVMM/serial.log</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>ProcessType</key>
+  <string>Interactive</string>
+  <key>ExitTimeOut</key>
+  <integer>90</integer>
+  <key>StandardOutPath</key>
+  <string>__LOGS__/carrier.stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOGS__/carrier.stderr.log</string>
+</dict>
+</plist>

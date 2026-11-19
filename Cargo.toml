@@ -1,11 +1,16 @@
 [workspace]
 resolver = "2"
 members = [
+    "bins/agent-vmm",
+    "bins/agent-vmm-lifecycle",
+    "bins/agent-vmm-service-executor",
     "bins/vmm-guest-init",
     "crates/agent-vmm-proto",
+    "crates/vmm-comma-contract-tests",
     "crates/vmm-core",
     "crates/vmm-guest-proto",
     "crates/vmm-l4hctl",
+    "crates/vmm-lifecycle",
     "crates/vmm-remote-salix",
     "crates/vmm-signing",
     "data/agent-vmm-data",

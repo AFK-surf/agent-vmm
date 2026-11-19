@@ -1,0 +1,52 @@
+{
+  "_comment": "Files and names that Cue checks in the Host artifacts. `required_executables` must exist and be executable; a missing one stops the named consumer. `ci_only` paths are checked only by Cue CI workflows, so removing one needs a Cue workflow change or a stub.",
+  "macos": {
+    "archive": "Agent-VMM-Host.zip",
+    "archive_root": "Agent VMM Host.app",
+    "install_path": "~/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app",
+    "maintenance_directory": "~/Library/Application Support/AgentVMM",
+    "limits": {"archive_bytes_max": 2147483648, "extracted_bytes_max": 8589934592, "entries_max": 100000, "symlink_entries": "forbidden"},
+    "limits_source": "Cue clients/apps/electron/src/main/modules/compute-node/host-preparation.ts:29-30,506-522,635-637",
+    "required_executables": [
+      {"path": "Contents/MacOS/agent-vmm-host", "sources": ["Cue clients/apps/electron/src/main/modules/compute-node/host-preparation.ts:315-321", "Cue systems/apps/salix_store/priv/agent_vmm/darwin-install.sh:31-33", "Cue systems/connector/mac-mini-provisioner-install.sh:239"]},
+      {"path": "Contents/Helpers/agent-vmm-lifecycle", "sources": ["Cue host-preparation.ts:315-321", "Cue darwin-install.sh:31-33", "Cue mac-mini-provisioner-install.sh:240", "Cue clients/apps/electron/src/main/modules/compute-node/command.ts:21-33", "Cue systems/cli/bft/internal/commands/vmm.go:25"]},
+      {"path": "Contents/Helpers/agent-vmm", "sources": ["Cue host-preparation.ts:315-321", "Cue darwin-install.sh:31-33", "Cue mac-mini-provisioner-install.sh:241", "Cue systems/cli/bft/internal/commands/vmm.go:26", "Cue .github/workflows/agent-vmm.yml:240"]},
+      {"path": "Contents/Helpers/agent-vmm-service-executor", "sources": ["Cue host-preparation.ts:315-321", "Cue darwin-install.sh:31-33", "Cue mac-mini-provisioner-install.sh:242", "Cue .github/workflows/agent-vmm.yml:241"]}
+    ],
+    "ci_only": [
+      {"path": "Contents/Helpers/agent-vmm-data", "check": "test -x after `make headless-release` (assemble phase)", "sources": ["Cue .github/workflows/agent-vmm.yml:239"]},
+      {"path": "Contents/Resources/Guest/rootfs.squashfs", "check": "unsquashfs for the Guest vulnerability report (continue-on-error job)", "sources": ["Cue .github/workflows/agent-vmm.yml:292-293"]}
+    ],
+    "signature": {"command": ["/usr/bin/codesign", "--verify", "--deep", "--strict", "<app>"], "sources": ["Cue host-preparation.ts:314", "Cue darwin-install.sh:34"]}
+  },
+  "linux": {
+    "archive": "Agent-VMM-Host.tar.gz",
+    "published_name": "agent-vmm-<release_id>-linux-arm64.tar.gz",
+    "layout": "one top-level directory; `tar -xzf --strip-components=1` must leave an executable `agent-vmm` at the root",
+    "required_executables": [
+      {"path": "agent-vmm", "sources": ["Cue systems/apps/salix_store/priv/agent_vmm/linux-install.sh:32-34"]}
+    ],
+    "ci_only": [
+      {"path": "agent-vmm-<release_id>-linux-arm64.json", "check": "jq .release_id/.artifact_sha256/.artifact_size", "sources": ["Cue .github/workflows/agent-vmm.yml:500-511"]}
+    ],
+    "architectures": ["aarch64", "arm64"],
+    "architecture_source": "Cue systems/apps/salix_store/priv/agent_vmm/linux-install.sh:12-15"
+  },
+  "build_entry_points": {
+    "_comment": "Paths and variables of the agent-vmm repository that Cue workflows and Electron dev builds invoke by name.",
+    "entries": [
+      {"entry": "make headless-release", "env": ["OUTPUT_DIRECTORY", "AGENT_VMM_GUEST_BUNDLE", "AGENT_VMM_PACKAGE_PHASE=assemble|sign|all", "AGENT_VMM_RELEASE_ID", "CODE_SIGN_IDENTITY", "NOTARYTOOL_PROFILE", "AGENT_VMM_PROVISIONING_PROFILE"], "outputs": ["$OUTPUT_DIRECTORY/Agent VMM Host.app", "$OUTPUT_DIRECTORY/Agent-VMM-Host.zip"], "sources": ["Cue .github/workflows/agent-vmm.yml:229-241,363-374", "Cue clients/apps/electron/src/main/modules/compute-node/host-preparation.ts:696-707"]},
+      {"entry": "build/guest/build.sh <out> <release|development> <standalone|runtime>", "env": ["AGENT_VMM_REFRESH_DEPENDENCIES"], "outputs": ["<out>/rootfs.squashfs"], "sources": ["Cue .github/workflows/agent-vmm.yml:132-144", "Cue host-preparation.ts:688-694"]},
+      {"entry": "build/guest/smoke.sh <rootfs>", "sources": ["Cue .github/workflows/agent-vmm.yml:147"]},
+      {"entry": "build/guest/sbom.sh <rootfs> <out>", "sources": ["Cue .github/workflows/agent-vmm.yml:152"]},
+      {"entry": "build/host/sbom.sh <app-or-dir> <out>", "sources": ["Cue .github/workflows/agent-vmm.yml:383,486"]},
+      {"entry": "build/host/test-keychain.sh", "env": ["CODE_SIGN_IDENTITY", "OUTPUT_DIRECTORY"], "sources": ["Cue .github/workflows/agent-vmm.yml:375-380"]},
+      {"entry": "build/host-linux/package.sh", "env": ["AGENT_VMM_GUEST_BUNDLE", "AGENT_VMM_DATA_WORKER", "OUTPUT_DIRECTORY", "AGENT_VMM_RELEASE_ID"], "outputs": ["$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.tar.gz", "$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.json"], "sources": ["Cue .github/workflows/agent-vmm.yml:474-480,484-485,500-511"]},
+      {"entry": "cargo build --locked --release --target aarch64-unknown-linux-gnu --manifest-path data/agent-vmm-data/Cargo.toml", "outputs": ["agent-vmm-data"], "sources": ["Cue .github/workflows/agent-vmm.yml:467-473,478"]},
+      {"entry": "go.mod (setup-go go-version-file)", "sources": ["Cue .github/workflows/agent-vmm.yml:124,218,221,333,437", "Cue .github/workflows/salix-vmm-gateway.yml:151"]},
+      {"entry": "go test ./internal/remoteconnector -run '^TestEnrollAndControlTranscript$' (writes $AGENT_VMM_CONTRACT_OUTPUT_DIR/hello.json)", "sources": ["Cue .github/workflows/salix-vmm-gateway.yml:111-120 (continue-on-error)", "Cue systems/gateway/salix-vmm-gateway/gateway_test.go:197-207"]},
+      {"entry": "go test ./internal/lifecycle -run '^(TestVersionAndStatusReportSchemaCompatibility|TestProtocolStatusIsRegistrationScoped|TestMaintenanceSameVersionReinstallPreservesIdentityAndReallyReplaces)$'", "sources": ["Cue .github/workflows/salix-vmm-gateway.yml:164-173 (continue-on-error job)"]},
+      {"entry": "Go module github.com/AFK-surf/agent-vmm: api/host/v1, api/remote/v1, api/service/v1, api/trust/v1, controller/remote", "sources": ["Cue systems/gateway/salix-vmm-gateway/go.mod:6,21", "Cue systems/gateway/salix-vmm-gateway/gateway.go:20-23", "Cue systems/gateway/salix-vmm-gateway/operations.go:18-20", "Cue systems/gateway/salix-vmm-gateway/Dockerfile:10-11", "Cue .github/workflows/salix-vmm-gateway.yml:105-110,128-129"]}
+    ]
+  }
+}

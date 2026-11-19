@@ -59,11 +59,14 @@ install-bundle:
 e2e:
 	sh test/e2e/run.sh
 
+# The contract test of the lifecycle helper needs a build that stays away from the production Host.
 test-rust:
 	cargo test --workspace --locked
+	cargo test --locked -p agent-vmm-lifecycle --features e2e-isolation --test contract
 
 lint-rust:
 	cargo clippy --workspace --locked --all-targets -- -D warnings
+	cargo clippy --locked -p agent-vmm-lifecycle --features e2e-isolation --all-targets -- -D warnings
 
 test-data-worker:
 	cargo test --locked --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
