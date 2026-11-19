@@ -2,11 +2,13 @@
 resolver = "2"
 members = [
     "bins/agent-vmm",
+    "bins/agent-vmm-carrier",
     "bins/agent-vmm-lifecycle",
     "bins/agent-vmm-service-executor",
     "bins/l4h-dom0d",
     "bins/vmm-guest-init",
     "crates/agent-vmm-proto",
+    "crates/vmm-carrier-macos",
     "crates/vmm-comma-contract-tests",
     "crates/vmm-core",
     "crates/vmm-dom0",

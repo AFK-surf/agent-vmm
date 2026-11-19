@@ -41,6 +41,10 @@ pub struct Dom0Config {
     #[serde(default)]
     host_shares: BTreeMap<String, PathBuf>,
     pub socket: Option<PathBuf>,
+    #[serde(default)]
+    pub vsock_control_port: Option<u32>,
+    #[serde(default)]
+    pub vsock_relay_port: Option<u32>,
     pub tls: Option<TlsConfig>,
 }
 #[derive(Deserialize)]

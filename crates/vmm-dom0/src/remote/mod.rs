@@ -58,14 +58,24 @@ pub async fn serve_connection<S: AsyncRead + AsyncWrite + Unpin>(
     write(&mut stream, &response).await
 }
 
+/// Opens a fresh authenticated stream for a single dom0 request.
+#[async_trait]
+pub trait Connect: Send + Sync {
+    async fn connect(&self) -> std::io::Result<UnixStream>;
+}
+
 #[derive(Clone)]
 enum Endpoint {
     Unix(PathBuf),
+    Transport(Arc<dyn Connect>),
     Tls(SocketAddr, ServerName<'static>, TlsConnector),
 }
 #[derive(Clone)]
 pub struct RemoteDom0Client(Endpoint);
 impl RemoteDom0Client {
+    pub fn transport(connector: Arc<dyn Connect>) -> Self {
+        Self(Endpoint::Transport(connector))
+    }
     pub fn unix(path: impl AsRef<Path>) -> Self {
         Self(Endpoint::Unix(path.as_ref().into()))
     }
@@ -78,6 +88,7 @@ impl RemoteDom0Client {
     }
     async fn rpc<T: DeserializeOwned>(&self, r: Request) -> Result<T> {
         match &self.0 {
+            Endpoint::Transport(c) => exchange(c.connect().await?, r).await,
             Endpoint::Unix(path) => exchange(UnixStream::connect(path).await?, r).await,
             Endpoint::Tls(address, name, tls) => {
                 exchange(

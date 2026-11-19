@@ -1,6 +1,10 @@
 #[cfg(target_os = "linux")]
 mod linux;
 #[cfg(target_os = "linux")]
+mod relay;
+#[cfg(target_os = "linux")]
+mod vsock;
+#[cfg(target_os = "linux")]
 #[tokio::main]
 async fn main() -> vmm_dom0::local::Result<()> {
     linux::run().await
