@@ -11,12 +11,21 @@ impl LocalOperator {
     ) -> Result<h::OperatorServiceGetEnvironmentResponse, Status> {
         let store = &self.inventory.store;
         let scope = store.scope(&req.environment_id).map_err(core_status)?;
-        let stopped = self.snapshot().await?.state() == h::VmState::Stopped;
-        let mut env = if let Some(containers) = &self.containers
-            && !stopped
-        {
-            containers.observe_environment(store, &scope).await?
+        let vm_state = self.snapshot().await.ok().map(|vm| vm.state());
+        let observed = match (&self.containers, vm_state) {
+            (Some(containers), Some(h::VmState::Running)) => {
+                match containers.observe_environment(store, &scope).await {
+                    Ok(env) => Some(env),
+                    Err(err) if err.code() == tonic::Code::Unavailable => None,
+                    Err(err) => return Err(err),
+                }
+            }
+            _ => None,
+        };
+        let mut env = if let Some(env) = observed {
+            env
         } else {
+            let stopped = vm_state == Some(h::VmState::Stopped);
             let now = Some(SystemTime::now().into());
             h::AgentEnvironment {
                 inventory_state: if stopped {

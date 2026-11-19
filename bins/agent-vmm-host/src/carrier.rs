@@ -130,7 +130,7 @@ pub struct CarrierClientAdapter(pub CarrierClient);
 
 /// Each published staging token owns the connection keeping its remote file alive.
 pub struct CarrierImageStaging {
-    client: CarrierClient,
+    pub(crate) client: CarrierClient,
     leases: std::sync::Mutex<std::collections::HashMap<String, vmm_dom0::remote::RemoteImageStage>>,
 }
 impl CarrierImageStaging {
@@ -139,6 +139,37 @@ impl CarrierImageStaging {
             client,
             leases: Default::default(),
         }
+    }
+    pub fn reserved_bytes(&self) -> vmm_core::Result<u64> {
+        self.leases
+            .lock()
+            .map_err(|_| vmm_core::Error::Interrupted)?
+            .values()
+            .try_fold(0_u64, |total, lease| {
+                total
+                    .checked_add(lease.source.physical_bytes)
+                    .ok_or(vmm_core::Error::Invalid("staging byte count"))
+            })
+    }
+
+    pub(crate) fn disk_sample(&self) -> vmm_core::Result<vmm_compat::operator::DiskSample> {
+        let status = tokio::runtime::Handle::current()
+            .block_on(async {
+                tokio::time::timeout(
+                    std::time::Duration::from_secs(4),
+                    self.client.control(Request::Status),
+                )
+                .await
+            })
+            .map_err(|_| vmm_core::Error::Interrupted)??;
+        if status.state != State::Running {
+            return Err(std::io::Error::other("carrier VM is not running").into());
+        }
+        Ok(vmm_compat::operator::DiskSample {
+            used: status.pool_allocated_bytes,
+            capacity: status.pool_logical_bytes,
+            import_reservations: self.reserved_bytes()?,
+        })
     }
 }
 impl vmm_compat::image::ImageStaging for CarrierImageStaging {

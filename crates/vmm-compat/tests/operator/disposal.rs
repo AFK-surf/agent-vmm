@@ -6,7 +6,7 @@ use vmm_compat::operator::{LocalDisposals, RegistrationControl};
 use vmm_core::{Core, fake::FakeDom0Backend};
 
 #[derive(Default)]
-struct Connectors {
+pub(super) struct Connectors {
     stops: AtomicUsize,
     credential_busy: AtomicBool,
 }

@@ -115,7 +115,20 @@ impl LocalOperator {
         _: h::GetSystemHealthSummaryRequest,
     ) -> Result<h::GetSystemHealthSummaryResponse, Status> {
         let now = Some(SystemTime::now().into());
+        let vm = self.snapshot().await.unwrap_or_else(|err| h::Vm {
+            state: h::VmState::Stopped as i32,
+            error: err.message().to_owned(),
+            ..Default::default()
+        });
         let (state, reason) = match &self.backend {
+            _ if vm.state() != h::VmState::Running => (
+                h::HealthState::Unavailable,
+                if vm.error.is_empty() {
+                    "VM is not running"
+                } else {
+                    vm.error.as_str()
+                },
+            ),
             None => (h::HealthState::Unavailable, "backend offline"),
             Some(b) => {
                 match tokio::time::timeout(std::time::Duration::from_secs(4), b.list_live_vms())
@@ -127,7 +140,6 @@ impl LocalOperator {
             }
         };
         Ok(h::GetSystemHealthSummaryResponse {
-            vm: self.vm(h::GetVmRequest {}).await?.vm,
             collected_at: now,
             health: Some(h::HealthStatus {
                 state: state as i32,
@@ -138,6 +150,7 @@ impl LocalOperator {
                     observed_at: now,
                 }],
             }),
+            vm: Some(vm),
             ..Default::default()
         })
     }
@@ -145,8 +158,13 @@ impl LocalOperator {
         &self,
         req: h::ListLocalEnvironmentPageRequest,
     ) -> Result<h::ListLocalEnvironmentPageResponse, Status> {
+        let vm_state = self
+            .snapshot()
+            .await
+            .map_or(h::VmState::Stopped, |vm| vm.state());
         let mut active = HashSet::new();
-        if let Some(b) = &self.backend
+        if vm_state == h::VmState::Running
+            && let Some(b) = &self.backend
             && let Ok(Ok(live)) =
                 tokio::time::timeout(std::time::Duration::from_secs(4), b.list_live_vms()).await
         {
@@ -163,8 +181,7 @@ impl LocalOperator {
                 }
             }
         }
-        self.inventory
-            .environments(req, self.snapshot().await?.state(), &active)
+        self.inventory.environments(req, vm_state, &active)
     }
     async fn registrations(
         &self,
@@ -177,7 +194,13 @@ impl LocalOperator {
         &self,
         _: h::GetLocalDiskSummaryRequest,
     ) -> Result<h::GetLocalDiskSummaryResponse, Status> {
-        let sample = if let Some(sample) = self.disk_sample.clone() {
+        let vm_state = self
+            .snapshot()
+            .await
+            .map_or(h::VmState::Stopped, |vm| vm.state());
+        let sample = if vm_state == h::VmState::Running
+            && let Some(sample) = self.disk_sample.clone()
+        {
             tokio::time::timeout(
                 std::time::Duration::from_secs(4),
                 tokio::task::spawn_blocking(move || sample()),
@@ -189,7 +212,7 @@ impl LocalOperator {
         } else {
             None
         };
-        Ok(self.inventory.disk(self.snapshot().await?.state(), sample))
+        Ok(self.inventory.disk(vm_state, sample))
     }
     fn mcp(&self) -> Result<Arc<super::McpManagement>, Status> {
         self.mcp

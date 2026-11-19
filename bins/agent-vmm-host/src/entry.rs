@@ -118,46 +118,65 @@ async fn run(options: Options) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "macos")]
     if let Some(socket) = options.carrier_socket {
         let client = vmm_carrier_macos::client::CarrierClient::new(socket);
-        let backend = std::sync::Arc::new(client.dom0());
-        let core = vmm_core::Core::new(host.store.clone(), backend.clone());
-        // The Carrier can launch after the Host. Operator registration and identity
-        // stay available while its socket or the guest control relay is offline.
-        let running = matches!( tokio::time::timeout(
-            std::time::Duration::from_secs(4),
-            client.control(vmm_carrier_macos::protocol::Request::Status),
-        )
-        .await,Ok(Ok(status)) if status.state == vmm_carrier_macos::protocol::State::Running);
-        if running {
-            core.reconcile_after_restart().await?;
-        }
-        let (mut api, registrations) = host.operator_parts(instance, None)?;
-        api.backend = Some(backend);
-        let adapter = std::sync::Arc::new(crate::carrier::CarrierClientAdapter(client.clone()));
-        host.attach_guest(&mut api, adapter.clone())?;
-        let staging = std::sync::Arc::new(crate::carrier::CarrierImageStaging::new(client.clone()));
-        let (runtime, builds) = host.online_runtime(core.clone(), &api, adapter, staging)?;
-        if running {
-            builds.recover(&core.store).await?;
-        }
-        api.vm_control = Some(std::sync::Arc::new(crate::carrier::MacVmControl {
-            client,
-            core: core.clone(),
-            builds,
-        }));
-        return control::serve_online(
-            &path,
-            api,
-            registrations,
-            runtime,
-            options.mcp_port,
-            host.state_size.saturating_sub(13 << 30),
-            shutdown,
-        )
-        .await;
+        let staging = std::sync::Arc::new(crate::carrier::CarrierImageStaging::new(client));
+        return run_carrier(host, instance, &path, options.mcp_port, staging, shutdown).await;
     }
     let api = host.local_operator(instance, None)?;
     control::serve_local(&path, api, None, shutdown).await
 }
+
+#[cfg(target_os = "macos")]
+async fn run_carrier(
+    host: HostState,
+    instance: &std::path::Path,
+    path: &std::path::Path,
+    mcp_port: u16,
+    staging: std::sync::Arc<crate::carrier::CarrierImageStaging>,
+    shutdown: impl std::future::Future<Output = ()>,
+) -> Result<(), Box<dyn Error>> {
+    let client = staging.client.clone();
+    let backend = std::sync::Arc::new(client.dom0());
+    let core = vmm_core::Core::new(host.store.clone(), backend.clone());
+    // The Carrier can launch after the Host. Operator registration and identity
+    // stay available while its socket or the guest control relay is offline.
+    let running = matches!( tokio::time::timeout(
+        std::time::Duration::from_secs(4),
+        client.control(vmm_carrier_macos::protocol::Request::Status),
+    )
+    .await,Ok(Ok(status)) if status.state == vmm_carrier_macos::protocol::State::Running);
+    if running {
+        core.reconcile_after_restart().await?;
+    }
+    let (mut api, registrations) = host.operator_parts(instance, None)?;
+    api.backend = Some(backend);
+    let adapter = std::sync::Arc::new(crate::carrier::CarrierClientAdapter(client.clone()));
+    host.attach_guest(&mut api, adapter.clone())?;
+    let disk = staging.clone();
+    api = api.with_disk_sample(move || disk.disk_sample());
+    let (runtime, builds) = host.online_runtime(core.clone(), &api, adapter, staging)?;
+    if running {
+        builds.recover(&core.store).await?;
+    }
+    api.vm_control = Some(std::sync::Arc::new(crate::carrier::MacVmControl {
+        client,
+        core: core.clone(),
+        builds,
+    }));
+    control::serve_online(
+        path,
+        api,
+        registrations,
+        runtime,
+        mcp_port,
+        host.state_size.saturating_sub(13 << 30),
+        shutdown,
+    )
+    .await
+}
+
+#[cfg(all(test, target_os = "macos"))]
+#[path = "carrier_disk_tests.rs"]
+mod carrier_disk_tests;
 
 #[cfg(target_os = "linux")]
 async fn run_local(
