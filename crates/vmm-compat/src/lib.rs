@@ -1,5 +1,6 @@
 //! Public host protocol adapters for the Rust VMM.
 mod context;
+pub mod details;
 pub mod error;
 mod mutation;
 pub mod session;

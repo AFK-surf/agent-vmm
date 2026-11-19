@@ -222,7 +222,7 @@ impl LocalDisposals {
         if let Err(error) = self.isolate(plan, &op.request_id) {
             if matches!(
                 error.code(),
-                tonic::Code::Aborted | tonic::Code::NotFound | tonic::Code::FailedPrecondition
+                vmm_rpc::Code::Aborted | vmm_rpc::Code::NotFound | vmm_rpc::Code::FailedPrecondition
             ) {
                 db.execute(
                     "DELETE FROM local_disposals WHERE operation_id=? AND complete=0",

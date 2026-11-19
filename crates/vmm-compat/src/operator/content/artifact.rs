@@ -8,7 +8,7 @@ use std::{
     collections::HashSet,
     time::{Duration, SystemTime},
 };
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 
 fn limits(limits: Option<&h::ResourceLimits>) -> bool {
     limits.is_some_and(|r| r.pids.unwrap_or(0) > 0 && r.disk_bytes.unwrap_or(0) > 0)

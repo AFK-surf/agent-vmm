@@ -11,7 +11,7 @@ use std::{
     path::{Component, Path},
 };
 use tokio::sync::mpsc;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_guest_proto::{
     client::{Client, ExecEvent},
     rpc as g,

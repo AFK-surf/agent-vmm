@@ -5,7 +5,7 @@ use std::{
     os::unix::fs::PermissionsExt,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tonic::Code;
+use vmm_rpc::Code;
 use vmm_signing::{RECOVERY_PURPOSE, RecoveryChallenge};
 
 fn challenge(registration: &str, now: i64) -> Vec<u8> {
@@ -36,13 +36,11 @@ async fn operator_signs_only_recoverable_registrations_with_original_device_key(
             let _ = stopped.await;
         });
         let verify = async {
-            let endpoint =
-                tonic::transport::Endpoint::from_shared(format!("unix:{}", socket.display()))
-                    .unwrap();
-            let channel = tokio::time::timeout(Duration::from_secs(5), async {
+            let rpc_socket = socket.clone();
+        let channel = tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
-                    if let Ok(channel) = endpoint.connect().await {
-                        break channel;
+                    if tokio::net::UnixStream::connect(&rpc_socket).await.is_ok() {
+                    break vmm_rpc::Client::unix(&rpc_socket);
                     }
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }

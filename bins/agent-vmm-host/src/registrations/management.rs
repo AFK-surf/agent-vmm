@@ -1,21 +1,20 @@
 use super::{Active, ExternalRegistrations, State, policy};
 use agent_vmm_proto::host::v1 as h;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_compat::{
     error::{host_status, invalid_field},
     operator::RegistrationManagement,
 };
 use vmm_core::{Core, Error, Limits, ManagedPhase, ManagedRegistration, RegistrationChange};
-use vmm_remote_salix::{Connector, ConnectorConfig, Gateway, RuntimeSession};
+use vmm_remote_salix::{Connector, ConnectorConfig, Gateway};
 use zeroize::Zeroizing;
 
 pub(super) struct ConnectorRuntime {
     observe: Arc<dyn Fn() -> vmm_remote_salix::Observation + Send + Sync>,
     core: Core,
     shape: Limits,
-    sessions: mpsc::Sender<RuntimeSession>,
+    sessions: Arc<dyn vmm_rpc::Service>,
     endpoint: Option<tokio::sync::watch::Receiver<agent_vmm_proto::trust::v1::EndpointObservation>>,
 }
 fn status(e: Error) -> Status {
@@ -86,7 +85,7 @@ impl ExternalRegistrations {
             ConnectorConfig {
                 connection: config,
                 scope_defaults: runtime.shape.clone(),
-                runtime: runtime.sessions.clone(),
+                runtime: Some(runtime.sessions.clone()),
                 observe: Some(runtime.observe.clone()),
             },
         );
@@ -103,7 +102,7 @@ impl ExternalRegistrations {
         &self,
         core: Core,
         shape: Limits,
-        sessions: mpsc::Sender<RuntimeSession>,
+        sessions: Arc<dyn vmm_rpc::Service>,
         endpoint: Option<
             tokio::sync::watch::Receiver<agent_vmm_proto::trust::v1::EndpointObservation>,
         >,

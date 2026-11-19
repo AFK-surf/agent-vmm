@@ -4,7 +4,7 @@ use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use std::{path::PathBuf, sync::Arc};
 use tokio_stream::Stream;
-use tonic::Status;
+use vmm_rpc::Status;
 
 #[derive(Clone)]
 pub struct ImageImports {

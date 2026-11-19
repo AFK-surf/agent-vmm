@@ -7,7 +7,7 @@ use crate::{
         self, ConnectRequest, ControllerReady, HostHello, RemoteObservationRenewal,
         RemoteObservationSnapshot, connect_request, connect_response,
     },
-    tunnel::Tunnels,
+    sessions::Sessions,
     unix_millis,
 };
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,7 +28,7 @@ pub struct ConnectorConfig {
     pub connection: RemoteConnection,
     /// Local VM shape for each scope. The request supplies PID and disk limits.
     pub scope_defaults: Limits,
-    pub runtime: mpsc::Sender<crate::RuntimeSession>,
+    pub runtime: Option<Arc<dyn vmm_rpc::Service>>,
     pub observe: Option<Arc<dyn Fn() -> Observation + Send + Sync>>,
 }
 
@@ -126,7 +126,7 @@ impl Connector {
         getrandom::fill(&mut instance).map_err(|_| Error::Random)?;
         let mut endpoint = self.endpoint.clone();
         let hello = HostHello {
-            protocol_version: "4".into(),
+            protocol_version: "5".into(),
             connector_release: env!("CARGO_PKG_VERSION").into(),
             registration_id: registration.into(),
             connection_instance: instance.iter().map(|byte| format!("{byte:02x}")).collect(),
@@ -146,7 +146,9 @@ impl Connector {
 
         let (outbound, requests) = mpsc::channel(16);
         send(&outbound, connect_request::Payload::Hello(hello)).await?;
-        let mut client = self.gateway.controller();
+        let mut sessions = Sessions::new(self, channel);
+        let mut connection = self.gateway.connect(sessions.router(), epoch).await?;
+        let client = &mut connection.controller;
         let mut incoming = timeout(CONNECT_TIMEOUT, async {
             client
                 .connect(ReceiverStream::new(requests))
@@ -171,7 +173,6 @@ impl Connector {
 
         self.ready_epoch.store(epoch, Ordering::Release);
         let mut command_state = Commands::default();
-        let mut tunnels = Tunnels::new(self, channel);
         let commands = async {
             loop {
                 let payload = incoming
@@ -184,7 +185,7 @@ impl Connector {
                     return Err(Error::Protocol("expected a controller command"));
                 };
                 command_state
-                    .process(self, channel, command, &outbound, &mut tunnels)
+                    .process(self, channel, command, &outbound, &mut sessions)
                     .await?;
             }
         };

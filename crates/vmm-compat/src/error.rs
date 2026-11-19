@@ -2,8 +2,8 @@ use agent_vmm_proto::{google::rpc, host::v1::ErrorReason};
 use prost::Message;
 use prost_types::Any;
 use std::collections::HashMap;
-use tonic::{Code, Status};
-use tonic_types::pb::ErrorInfo;
+use vmm_rpc::{Code, Status};
+use crate::details::ErrorInfo;
 
 pub const DOMAIN: &str = "agent-vmm";
 
@@ -51,7 +51,7 @@ pub(crate) fn projection_failed() -> Status {
         reason: "POLICY_PROJECTION_FAILED".into(),
         metadata: Default::default(),
     };
-    let retry = tonic_types::pb::RetryInfo {
+    let retry = crate::details::RetryInfo {
         retry_delay: Some(prost_types::Duration {
             seconds: 1,
             nanos: 0,
@@ -76,12 +76,11 @@ pub(crate) fn projection_failed() -> Status {
 
 /// Matches host.v1 InvalidField so clients can point to the offending input.
 pub fn invalid_field(field: &str, description: &str) -> Status {
-    use tonic_types::pb::{BadRequest, bad_request::FieldViolation};
+    use crate::details::{BadRequest, FieldViolation};
     let violation = BadRequest {
         field_violations: vec![FieldViolation {
             field: field.into(),
             description: description.into(),
-            ..Default::default()
         }],
     };
     let message = "request validation failed";
@@ -172,7 +171,7 @@ pub(crate) fn with_resource(status: Status, kind: &str, name: &str) -> Status {
     {
         return status;
     }
-    let resource = tonic_types::pb::ResourceInfo {
+    let resource = crate::details::ResourceInfo {
         resource_type: kind.into(),
         resource_name: name.into(),
         ..Default::default()

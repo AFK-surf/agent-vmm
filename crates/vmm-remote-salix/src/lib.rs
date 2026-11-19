@@ -3,13 +3,12 @@ mod command;
 mod control;
 mod gateway;
 mod registration;
-mod tunnel;
+mod sessions;
 
 pub use agent_vmm_proto::{host::v1 as host, remote::v1 as remote, trust::v1 as trust};
 pub use control::{Connector, ConnectorConfig, Observation};
 pub use gateway::{Gateway, RegistryClient};
 pub use registration::*;
-pub use tunnel::{RuntimeSession, TunnelIo};
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -24,11 +23,11 @@ pub enum Error {
     #[error("random source unavailable")]
     Random,
     #[error("gateway transport: {0}")]
-    Transport(#[from] tonic::transport::Error),
+    Transport(#[from] std::io::Error),
     #[error("gateway RPC: {0}")]
-    Grpc(#[source] Box<tonic::Status>),
+    Rpc(#[source] Box<vmm_rpc::Status>),
     #[error("gateway rejected the registration credential: {0}")]
-    Authentication(#[source] Box<tonic::Status>),
+    Authentication(#[source] Box<vmm_rpc::Status>),
     #[error("gateway rejected Host protocol {}", .0.host_protocol)]
     ProtocolUnsupported(host::RemoteProtocolStatus),
     #[error("gateway control protocol: {0}")]

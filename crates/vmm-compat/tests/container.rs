@@ -4,7 +4,7 @@ use std::sync::{
     Arc,
     atomic::{AtomicBool, Ordering},
 };
-use tonic::{Code, Request, Status};
+use vmm_rpc::{Code, Request, Status};
 use vmm_compat::{Containers, RuntimeContext, RuntimeDriver};
 use vmm_core::{
     BootIdentity, Core, EgressMode, HostShareMount, ImageSource, Limits, Origin, Scope, ScopeState,

@@ -10,7 +10,7 @@ use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use rusqlite::{TransactionBehavior, params};
 use std::time::Duration;
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{BootIdentity, SandboxState};
 
 const STOP_BUDGET_NS: i64 = 30_000_000_000;

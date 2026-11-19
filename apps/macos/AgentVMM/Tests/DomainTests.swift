@@ -1,5 +1,4 @@
 import Testing
-import GRPCCore
 import Foundation
 @testable import AgentVMM
 
@@ -85,7 +84,7 @@ import Foundation
     known.generation = 7
     summary.knownWorkloads = [known]
 
-    let fence = GRPCHostClient.vmMutationFence(summary)
+    let fence = SocketHostClient.vmMutationFence(summary)
     #expect(fence.state == .running)
     #expect(fence.bootID == "boot-a")
     #expect(fence.observedWorkloads == [known])

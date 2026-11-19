@@ -1,7 +1,7 @@
 use super::*;
 use h::LocalDisposalTargetKind as Kind;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::operator::{LocalDisposals, RegistrationControl};
 use vmm_core::{Core, fake::FakeDom0Backend};
 
@@ -143,9 +143,8 @@ async fn confirmed_external_disposal_fences_once_and_recovers_the_receipt() {
 }
 
 #[tokio::test]
-async fn trusted_client_observes_private_pagination_and_resumes_local_disposal_over_grpc() {
+async fn trusted_client_observes_private_pagination_and_resumes_local_disposal_over_rpc() {
     use h::operator_service_client::OperatorServiceClient;
-    use tokio_stream::wrappers::TcpListenerStream;
     use vmm_compat::operator::{LocalOperator, LocalOperatorServer};
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path().join("host.db")).unwrap());
@@ -161,20 +160,13 @@ async fn trusted_client_observes_private_pagination_and_resumes_local_disposal_o
     let api = Arc::new(
         LocalOperator::open(&path, store.clone(), Arc::new(Connectors::default()), None).unwrap(),
     );
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let endpoint = tonic::transport::Endpoint::from_shared(format!(
-        "http://{}",
-        listener.local_addr().unwrap()
-    ))
-    .unwrap();
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let task = tokio::spawn(
-        tonic::transport::Server::builder()
-            .add_service(LocalOperatorServer(api.clone()))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
+        vmm_rpc::Router::new(LocalOperatorServer(api.clone()))
+            .serve_unix(listener, 128, std::future::pending()),
     );
-    let mut client = OperatorServiceClient::new(endpoint.connect().await.unwrap());
+    let mut client = OperatorServiceClient::new(vmm_rpc::Client::unix(&endpoint));
     let disk = client
         .get_local_disk_summary(h::GetLocalDiskSummaryRequest {})
         .await
@@ -384,7 +376,6 @@ async fn trusted_client_observes_private_pagination_and_resumes_local_disposal_o
 #[tokio::test]
 async fn vm_mutations_bind_boot_acknowledgement_and_replay_terminal_receipts() {
     use h::operator_service_client::OperatorServiceClient;
-    use tokio_stream::wrappers::TcpListenerStream;
     use vmm_compat::operator::{LocalOperator, LocalOperatorServer};
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path().join("host")).unwrap());
@@ -395,20 +386,13 @@ async fn vm_mutations_bind_boot_acknowledgement_and_replay_terminal_receipts() {
         Some(Arc::new(vmm_core::fake::FakeDom0Backend::default())),
     )
     .unwrap();
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let endpoint = tonic::transport::Endpoint::from_shared(format!(
-        "http://{}",
-        listener.local_addr().unwrap()
-    ))
-    .unwrap();
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let server = tokio::spawn(
-        tonic::transport::Server::builder()
-            .add_service(LocalOperatorServer(Arc::new(api)))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
+        vmm_rpc::Router::new(LocalOperatorServer(Arc::new(api)))
+            .serve_unix(listener, 128, std::future::pending()),
     );
-    let mut client = OperatorServiceClient::new(endpoint.connect().await.unwrap());
+    let mut client = OperatorServiceClient::new(vmm_rpc::Client::unix(&endpoint));
     let vm = client
         .get_vm_impact_summary(h::GetVmImpactSummaryRequest {})
         .await
@@ -501,7 +485,6 @@ async fn vm_mutations_bind_boot_acknowledgement_and_replay_terminal_receipts() {
 #[tokio::test]
 async fn operator_client_plans_resets_and_confirms_named_volume_discard() {
     use h::operator_service_client::OperatorServiceClient;
-    use tokio_stream::wrappers::TcpListenerStream;
     use vmm_compat::operator::{LocalOperator, LocalOperatorServer};
     let dir = tempfile::tempdir().unwrap();
     let store = Arc::new(Store::open(dir.path().join("host.db")).unwrap());
@@ -528,21 +511,14 @@ async fn operator_client_plans_resets_and_confirms_named_volume_discard() {
         Some(backend),
     )
     .unwrap();
-    let socket = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let endpoint = format!("http://{}", socket.local_addr().unwrap());
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let socket = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let task = tokio::spawn(
-        tonic::transport::Server::builder()
-            .add_service(LocalOperatorServer(Arc::new(api)))
-            .serve_with_incoming(TcpListenerStream::new(socket)),
+        vmm_rpc::Router::new(LocalOperatorServer(Arc::new(api)))
+            .serve_unix(socket, 128, std::future::pending()),
     );
     let mut client = OperatorServiceClient::new(
-        tonic::transport::Endpoint::from_shared(endpoint)
-            .unwrap()
-            .connect()
-            .await
-            .unwrap(),
+        vmm_rpc::Client::unix(&endpoint),
     );
     let reset = client
         .plan_reset_environment(h::PlanResetEnvironmentRequest {

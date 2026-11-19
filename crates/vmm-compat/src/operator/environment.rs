@@ -1,7 +1,7 @@
 use super::{LocalOperator, h};
 use crate::error::core_status;
 use std::time::SystemTime;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::Origin;
 
 impl LocalOperator {
@@ -16,7 +16,7 @@ impl LocalOperator {
             (Some(containers), Some(h::VmState::Running)) => {
                 match containers.observe_environment(store, &scope).await {
                     Ok(env) => Some(env),
-                    Err(err) if err.code() == tonic::Code::Unavailable => None,
+                    Err(err) if err.code() == vmm_rpc::Code::Unavailable => None,
                     Err(err) => return Err(err),
                 }
             }

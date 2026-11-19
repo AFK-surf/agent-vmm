@@ -6,7 +6,7 @@ use std::{
     io::{self, Read, Seek},
     path::Path,
 };
-use tonic::Status;
+use vmm_rpc::Status;
 
 pub(super) const META_LIMIT: u64 = 16 << 20;
 pub(super) const MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";

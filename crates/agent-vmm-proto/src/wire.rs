@@ -1,56 +1,21 @@
 //! Preserve the signed service header's unknown-field check before prost discards fields.
 use crate::service::v1::OpenServiceForwardRequest;
-use prost::{Message, bytes::Buf};
+use prost::Message;
 use prost_reflect::{DescriptorPool, DynamicMessage, MessageDescriptor};
-use std::{any::TypeId, sync::LazyLock};
-use tonic::{
-    Status,
-    codec::{Codec, DecodeBuf, Decoder},
-};
-use tonic_prost::ProstCodec;
+use std::sync::LazyLock;
+use vmm_rpc::{Body, Status, StreamExt, Streaming};
 
-pub(crate) struct WireCodec<T, U>(ProstCodec<T, U>);
-impl<T, U> Default for WireCodec<T, U> {
-    fn default() -> Self {
-        Self(ProstCodec::default())
-    }
-}
-impl<T, U> Codec for WireCodec<T, U>
-where
-    T: Message + Send + 'static,
-    U: Message + Default + Send + 'static,
-{
-    type Encode = T;
-    type Decode = U;
-    type Encoder = <ProstCodec<T, U> as Codec>::Encoder;
-    type Decoder = WireDecoder<<ProstCodec<T, U> as Codec>::Decoder>;
-    fn encoder(&mut self) -> Self::Encoder {
-        self.0.encoder()
-    }
-    fn decoder(&mut self) -> Self::Decoder {
-        WireDecoder {
-            inner: self.0.decoder(),
-            check_header: TypeId::of::<U>() == TypeId::of::<OpenServiceForwardRequest>(),
+pub(crate) fn service_stream(body: Body) -> Streaming<OpenServiceForwardRequest> {
+    let mut first = true;
+    Streaming::new(body.map(move |frame| {
+        let bytes = frame?;
+        if std::mem::take(&mut first) {
+            checked_header(&bytes)
+        } else {
+            OpenServiceForwardRequest::decode(bytes)
+                .map_err(|_| Status::invalid_argument("invalid service message"))
         }
-    }
-}
-pub(crate) struct WireDecoder<D> {
-    inner: D,
-    check_header: bool,
-}
-impl<D, U> Decoder for WireDecoder<D>
-where
-    D: Decoder<Item = U, Error = Status>,
-    U: Message + Default,
-{
-    type Item = U;
-    type Error = Status;
-    fn decode(&mut self, buf: &mut DecodeBuf<'_>) -> Result<Option<U>, Status> {
-        if !std::mem::take(&mut self.check_header) {
-            return self.inner.decode(buf);
-        }
-        checked_header(buf.copy_to_bytes(buf.remaining()).as_ref()).map(Some)
-    }
+    }))
 }
 fn checked_header<U: Message + Default>(bytes: &[u8]) -> Result<U, Status> {
     static HEADER: LazyLock<MessageDescriptor> = LazyLock::new(|| {
@@ -82,7 +47,7 @@ mod tests {
             checked_header::<OpenServiceForwardRequest>(&frame)
                 .unwrap_err()
                 .code(),
-            tonic::Code::InvalidArgument
+            vmm_rpc::Code::InvalidArgument
         );
     }
 }

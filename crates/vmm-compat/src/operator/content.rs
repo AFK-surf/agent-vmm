@@ -21,7 +21,7 @@ use std::{
 };
 use tempfile::NamedTempFile;
 use tokio_stream::{Stream, StreamExt};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 
 pub(super) struct ContentStore {
     core: std::sync::Arc<vmm_core::Store>,

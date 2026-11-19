@@ -4,52 +4,16 @@
 //! saved there for the live probes of that suite.
 
 use agent_vmm_proto::host::v1 as hostv1;
-use bytes::{Buf, BufMut, Bytes};
+use bytes::Bytes;
 use prost::Message;
 use serde_json::{Value, json};
-use std::convert::Infallible;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use tonic::codec::{Codec, DecodeBuf, Decoder, EncodeBuf, Encoder};
-use tonic::{Request, Response, Status};
+use vmm_rpc::{Body, Request, Status};
 use vmm_comma_contract_tests::consumer;
 
 const SERVICE: &str = "agentvmm.host.v1.OperatorService";
-
-/// Passes message bytes through, so the test serves any method without the generated server trait.
-#[derive(Clone, Copy, Default)]
-struct Raw;
-
-impl Codec for Raw {
-    type Encode = Bytes;
-    type Decode = Bytes;
-    type Encoder = Raw;
-    type Decoder = Raw;
-    fn encoder(&mut self) -> Raw {
-        Raw
-    }
-    fn decoder(&mut self) -> Raw {
-        Raw
-    }
-}
-
-impl Encoder for Raw {
-    type Item = Bytes;
-    type Error = Status;
-    fn encode(&mut self, item: Bytes, buffer: &mut EncodeBuf<'_>) -> Result<(), Status> {
-        buffer.put(item);
-        Ok(())
-    }
-}
-
-impl Decoder for Raw {
-    type Item = Bytes;
-    type Error = Status;
-    fn decode(&mut self, buffer: &mut DecodeBuf<'_>) -> Result<Option<Bytes>, Status> {
-        Ok(Some(buffer.copy_to_bytes(buffer.remaining())))
-    }
-}
 
 fn timestamp() -> Option<prost_types::Timestamp> {
     Some(prost_types::Timestamp { seconds: 1_795_000_000, nanos: 0 })
@@ -95,35 +59,15 @@ fn answer(method: &str) -> Result<Vec<u8>, Status> {
     })
 }
 
-struct Method(String);
-
-impl tonic::server::UnaryService<Bytes> for Method {
-    type Response = Bytes;
-    type Future = std::future::Ready<Result<Response<Bytes>, Status>>;
-    fn call(&mut self, _: Request<Bytes>) -> Self::Future {
-        std::future::ready(answer(&self.0).map(|message| Response::new(Bytes::from(message))))
-    }
-}
-
-#[derive(Clone)]
 struct Operator;
 
-impl tonic::server::NamedService for Operator {
-    const NAME: &'static str = SERVICE;
-}
-
-impl tower::Service<http::Request<tonic::body::Body>> for Operator {
-    type Response = http::Response<tonic::body::Body>;
-    type Error = Infallible;
-    type Future = std::pin::Pin<Box<dyn Future<Output = Result<Self::Response, Infallible>> + Send>>;
-
-    fn poll_ready(&mut self, _: &mut std::task::Context<'_>) -> std::task::Poll<Result<(), Infallible>> {
-        std::task::Poll::Ready(Ok(()))
-    }
-
-    fn call(&mut self, request: http::Request<tonic::body::Body>) -> Self::Future {
-        let method = request.uri().path().rsplit('/').next().unwrap_or_default().to_string();
-        Box::pin(async move { Ok(tonic::server::Grpc::new(Raw).unary(Method(method), request).await) })
+#[vmm_rpc::async_trait]
+impl vmm_rpc::Service for Operator {
+    fn name(&self) -> &'static str { SERVICE }
+    async fn call(&self, method: &str, request: Request<Body>) -> Result<Body, Status> {
+        request.into_inner().single().await?;
+        let bytes = Bytes::from(answer(method)?);
+        Ok(Body::new(vmm_rpc::once(async move { Ok(bytes) })))
     }
 }
 
@@ -154,7 +98,7 @@ impl Installation {
             let _guard = runtime.enter();
             tokio::net::UnixListener::bind(data.join("operator.sock")).unwrap()
         };
-        runtime.spawn(tonic::transport::Server::builder().add_service(Operator).serve_with_incoming(tokio_stream::wrappers::UnixListenerStream::new(listener)));
+        runtime.spawn(vmm_rpc::Router::new(Operator).serve_unix(listener, 8, std::future::pending()));
         Self { _directory: directory, helper, home, _runtime: runtime }
     }
 

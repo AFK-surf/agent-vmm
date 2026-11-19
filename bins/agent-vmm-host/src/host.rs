@@ -195,7 +195,7 @@ impl HostState {
     pub async fn runtime(
         self,
         drivers: Drivers,
-    ) -> Result<(RuntimeService, vmm_core::Reconciliation), tonic::Status> {
+    ) -> Result<(RuntimeService, vmm_core::Reconciliation), vmm_rpc::Status> {
         let (core, report) = self
             .attach(drivers.backend)
             .await

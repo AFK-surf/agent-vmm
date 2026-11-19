@@ -3,7 +3,7 @@ use crate::error::detailed_status;
 use std::io::{self, Cursor, Seek};
 use tokio::{io::AsyncWriteExt, sync::mpsc};
 use tokio_stream::{Stream, StreamExt};
-use tonic::Code;
+use vmm_rpc::Code;
 
 const CHUNK: usize = g::MAX_CHUNK_BYTES;
 

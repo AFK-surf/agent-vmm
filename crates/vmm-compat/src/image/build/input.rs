@@ -11,7 +11,7 @@ use std::{
 };
 use tokio::io::AsyncWriteExt;
 use tokio_stream::{Stream, StreamExt};
-use tonic::Status;
+use vmm_rpc::Status;
 use zeroize::Zeroizing;
 
 pub(super) fn fingerprint(header: &h::BuildImageHeader) -> String {

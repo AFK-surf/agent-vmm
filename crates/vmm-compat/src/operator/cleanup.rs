@@ -1,6 +1,6 @@
 use super::{LocalOperator, h};
 use crate::error::{core_status, host_status, invalid_field, with_resource};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{CleanupKind, CleanupOperation, Error};
 
 fn status(err: Error, id: &str) -> Status {

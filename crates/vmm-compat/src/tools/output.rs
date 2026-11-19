@@ -1,7 +1,7 @@
 use super::*;
 use prost::Message;
-use tonic::Code;
-use tonic_types::pb::{ErrorInfo, ResourceInfo};
+use vmm_rpc::Code;
+use crate::details::{ErrorInfo, ResourceInfo};
 
 pub(super) fn failure(status: Status) -> ToolFailure {
     let (code, message) = match status.code() {

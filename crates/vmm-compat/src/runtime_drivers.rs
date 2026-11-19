@@ -1,7 +1,7 @@
 use crate::{RuntimeContext, guest::Output};
 use agent_vmm_proto::host::v1 as h;
 use async_trait::async_trait;
-use tonic::{Status, Streaming};
+use vmm_rpc::{Status, Streaming};
 
 #[async_trait]
 pub trait ImageRuntime: Send + Sync {

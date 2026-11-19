@@ -13,7 +13,7 @@ use std::{
     time::{Duration, Instant},
 };
 use tokio_stream::StreamExt;
-use tonic::{Request, Status};
+use vmm_rpc::{Request, Status};
 use vmm_core::{
     Channel, EgressMode, Limits, Origin, RemoteScopePolicy, Scope, ScopeState, Session,
 };

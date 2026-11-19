@@ -1,7 +1,6 @@
 use super::{disposal::Connectors, *};
 use h::operator_service_client::OperatorServiceClient;
-use tokio_stream::wrappers::TcpListenerStream;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::operator::{LocalOperator, LocalOperatorServer, VmControl};
 
 struct OfflineCarrier;
@@ -36,21 +35,14 @@ async fn carrier_observation_failure_preserves_vm_fences_and_local_inventory() {
         Err(vmm_core::Error::Interrupted)
     });
     api.vm_control = Some(Arc::new(OfflineCarrier));
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let endpoint = format!("http://{}", listener.local_addr().unwrap());
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let server = tokio::spawn(
-        tonic::transport::Server::builder()
-            .add_service(LocalOperatorServer(Arc::new(api)))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
+        vmm_rpc::Router::new(LocalOperatorServer(Arc::new(api)))
+            .serve_unix(listener, 128, std::future::pending()),
     );
     let mut client = OperatorServiceClient::new(
-        tonic::transport::Endpoint::from_shared(endpoint)
-            .unwrap()
-            .connect()
-            .await
-            .unwrap(),
+        vmm_rpc::Client::unix(&endpoint),
     );
     for error in [
         client.get_vm(h::GetVmRequest {}).await.unwrap_err(),

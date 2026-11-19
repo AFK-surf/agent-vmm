@@ -1,7 +1,7 @@
 //! Operator registration management stays reachable while the workload VM is offline.
 use super::{LocalOperator, h};
 use std::sync::Arc;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{Core, RegistrationChange};
 
 #[async_trait::async_trait]

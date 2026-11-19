@@ -4,7 +4,7 @@ use agent_vmm_proto::host::v1 as h;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio_stream::{StreamExt, iter};
-use tonic::{Code, Request, Status};
+use vmm_rpc::{Code, Request, Status};
 use vmm_compat::{
     RuntimeContext,
     workspace::{DEFAULT_VOLUME, WorkspaceService},

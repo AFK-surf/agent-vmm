@@ -2,8 +2,8 @@
 use super::{DiskSample, LocalDisposals, LocalInventory, RegistrationControl, h};
 use std::{collections::HashSet, sync::Arc, time::SystemTime};
 use tokio::sync::Notify;
-use tonic::{Request, Response, Status};
 use vmm_core::{Core, Store, backend::Dom0Backend};
+use vmm_rpc::{Request, Response, Status};
 
 pub struct LocalOperator {
     pub(super) inventory: LocalInventory,
@@ -303,183 +303,257 @@ impl LocalOperator {
 #[derive(Clone)]
 pub struct LocalOperatorServer(pub Arc<LocalOperator>);
 
-use tonic::codegen::{Body, BoxFuture, Service, StdError, http};
-impl tonic::server::NamedService for LocalOperatorServer {
-    const NAME: &'static str = "agentvmm.host.v1.OperatorService";
-}
-impl<B> Service<http::Request<B>> for LocalOperatorServer
-where
-    B: Body + Send + 'static,
-    B::Error: Into<StdError> + Send + 'static,
-{
-    type Response = http::Response<tonic::body::Body>;
-    type Error = std::convert::Infallible;
-    type Future = BoxFuture<Self::Response, Self::Error>;
-    fn poll_ready(
-        &mut self,
-        _: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<Result<(), Self::Error>> {
-        std::task::Poll::Ready(Ok(()))
+#[vmm_rpc::async_trait]
+impl vmm_rpc::Service for LocalOperatorServer {
+    fn name(&self) -> &'static str {
+        "agentvmm.host.v1.OperatorService"
     }
-    fn call(&mut self, req: http::Request<B>) -> Self::Future {
-        macro_rules! unary {
-            ($name:ident,$request:ty,$response:ty) => {{
-                struct Handler(Arc<LocalOperator>);
-                impl tonic::server::UnaryService<$request> for Handler {
-                    type Response = $response;
-                    type Future = BoxFuture<Response<Self::Response>, Status>;
-                    fn call(&mut self, req: Request<$request>) -> Self::Future {
-                        let service = self.0.clone();
-                        Box::pin(
-                            async move { service.$name(req.into_inner()).await.map(Response::new) },
-                        )
-                    }
-                }
-                let handler = Handler(self.0.clone());
-                Box::pin(async move {
-                    let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default())
-                        .max_decoding_message_size(16 << 20)
-                        .max_encoding_message_size(16 << 20);
-                    Ok(grpc.unary(handler, req).await)
-                })
-            }};
-        }
-        match req
-            .uri()
-            .path()
-            .strip_prefix("/agentvmm.host.v1.OperatorService/")
-        {
-            Some("GetRemoteRegistration") => unary!(
-                get_registration,
-                h::GetRemoteRegistrationRequest,
-                h::GetRemoteRegistrationResponse
-            ),
-            Some("ApplyRemoteRegistration") => unary!(
-                apply_registration,
-                h::ApplyRemoteRegistrationRequest,
-                h::ApplyRemoteRegistrationResponse
-            ),
-            Some("SetRemoteRegistrationState") => unary!(
-                set_registration,
-                h::SetRemoteRegistrationStateRequest,
-                h::SetRemoteRegistrationStateResponse
-            ),
-            Some("BeginRemoteRevocation") => unary!(
-                begin_revocation,
-                h::BeginRemoteRevocationRequest,
-                h::BeginRemoteRevocationResponse
-            ),
-            Some("CompleteRemoteRevocation") => unary!(
-                complete_revocation,
-                h::CompleteRemoteRevocationRequest,
-                h::CompleteRemoteRevocationResponse
-            ),
-            Some("GetDeviceIdentity") => unary!(
-                device_identity,
-                h::GetDeviceIdentityRequest,
-                h::GetDeviceIdentityResponse
-            ),
-            Some("SignRegistrationRecovery") => unary!(
-                sign_recovery,
-                h::SignRegistrationRecoveryRequest,
-                h::SignRegistrationRecoveryResponse
-            ),
-            Some("SetHostSocket") => unary!(
-                set_socket,
-                h::SetHostSocketRequest,
-                h::SetHostSocketResponse
-            ),
-            Some("RemoveHostSocket") => unary!(
-                remove_socket,
-                h::RemoveHostSocketRequest,
-                h::RemoveHostSocketResponse
-            ),
-            Some("ListHostSockets") => unary!(
-                list_sockets,
-                h::ListHostSocketsRequest,
-                h::ListHostSocketsResponse
-            ),
-            Some("Logs") => {
-                let handler = super::logs::OperatorLogs(self.0.clone());
-                Box::pin(async move {
-                    let mut grpc = tonic::server::Grpc::new(tonic_prost::ProstCodec::default());
-                    Ok(grpc.server_streaming(handler, req).await)
-                })
-            }
-            Some("CreateMCPToken") => unary!(
-                issue_token,
-                h::CreateMcpTokenRequest,
-                h::CreateMcpTokenResponse
-            ),
-            Some("RotateMCPTokenKey") => unary!(
-                rotate_key,
-                h::RotateMcpTokenKeyRequest,
-                h::RotateMcpTokenKeyResponse
-            ),
-            Some("GetVMImpactSummary") => unary!(
-                impact,
-                h::GetVmImpactSummaryRequest,
-                h::GetVmImpactSummaryResponse
-            ),
-            Some("PlanResetEnvironment") => unary!(
-                plan_reset,
-                h::PlanResetEnvironmentRequest,
-                h::PlanResetEnvironmentResponse
-            ),
-            Some("PlanDiscardEnvironment") => unary!(
-                plan_discard,
-                h::PlanDiscardEnvironmentRequest,
-                h::PlanDiscardEnvironmentResponse
-            ),
-            Some("ExecuteCleanup") => unary!(
-                execute_cleanup,
-                h::ExecuteCleanupRequest,
-                h::ExecuteCleanupResponse
-            ),
-            Some("GetEnvironment") => unary!(
-                environment,
-                h::OperatorServiceGetEnvironmentRequest,
-                h::OperatorServiceGetEnvironmentResponse
-            ),
-            Some("StartVM") => unary!(start_vm, h::StartVmRequest, h::StartVmResponse),
-            Some("StopVM") => unary!(stop_vm, h::StopVmRequest, h::StopVmResponse),
-            Some("GetVM") => unary!(vm, h::GetVmRequest, h::GetVmResponse),
-            Some("GetSystemHealthSummary") => unary!(
-                health,
-                h::GetSystemHealthSummaryRequest,
-                h::GetSystemHealthSummaryResponse
-            ),
-            Some("GetLocalDiskSummary") => unary!(
-                disk,
-                h::GetLocalDiskSummaryRequest,
-                h::GetLocalDiskSummaryResponse
-            ),
-            Some("ListLocalEnvironmentPage") => unary!(
-                environments,
-                h::ListLocalEnvironmentPageRequest,
-                h::ListLocalEnvironmentPageResponse
-            ),
-            Some("ListLocalRegistrationPage") => unary!(
-                registrations,
-                h::ListLocalRegistrationPageRequest,
-                h::ListLocalRegistrationPageResponse
-            ),
-            Some("PlanLocalDisposal") => unary!(
-                plan,
-                h::PlanLocalDisposalRequest,
-                h::PlanLocalDisposalResponse
-            ),
-            Some("ExecuteLocalDisposal") => unary!(
-                execute,
-                h::ExecuteLocalDisposalRequest,
-                h::ExecuteLocalDisposalResponse
-            ),
-            Some("GetOperation") => {
-                unary!(operation, h::GetOperationRequest, h::GetOperationResponse)
-            }
-            _ => {
-                Box::pin(async { Ok(Status::unimplemented("unknown operator method").into_http()) })
-            }
+    async fn call(
+        &self,
+        method: &str,
+        req: Request<vmm_rpc::Body>,
+    ) -> Result<vmm_rpc::Body, Status> {
+        match method {
+            "GetRemoteRegistration" => Ok(Response::new(
+                self.0
+                    .get_registration(
+                        req.unary::<h::GetRemoteRegistrationRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ApplyRemoteRegistration" => Ok(Response::new(
+                self.0
+                    .apply_registration(
+                        req.unary::<h::ApplyRemoteRegistrationRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "SetRemoteRegistrationState" => Ok(Response::new(
+                self.0
+                    .set_registration(
+                        req.unary::<h::SetRemoteRegistrationStateRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "BeginRemoteRevocation" => Ok(Response::new(
+                self.0
+                    .begin_revocation(
+                        req.unary::<h::BeginRemoteRevocationRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "CompleteRemoteRevocation" => Ok(Response::new(
+                self.0
+                    .complete_revocation(
+                        req.unary::<h::CompleteRemoteRevocationRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "GetDeviceIdentity" => Ok(Response::new(
+                self.0
+                    .device_identity(
+                        req.unary::<h::GetDeviceIdentityRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "SignRegistrationRecovery" => Ok(Response::new(
+                self.0
+                    .sign_recovery(
+                        req.unary::<h::SignRegistrationRecoveryRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "SetHostSocket" => Ok(Response::new(
+                self.0
+                    .set_socket(req.unary::<h::SetHostSocketRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "RemoveHostSocket" => Ok(Response::new(
+                self.0
+                    .remove_socket(
+                        req.unary::<h::RemoveHostSocketRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ListHostSockets" => Ok(Response::new(
+                self.0
+                    .list_sockets(req.unary::<h::ListHostSocketsRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "CreateMCPToken" => Ok(Response::new(
+                self.0
+                    .issue_token(req.unary::<h::CreateMcpTokenRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "RotateMCPTokenKey" => Ok(Response::new(
+                self.0
+                    .rotate_key(
+                        req.unary::<h::RotateMcpTokenKeyRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "GetVMImpactSummary" => Ok(Response::new(
+                self.0
+                    .impact(
+                        req.unary::<h::GetVmImpactSummaryRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "PlanResetEnvironment" => Ok(Response::new(
+                self.0
+                    .plan_reset(
+                        req.unary::<h::PlanResetEnvironmentRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "PlanDiscardEnvironment" => Ok(Response::new(
+                self.0
+                    .plan_discard(
+                        req.unary::<h::PlanDiscardEnvironmentRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ExecuteCleanup" => Ok(Response::new(
+                self.0
+                    .execute_cleanup(req.unary::<h::ExecuteCleanupRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "GetEnvironment" => Ok(Response::new(
+                self.0
+                    .environment(
+                        req.unary::<h::OperatorServiceGetEnvironmentRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "StartVM" => Ok(Response::new(
+                self.0
+                    .start_vm(req.unary::<h::StartVmRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "StopVM" => Ok(Response::new(
+                self.0
+                    .stop_vm(req.unary::<h::StopVmRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "GetVM" => Ok(Response::new(
+                self.0
+                    .vm(req.unary::<h::GetVmRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "GetSystemHealthSummary" => Ok(Response::new(
+                self.0
+                    .health(
+                        req.unary::<h::GetSystemHealthSummaryRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "GetLocalDiskSummary" => Ok(Response::new(
+                self.0
+                    .disk(
+                        req.unary::<h::GetLocalDiskSummaryRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ListLocalEnvironmentPage" => Ok(Response::new(
+                self.0
+                    .environments(
+                        req.unary::<h::ListLocalEnvironmentPageRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ListLocalRegistrationPage" => Ok(Response::new(
+                self.0
+                    .registrations(
+                        req.unary::<h::ListLocalRegistrationPageRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "PlanLocalDisposal" => Ok(Response::new(
+                self.0
+                    .plan(
+                        req.unary::<h::PlanLocalDisposalRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "ExecuteLocalDisposal" => Ok(Response::new(
+                self.0
+                    .execute(
+                        req.unary::<h::ExecuteLocalDisposalRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "GetOperation" => Ok(Response::new(
+                self.0
+                    .operation(req.unary::<h::GetOperationRequest>().await?.into_inner())
+                    .await?,
+            )
+            .unary_body()),
+            "Logs" => super::logs::logs(&self.0, req.unary().await?.into_inner()).await,
+            _ => Err(Status::unimplemented("unknown operator method")),
         }
     }
 }

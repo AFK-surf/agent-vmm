@@ -5,7 +5,6 @@ use std::{
     net::SocketAddr,
     sync::atomic::{AtomicUsize, Ordering},
 };
-use tonic::{Status, transport::Channel};
 use vmm_compat::image::build::{BuildBackend, BuildGuest, GuestLease};
 use vmm_guest_proto::{
     Secret,
@@ -13,6 +12,7 @@ use vmm_guest_proto::{
     frame::{ClientFrame, ServerFrame, read_frame, write_frame},
     rpc as g,
 };
+use vmm_rpc::Status;
 
 pub struct Builder(SocketAddr, Arc<AtomicUsize>);
 struct Lease(Arc<AtomicUsize>);
@@ -135,7 +135,7 @@ pub async fn builder() -> (Arc<Builder>, tokio::task::JoinHandle<()>) {
 }
 
 pub async fn exercise(
-    c: &mut AgentRuntimeServiceClient<Channel>,
+    c: &mut AgentRuntimeServiceClient,
     instance: &str,
     deadline: i64,
     backend: &Builder,
@@ -256,6 +256,24 @@ pub async fn exercise(
     let mut observation = observe;
     observation.request_id = partial.request_id.clone();
     observation.execution_id = partial.execution_id.clone();
+    // Stream creation is local. Observe admission before issuing a separate cancel RPC.
+    tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            match c.observe_image_operation(observation.clone()).await {
+                Ok(response) => {
+                    assert_eq!(
+                        response.into_inner().receipt.unwrap().state(),
+                        h::ImageOperationState::Running
+                    );
+                    break;
+                }
+                Err(status) if status.code() == Code::NotFound => tokio::task::yield_now().await,
+                Err(status) => panic!("could not observe build admission: {status}"),
+            }
+        }
+    })
+    .await
+    .unwrap();
     let cancelled = c
         .cancel_image_operation(h::CancelImageOperationRequest {
             request_id: partial.request_id,

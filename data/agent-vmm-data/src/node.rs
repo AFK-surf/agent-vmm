@@ -57,6 +57,51 @@ impl Drop for StreamPermit {
 }
 
 impl Tunnel {
+    pub fn into_io(self) -> impl AsyncRead + AsyncWrite + Unpin + Send {
+        use std::{
+            pin::Pin,
+            task::{Context, Poll},
+        };
+        struct Io(Tunnel);
+        impl AsyncRead for Io {
+            fn poll_read(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+                buf: &mut tokio::io::ReadBuf<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                let before = buf.filled().len();
+                let result = AsyncRead::poll_read(Pin::new(&mut self.0.receive), cx, buf);
+                self.0.permit.0.add_in((buf.filled().len() - before) as u64);
+                result
+            }
+        }
+        impl AsyncWrite for Io {
+            fn poll_write(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+                buf: &[u8],
+            ) -> Poll<std::io::Result<usize>> {
+                let result = AsyncWrite::poll_write(Pin::new(&mut self.0.send), cx, buf);
+                if let Poll::Ready(Ok(n)) = result {
+                    self.0.permit.0.add_out(n as u64);
+                }
+                result
+            }
+            fn poll_flush(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                AsyncWrite::poll_flush(Pin::new(&mut self.0.send), cx)
+            }
+            fn poll_shutdown(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<std::io::Result<()>> {
+                AsyncWrite::poll_shutdown(Pin::new(&mut self.0.send), cx)
+            }
+        }
+        Io(self)
+    }
     pub fn connection(&self) -> &Connection {
         &self.connection
     }

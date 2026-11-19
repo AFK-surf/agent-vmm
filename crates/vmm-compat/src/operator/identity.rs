@@ -1,5 +1,5 @@
 use super::{LocalOperator, h};
-use tonic::Status;
+use vmm_rpc::Status;
 
 pub trait DeviceTrust: Send + Sync {
     fn identity(&self) -> Result<h::GetDeviceIdentityResponse, Status>;

@@ -1,6 +1,6 @@
 use agent_vmm_proto::host::v1 as host;
 use std::sync::Arc;
-use tonic::{Code, Request};
+use vmm_rpc::{Code, Request};
 use vmm_compat::RuntimeContext;
 use vmm_core::{
     AccessMode, Core, EgressMode, ImageSource, Limits, Mount, Origin, RootOverlay,

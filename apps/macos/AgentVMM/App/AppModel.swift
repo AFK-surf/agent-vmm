@@ -1,5 +1,4 @@
 import Foundation
-import GRPCCore
 import Observation
 
 @MainActor
@@ -80,7 +79,7 @@ final class AppModel {
         do {
             let client: any HostServing
             if let existing = self.client { client = existing }
-            else { client = try GRPCHostClient(socketPath: socketPath) }
+            else { client = SocketHostClient(socketPath: socketPath) }
             self.client = client
             observationTask = Task { [weak self] in await self?.observe(client: client) }
             metricsTask = Task { [weak self] in await self?.observeMetrics(client: client) }
@@ -247,7 +246,7 @@ final class AppModel {
         vmAction = .starting
         errorMessage = nil
         defer { vmAction = nil }
-        do { remember(try await client?.startVM(fence: GRPCHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
+        do { remember(try await client?.startVM(fence: SocketHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
         catch {
             errorMessage = hostErrorMessage(error)
             if (error as? RPCError)?.code == .aborted { _ = await prepareVMAction() }
@@ -259,7 +258,7 @@ final class AppModel {
         vmAction = force ? .forceStopping : .stopping
         errorMessage = nil
         defer { vmAction = nil }
-        do { remember(try await client?.stopVM(force: force, fence: GRPCHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
+        do { remember(try await client?.stopVM(force: force, fence: SocketHostClient.vmMutationFence(summary))); gracefulStopFailed = false; try await refresh() }
         catch {
             if !force { gracefulStopFailed = true }
             errorMessage = hostErrorMessage(error)

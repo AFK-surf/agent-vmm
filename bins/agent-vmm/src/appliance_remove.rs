@@ -57,7 +57,7 @@ async fn plan(mut client: Client, end: Instant, installation: String, request: S
 async fn execute_frozen(mut client: Client, end: Instant, request: ExecuteRemoveRequest, command: String) -> Outcome<()> {
     let installation = request.installation_id.clone();
     let response = bounded(end, client.execute_remove(request.clone())).await.map_err(|fault| {
-        let reason = fault.status.as_ref().and_then(vmm_lifecycle::grpc::error_info).map(|info| info.reason).unwrap_or_default();
+        let reason = fault.status.as_ref().and_then(vmm_lifecycle::rpc::error_info).map(|info| info.reason).unwrap_or_default();
         if reason != "APPLIANCE_OPERATION_NOT_ADMITTED" {
             return fault;
         }
@@ -65,7 +65,7 @@ async fn execute_frozen(mut client: Client, end: Instant, request: ExecuteRemove
     })?;
     let operation = response.operation.unwrap_or_default();
     match watch_operation(&mut client, end, &installation, &operation).await {
-        Err(fault) if fault.status.as_ref().is_some_and(|status| status.code() == tonic::Code::DeadlineExceeded) => Err(format!(
+        Err(fault) if fault.status.as_ref().is_some_and(|status| status.code() == vmm_rpc::Code::DeadlineExceeded) => Err(format!(
             "remove watch deadline reached. This deadline stops observation only.\ninstallation={installation} operation={} request_id={}\nContinue with the original removal request:\n{command}\n{}",
             operation.operation_id, request.request_id, fault.message
         )

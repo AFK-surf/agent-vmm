@@ -1,7 +1,7 @@
 //! Select build guests through the backend owning their boot and their work disks.
 use crate::Dom0Workspaces;
 use async_trait::async_trait;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::{
     error::core_status,
     image::build::{BuildBackend, BuildGuest, GuestLease},

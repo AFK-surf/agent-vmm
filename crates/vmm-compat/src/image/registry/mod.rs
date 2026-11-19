@@ -9,7 +9,7 @@ trait RegistrySource {
         &mut self,
         id: &str,
         blob: bool,
-    ) -> impl std::future::Future<Output = Result<reqwest::Response, tonic::Status>> + Send;
+    ) -> impl std::future::Future<Output = Result<reqwest::Response, vmm_rpc::Status>> + Send;
 }
 
 use super::{MAX_ARCHIVE_BYTES, VerifiedArchive, oci};
@@ -19,7 +19,7 @@ use oci_spec::distribution::Reference;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::BTreeMap, path::Path, time::Duration};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 
 const META: usize = 16 << 20;
 const MANIFEST: &str = "application/vnd.oci.image.manifest.v1+json";

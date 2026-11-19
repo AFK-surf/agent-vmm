@@ -16,7 +16,7 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::Mutex as AsyncMutex;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{AccessMode, Error};
 use vmm_guest_proto::rpc as g;
 

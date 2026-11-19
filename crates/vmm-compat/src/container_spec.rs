@@ -5,7 +5,7 @@ use crate::{
 };
 use agent_vmm_proto::host::v1 as h;
 use std::collections::{BTreeMap, HashSet};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use uuid::Uuid;
 use vmm_core::{AccessMode, HostShareMount, Mount, RootOverlay, SandboxDefinition, SandboxKey};
 

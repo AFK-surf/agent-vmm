@@ -1,6 +1,6 @@
 //! Whole-VM observations come from the same Carrier that owns the VM.
 use agent_vmm_proto::host::v1 as h;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_carrier_macos::{
     client::CarrierClient,
     protocol::{CarrierStatus, Request, State},

@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, LazyLock},
     time::SystemTime,
 };
-use tonic::Status;
+use vmm_rpc::Status;
 use uuid::Uuid;
 use vmm_core::{Origin, ScopeState, Store};
 

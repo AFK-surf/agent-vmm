@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use std::{net::SocketAddr, time::Duration};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::{
     RuntimeDriver,
     guest::{Duplex, GuestDriver},

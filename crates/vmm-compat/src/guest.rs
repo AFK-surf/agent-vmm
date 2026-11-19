@@ -15,7 +15,7 @@ use tokio::{
     sync::mpsc,
 };
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::BootIdentity;
 use vmm_guest_proto::{client::Client, rpc as g};
 

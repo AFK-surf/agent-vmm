@@ -1,4 +1,4 @@
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::BootIdentity;
 pub(crate) async fn health(
     guest: &dyn vmm_compat::guest::GuestDriver,

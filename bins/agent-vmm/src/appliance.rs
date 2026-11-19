@@ -10,19 +10,18 @@ use prost::Message;
 use std::future::Future;
 use std::io::Read;
 use std::net::SocketAddrV4;
-use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::time::Instant;
-use tonic::transport::Channel;
+
 
 pub const USAGE: &str = "usage: agent-vmm appliance install|update|status|recover|stop|start|activate|restart|revoke|remove ...";
-pub type Client = ApplianceAdminServiceClient<Channel>;
+pub type Client = ApplianceAdminServiceClient;
 
 /// A failed appliance command. `status` is kept for a failure that the Host returned.
 #[derive(Debug)]
 pub struct Fault {
     pub message: String,
-    pub status: Option<tonic::Status>,
+    pub status: Option<vmm_rpc::Status>,
 }
 
 impl Fault {
@@ -32,9 +31,9 @@ impl Fault {
     }
 }
 
-impl From<tonic::Status> for Fault {
-    fn from(status: tonic::Status) -> Self {
-        Self { message: vmm_lifecycle::grpc::status_error(&status).message, status: Some(status) }
+impl From<vmm_rpc::Status> for Fault {
+    fn from(status: vmm_rpc::Status) -> Self {
+        Self { message: vmm_lifecycle::rpc::status_error(&status).message, status: Some(status) }
     }
 }
 
@@ -59,10 +58,10 @@ impl From<std::io::Error> for Fault {
 pub type Outcome<T> = Result<T, Fault>;
 
 /// Makes one call that ends with the command deadline.
-pub async fn bounded<T>(end: Instant, call: impl Future<Output = Result<tonic::Response<T>, tonic::Status>>) -> Outcome<T> {
+pub async fn bounded<T>(end: Instant, call: impl Future<Output = Result<vmm_rpc::Response<T>, vmm_rpc::Status>>) -> Outcome<T> {
     match tokio::time::timeout_at(end, call).await {
         Ok(result) => Ok(result?.into_inner()),
-        Err(_) => Err(tonic::Status::deadline_exceeded("context deadline exceeded").into()),
+        Err(_) => Err(vmm_rpc::Status::deadline_exceeded("context deadline exceeded").into()),
     }
 }
 
@@ -86,7 +85,7 @@ pub fn message_text(name: &str, message: &impl Message) -> String {
 pub fn block_on<F: Future<Output = Outcome<()>>>(socket: &str, timeout: Duration, command: impl FnOnce(Client, Instant) -> F) -> Outcome<()> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async {
-        let channel = vmm_lifecycle::grpc::channel(Path::new(socket)).map_err(|error| Fault::from(error.message))?;
+        let channel = vmm_rpc::Client::unix(socket);
         command(ApplianceAdminServiceClient::new(channel), Instant::now() + timeout).await
     })
 }
@@ -229,10 +228,10 @@ pub fn select_installation<'a>(statuses: &'a [appliancev1::ApplianceStatus], pro
 }
 
 /// Waits for the next message of a stream. The end of the stream is an error.
-pub async fn next_message<T>(end: Instant, stream: &mut tonic::Streaming<T>) -> Outcome<T> {
+pub async fn next_message<T: Send + 'static>(end: Instant, stream: &mut vmm_rpc::Streaming<T>) -> Outcome<T> {
     match tokio::time::timeout_at(end, stream.message()).await {
         Ok(message) => Ok(message?.ok_or("EOF")?),
-        Err(_) => Err(tonic::Status::deadline_exceeded("context deadline exceeded").into()),
+        Err(_) => Err(vmm_rpc::Status::deadline_exceeded("context deadline exceeded").into()),
     }
 }
 

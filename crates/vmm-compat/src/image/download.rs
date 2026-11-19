@@ -2,7 +2,7 @@ use super::ArchiveWriter;
 use crate::error::invalid_field;
 use std::{net::Ipv4Addr, process::Stdio, time::Duration};
 use tokio::{io::AsyncReadExt, net::lookup_host, process::Command};
-use tonic::Status;
+use vmm_rpc::Status;
 use url::Url;
 
 pub(super) fn public(ip: Ipv4Addr) -> bool {

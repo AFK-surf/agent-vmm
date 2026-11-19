@@ -1,9 +1,0 @@
-version: v2
-plugins:
-  - local: protoc-gen-grpc-swift-2
-    out: apps/macos/AgentVMM/Generated
-    opt:
-      - Visibility=Public
-      - Client=true
-      - Server=false
-      - FileNaming=DropPath

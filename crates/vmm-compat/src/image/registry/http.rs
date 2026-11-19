@@ -5,7 +5,7 @@ use oci_spec::distribution::Reference;
 use reqwest::{Client, Response, StatusCode, header, redirect::Policy};
 use std::{net::IpAddr, time::Duration};
 use tokio::net::lookup_host;
-use tonic::Status;
+use vmm_rpc::Status;
 use url::Url;
 use zeroize::Zeroizing;
 

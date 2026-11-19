@@ -56,6 +56,15 @@ Keep both writes in the same transaction. Planning success cannot substitute for
 
 ## Streams and reports
 
+Return the response stream when the client opens a bidirectional RPC.
+The first response to `BuildImage` can depend on input that the caller sends after the call returns.
+Waiting for that response can also prevent the caller from cancelling the upload.
+The runtime integration test covers cancellation while the upload remains open.
+
+On macOS, setting `SO_RCVTIMEO` on a Unix socket can return `EINVAL` after the peer closes.
+The receive buffer can still contain the terminal status.
+Use readiness polling with the remaining RPC timeout before reading the buffer.
+
 A macOS network interception path can accept the system TLS client while Go handshakes fail before HTTP.
 Runtime archive downloads use the system curl adapter on macOS.
 Keep address admission, the pinned destination, and Guest content checks across that adapter.

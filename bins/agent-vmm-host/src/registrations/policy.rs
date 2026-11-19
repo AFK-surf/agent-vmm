@@ -2,7 +2,7 @@
 use agent_vmm_proto::host::v1 as h;
 use base64::{Engine, engine::general_purpose::STANDARD};
 use std::{net::IpAddr, time::SystemTime};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{
     EgressMode, ManagedConnection, ManagedPhase, ManagedPool, ManagedRegistration,
     RemoteAllocation, RemoteInventory, ScopeState,

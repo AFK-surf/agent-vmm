@@ -3,7 +3,7 @@ use agent_vmm_proto::appliance::v1 as a;
 use prost::Message;
 use rusqlite::{Connection, OptionalExtension, params};
 use std::{path::Path, sync::Mutex, time::SystemTime};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_mcp::TokenAuthority;
 
 const INSTALLATION: &str = "agent-vmm-mcp";

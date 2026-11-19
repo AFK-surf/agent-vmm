@@ -6,6 +6,7 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+vmm-rpc = { path = "../vmm-rpc" }
 http-auth = { version = "0.1", default-features = false }
 oci-spec = { version = "0.10", default-features = false, features = ["distribution"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "http2"] }
@@ -29,17 +30,14 @@ base64 = "0.22"
 prost = "0.14"
 prost-types = "0.14"
 tokio = { version = "1", features = ["rt", "fs", "io-util", "sync", "net", "process", "time"] }
-tonic = "0.14"
-tonic-prost = "0.14"
-tonic-types = "0.14"
 vmm-signing = { path = "../vmm-signing" }
 vmm-core = { path = "../vmm-core" }
 zeroize = "1"
 
 [dev-dependencies]
+http = "1"
 tokio = { version = "1", features = ["macros","rt-multi-thread","net","test-util"] }
 tokio-stream = { version = "0.1", features = ["net"] }
-tonic-health = "0.14"
 
 [lints.rust]
 unsafe_code = "forbid"

@@ -2,11 +2,9 @@ use agent_vmm_proto::{google::rpc, host::v1::ErrorReason};
 use base64::{Engine, engine::general_purpose::STANDARD};
 use prost::Message;
 use std::sync::Arc;
-use tokio::net::TcpListener;
-use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{Code, Request, Status, transport::Server};
-use tonic_health::pb::{HealthCheckRequest, health_client::HealthClient};
-use tonic_types::pb::ErrorInfo;
+use vmm_rpc::{Code, Request, Status};
+use agent_vmm_proto::host::v1 as h;
+use vmm_compat::details::ErrorInfo;
 use vmm_compat::{error, session::RuntimeAuth};
 use vmm_core::{EgressMode, Limits, Origin, Scope, ScopeState, Store};
 use zeroize::Zeroizing;
@@ -72,45 +70,42 @@ async fn replacement_fences_bound_and_bearer_rpcs_on_existing_connections() {
         } else {
             RuntimeAuth::bearer(store.clone(), session.id)
         };
-        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (_reporter, health) = tonic_health::server::health_reporter();
-        let service = tonic::service::interceptor::InterceptedService::new(health, auth);
-        let server = tokio::spawn(
-            Server::builder()
-                .add_service(service)
-                .serve_with_incoming(TcpListenerStream::new(listener)),
-        );
-        let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
-            .unwrap()
-            .connect()
-            .await
-            .unwrap();
-        let mut client = HealthClient::new(channel);
+        struct Health;
+        #[vmm_rpc::async_trait]
+        impl vmm_rpc::Service for Health {
+            fn name(&self) -> &'static str { "agentvmm.host.v1.OperatorService" }
+            async fn call(&self, method: &str, request: Request<vmm_rpc::Body>) -> Result<vmm_rpc::Body,Status> {
+                assert_eq!(method, "GetSystemHealthSummary");
+                assert!(request.extensions().get::<vmm_core::Session>().is_some());
+                request.unary::<h::GetSystemHealthSummaryRequest>().await?;
+                Ok(vmm_rpc::Response::new(h::GetSystemHealthSummaryResponse::default()).unary_body())
+            }
+        }
+        let path = dir.path().join(if bound { "bound.sock" } else { "bearer.sock" });
+        let listener = tokio::net::UnixListener::bind(&path).unwrap();
+        let service = vmm_rpc::Intercepted::new(Health, auth);
+        let server = tokio::spawn(vmm_rpc::Router::new(service).serve_unix(listener, 8, std::future::pending()));
+        let mut client = h::operator_service_client::OperatorServiceClient::new(vmm_rpc::Client::unix(path));
         let request = || {
-            let mut req = Request::new(HealthCheckRequest {
-                service: String::new(),
-            });
+            let mut req = Request::new(h::GetSystemHealthSummaryRequest {});
             if !bound {
                 req.metadata_mut().insert(
                     "authorization",
-                    format!("Bearer {}", STANDARD.encode(capability))
-                        .parse()
-                        .unwrap(),
+                    format!("Bearer {}", STANDARD.encode(capability)),
                 );
             }
             req
         };
         if !bound {
             let err = client
-                .check(HealthCheckRequest::default())
+                .get_system_health_summary(h::GetSystemHealthSummaryRequest {})
                 .await
                 .unwrap_err();
             assert_eq!(err.code(), Code::Unauthenticated);
         }
-        client.check(request()).await.unwrap();
+        client.get_system_health_summary(request()).await.unwrap();
         store.issue_session("env", None).unwrap();
-        let err = client.check(request()).await.unwrap_err();
+        let err = client.get_system_health_summary(request()).await.unwrap_err();
         assert_eq!(err.code(), Code::Unauthenticated);
         assert_eq!(info(&err).reason, "SESSION_TOKEN_INVALID");
         server.abort();

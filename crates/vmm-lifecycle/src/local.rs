@@ -168,7 +168,7 @@ mod tests {
     }
 
     #[test]
-    fn failures_name_the_grpc_code_and_the_host_reason() {
+    fn failures_name_the_rpc_code_and_the_host_reason() {
         let unimplemented = Error::new(Kind::Rpc { code: crate::RpcCode::Unimplemented, reason: None }, "old Host");
         assert_eq!(error_envelope(&unimplemented), json!({"error": {"code": "Unimplemented", "reason": "LOCAL_OPERATOR_FAILED"}}));
         let disposed = Error::new(Kind::Rpc { code: crate::RpcCode::FailedPrecondition, reason: Some("LOCAL_DISPOSED".into()) }, "gone");

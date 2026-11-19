@@ -5,7 +5,7 @@ use crate::{
     runtime::MeshRuntime,
 };
 use agent_vmm_proto::{host::v1 as h, service::v1 as s};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{
     Error,
     mesh::{LocalServiceImport, MeshExport, MeshImport, MeshResource},

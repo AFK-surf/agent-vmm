@@ -4,7 +4,7 @@ use reqwest::Response;
 use std::path::Path;
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
-use tonic::Status;
+use vmm_rpc::Status;
 
 pub(super) struct Archive {
     tmp: NamedTempFile,

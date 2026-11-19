@@ -11,38 +11,14 @@ use agent_vmm_proto::{
 };
 use std::{future::Future, io, path::Path, sync::Arc};
 use tokio::net::UnixListener;
-use tokio_stream::wrappers::UnixListenerStream;
-use tonic::{
-    service::{Routes, interceptor::InterceptedService},
-    transport::{Error, Server},
-};
 use vmm_compat::session::RuntimeAuth;
-
-const MAX_MESSAGE: usize = 16 << 20;
-
-pub(crate) async fn stop_server(
-    server: impl Future<Output = Result<(), Error>>,
-    stop: tokio::sync::oneshot::Sender<()>,
-    shutdown: impl Future<Output = ()>,
-) -> Result<(), Error> {
-    tokio::pin!(server);
-    tokio::select! {
-        result = &mut server => return result,
-        _ = shutdown => {},
-    }
-    let _ = stop.send(());
-    // A client can keep an HTTP/2 stream open indefinitely after GOAWAY.
-    match tokio::time::timeout(std::time::Duration::from_secs(3), server).await {
-        Ok(result) => result,
-        Err(_) => Ok(()),
-    }
-}
+use vmm_rpc::{Intercepted, Router};
 
 pub struct ControlListener {
     listener: UnixListener,
     _path: SocketPath,
-    routes: Routes,
-    max_streams: u32,
+    routes: Router,
+    max_streams: usize,
 }
 
 impl ControlListener {
@@ -51,13 +27,9 @@ impl ControlListener {
         operator: impl OperatorService,
         appliances: impl ApplianceAdminService,
     ) -> io::Result<Self> {
-        let operator = OperatorServiceServer::new(operator)
-            .max_decoding_message_size(MAX_MESSAGE)
-            .max_encoding_message_size(MAX_MESSAGE);
-        let appliances = ApplianceAdminServiceServer::new(appliances)
-            .max_decoding_message_size(MAX_MESSAGE)
-            .max_encoding_message_size(MAX_MESSAGE);
-        Self::open(path, Routes::new(operator).add_service(appliances), 128).await
+        let operator = OperatorServiceServer::new(operator);
+        let appliances = ApplianceAdminServiceServer::new(appliances);
+        Self::open(path, Router::new(operator).add_service(appliances), 128).await
     }
 
     pub async fn runtime(
@@ -77,18 +49,11 @@ impl ControlListener {
             ));
         }
         let path = directory.join(format!("{id}.sock"));
-        let runtime = AgentRuntimeServiceServer::from_arc(service)
-            .max_decoding_message_size(MAX_MESSAGE)
-            .max_encoding_message_size(MAX_MESSAGE);
-        Self::open(
-            &path,
-            Routes::new(InterceptedService::new(runtime, auth)),
-            64,
-        )
-        .await
+        let runtime = AgentRuntimeServiceServer::from_arc(service);
+        Self::open(&path, Router::new(Intercepted::new(runtime, auth)), 64).await
     }
 
-    async fn open(path: &Path, routes: Routes, max_streams: u32) -> io::Result<Self> {
+    async fn open(path: &Path, routes: Router, max_streams: usize) -> io::Result<Self> {
         let (listener, guard) = listen(path).await?;
         Ok(Self {
             listener,
@@ -98,15 +63,10 @@ impl ControlListener {
         })
     }
 
-    pub async fn serve(self, shutdown: impl Future<Output = ()>) -> Result<(), Error> {
-        let (stop, stopped) = tokio::sync::oneshot::channel();
-        let server = Server::builder()
-            .max_concurrent_streams(self.max_streams)
-            .add_routes(self.routes)
-            .serve_with_incoming_shutdown(UnixListenerStream::new(self.listener), async {
-                let _ = stopped.await;
-            });
-        stop_server(server, stop, shutdown).await
+    pub async fn serve(self, shutdown: impl Future<Output = ()>) -> io::Result<()> {
+        self.routes
+            .serve_unix(self.listener, self.max_streams, shutdown)
+            .await
     }
 }
 
@@ -118,37 +78,12 @@ pub async fn serve_local(
     shutdown: impl Future<Output = ()>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let (listener, _guard) = listen(path).await?;
-    let (reporter, health) = tonic_health::server::health_reporter();
-    reporter
-        .set_service_status(
-            "vmm-dom0",
-            if core.is_some() {
-                tonic_health::ServingStatus::Serving
-            } else {
-                tonic_health::ServingStatus::NotServing
-            },
-        )
-        .await;
-    for name in [
-        "",
-        "agentvmm.host.v1.OperatorService",
-        "agentvmm.host.v1.AgentRuntimeService",
-    ] {
-        reporter
-            .set_service_status(name, tonic_health::ServingStatus::NotServing)
-            .await;
-    }
     let api = api.into();
-    let (stop, stopped) = tokio::sync::oneshot::channel();
-    let server = Server::builder()
-        .max_concurrent_streams(128)
-        .add_optional_service(api.appliances.clone())
-        .add_service(health)
-        .add_service(vmm_compat::operator::LocalOperatorServer(api.clone()))
-        .serve_with_incoming_shutdown(UnixListenerStream::new(listener), async {
-            let _ = stopped.await;
-        });
-    let server = stop_server(server, stop, shutdown);
+    let mut routes = Router::new(vmm_compat::operator::LocalOperatorServer(api.clone()));
+    if let Some(appliances) = api.appliances.clone() {
+        routes = routes.add_service(appliances);
+    }
+    let server = routes.serve_unix(listener, 128, shutdown);
     if let Some(core) = core {
         tokio::select! {
             result=server => result?,
@@ -179,7 +114,7 @@ pub(crate) async fn serve_online(
     )?);
     management.publish_frontend(listener.local_addr()?, tools.registration_id())?;
     let core = runtime.core.clone();
-    let (send, recv) = tokio::sync::mpsc::channel(64);
+
     // Allocation admission replaces the PID and disk limits from the accepted pool policy.
     let defaults = vmm_core::Limits {
         vcpus: 1,
@@ -212,7 +147,7 @@ pub(crate) async fn serve_online(
     registrations.enable_connectors(
         core.clone(),
         defaults,
-        send,
+        Arc::new(AgentRuntimeServiceServer::from_arc(runtime)),
         node.as_ref().map(|n| n.observations()),
         Arc::new(move || latest.borrow().clone()),
     )?;
@@ -220,10 +155,6 @@ pub(crate) async fn serve_online(
     let mut mcp_stop = stop.subscribe();
     let mcp = vmm_mcp::serve(listener, authority, tools, async move {
         let _ = mcp_stop.changed().await;
-    });
-    let mut tunnel_stop = stop.subscribe();
-    let tunnel = crate::tunnel::serve(core.store.clone(), runtime, recv, async move {
-        let _ = tunnel_stop.changed().await;
     });
     let operator = serve_local(path, api.clone(), Some(core), async move {
         let _ = operator_stop.changed().await;
@@ -246,13 +177,7 @@ pub(crate) async fn serve_online(
         Ok(())
     };
     let servers = async {
-        tokio::try_join!(
-            operator,
-            data,
-            refresh,
-            async { Ok(tunnel.await?) },
-            async { Ok(mcp.await?) }
-        )?;
+        tokio::try_join!(operator, data, refresh, async { Ok(mcp.await?) })?;
         Ok(())
     };
     tokio::pin!(servers);

@@ -5,7 +5,7 @@ use crate::{
 use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use sha2::{Digest, Sha256};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{CopyAuthority, CopySource, Error, ImageCopyReceipt};
 
 fn authority<'a>(

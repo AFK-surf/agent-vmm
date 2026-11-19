@@ -43,6 +43,24 @@
       selectedLauncherIdentifier = "Xcode.DebuggerFoundation.Launcher.LLDB"
       shouldUseLaunchSchemeArgsEnv = "YES"
       onlyGenerateCoverageForSpecifiedTargets = "NO">
+      <PreActions>
+         <ExecutionAction
+            ActionType = "Xcode.IDEStandardExecutionActionsCore.ExecutionActionType.ShellScriptAction">
+            <ActionContent
+               title = "Build Rust operator for interoperability tests"
+               scriptText = "set -eu&#10;export PATH=&quot;$HOME/.cargo/bin:/opt/homebrew/bin:$PATH&quot;&#10;cd &quot;$SRCROOT/../../..&quot;&#10;export CARGO_TARGET_DIR=&quot;${CARGO_TARGET_DIR:-$PWD/target}&quot;&#10;mkdir -p &quot;$CARGO_TARGET_DIR&quot; &quot;$BUILT_PRODUCTS_DIR&quot;&#10;PROTOC=$(sh build/protoc.sh &quot;$CARGO_TARGET_DIR&quot;)&#10;export PROTOC&#10;cargo build --locked -p agent-vmm-host&#10;ln -sf &quot;$CARGO_TARGET_DIR/debug/agent-vmm-host&quot; &quot;$BUILT_PRODUCTS_DIR/agent-vmm-interop-host&quot;&#10;">
+               <EnvironmentBuildable>
+                  <BuildableReference
+                     BuildableIdentifier = "primary"
+                     BlueprintIdentifier = "E80DB3ED1DCF78436018EBCE"
+                     BuildableName = "AgentVMMTests.xctest"
+                     BlueprintName = "AgentVMMTests"
+                     ReferencedContainer = "container:AgentVMM.xcodeproj">
+                  </BuildableReference>
+               </EnvironmentBuildable>
+            </ActionContent>
+         </ExecutionAction>
+      </PreActions>
       <MacroExpansion>
          <BuildableReference
             BuildableIdentifier = "primary"

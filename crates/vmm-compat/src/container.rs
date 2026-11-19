@@ -14,7 +14,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{BootIdentity, HostShareMount, Sandbox, SandboxKey};
 use vmm_guest_proto::rpc::HealthReply;
 

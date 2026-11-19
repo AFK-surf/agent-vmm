@@ -6,7 +6,7 @@ use crate::{
 };
 use agent_vmm_proto::host::v1::{self as h, agent_runtime_service_server::AgentRuntimeService};
 use std::sync::Arc;
-use tonic::{Request, Response, Status, Streaming};
+use vmm_rpc::{Request, Response, Status, Streaming};
 use vmm_core::Core;
 
 pub use crate::runtime_drivers::{ImageRuntime, MeshRuntime};
@@ -21,7 +21,7 @@ pub struct RuntimeService {
     pub mesh: Arc<dyn MeshRuntime>,
 }
 
-#[tonic::async_trait]
+#[vmm_rpc::async_trait]
 impl AgentRuntimeService for RuntimeService {
     type PullImageStream = Output<h::PullImageResponse>;
     type LogsStream = Output<h::LogsResponse>;

@@ -7,7 +7,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{SystemTime, UNIX_EPOCH},
 };
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::operator::DeviceTrust;
 use vmm_signing::{Error, FileIdentityStore, IdentitySigner, RecoveryChallenge};
 

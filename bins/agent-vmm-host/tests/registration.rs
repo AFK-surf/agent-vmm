@@ -1,7 +1,7 @@
 use agent_vmm_host::{control::serve_local, host::HostState};
 use agent_vmm_proto::host::v1::{self as h, operator_service_client::OperatorServiceClient};
 use std::{fs, os::unix::fs::PermissionsExt, time::Duration};
-use tonic::{Code, transport::Endpoint};
+use vmm_rpc::Code;
 
 #[tokio::test]
 async fn operator_enrolls_updates_and_revokes_across_host_restart() {
@@ -41,11 +41,11 @@ async fn operator_enrolls_updates_and_revokes_across_host_restart() {
             let _ = stopped.await;
         });
         let verify = async {
-            let endpoint = Endpoint::from_shared(format!("unix:{}", socket.display())).unwrap();
-            let channel = tokio::time::timeout(Duration::from_secs(5), async {
+            let rpc_socket = socket.clone();
+        let channel = tokio::time::timeout(Duration::from_secs(5), async {
                 loop {
-                    if let Ok(ch) = endpoint.connect().await {
-                        break ch;
+                    if tokio::net::UnixStream::connect(&rpc_socket).await.is_ok() {
+                    break vmm_rpc::Client::unix(&rpc_socket);
                     }
                     tokio::time::sleep(Duration::from_millis(10)).await;
                 }

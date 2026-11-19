@@ -10,18 +10,6 @@ settings:
     PRODUCT_BUNDLE_IDENTIFIER: surf.afk.AgentVMM
     CODE_SIGN_STYLE: Automatic
 packages:
-  GRPCSwift:
-    url: https://github.com/grpc/grpc-swift-2.git
-    exactVersion: 2.4.2
-  GRPCNIOTransport:
-    url: https://github.com/grpc/grpc-swift-nio-transport.git
-    exactVersion: 2.9.0
-  GRPCProtobuf:
-    url: https://github.com/grpc/grpc-swift-protobuf.git
-    exactVersion: 2.4.1
-  SwiftNIOSSL:
-    url: https://github.com/apple/swift-nio-ssl.git
-    revision: 15e0b9e495786807272dd4891fa4bac76aa43034
   SwiftProtobuf:
     url: https://github.com/apple/swift-protobuf.git
     exactVersion: 1.38.1
@@ -37,12 +25,6 @@ targets:
       - DesignSystem
       - Generated
     dependencies:
-      - package: GRPCSwift
-        product: GRPCCore
-      - package: GRPCNIOTransport
-        product: GRPCNIOTransportHTTP2Posix
-      - package: GRPCProtobuf
-        product: GRPCProtobuf
       - package: SwiftProtobuf
         product: SwiftProtobuf
     settings:
@@ -73,5 +55,18 @@ schemes:
         AgentVMM: all
         AgentVMMTests: [test]
     test:
+      preActions:
+        - name: Build Rust operator for interoperability tests
+          settingsTarget: AgentVMMTests
+          script: |
+            set -eu
+            export PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH"
+            cd "$SRCROOT/../../.."
+            export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$PWD/target}"
+            mkdir -p "$CARGO_TARGET_DIR" "$BUILT_PRODUCTS_DIR"
+            PROTOC=$(sh build/protoc.sh "$CARGO_TARGET_DIR")
+            export PROTOC
+            cargo build --locked -p agent-vmm-host
+            ln -sf "$CARGO_TARGET_DIR/debug/agent-vmm-host" "$BUILT_PRODUCTS_DIR/agent-vmm-interop-host"
       targets:
         - AgentVMMTests

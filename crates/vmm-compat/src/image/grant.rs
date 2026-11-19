@@ -9,7 +9,7 @@ use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use rusqlite::{Connection, params};
 use std::collections::HashMap;
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::ImageArtifact;
 use vmm_core::Store;
 

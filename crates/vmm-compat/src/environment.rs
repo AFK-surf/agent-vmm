@@ -1,7 +1,7 @@
 use crate::{Containers, RuntimeContext, context::core_status};
 use agent_vmm_proto::host::v1 as h;
 use std::time::SystemTime;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{EgressMode, Origin, SandboxState};
 
 impl Containers {
@@ -38,7 +38,7 @@ impl Containers {
                 Err(e)
                     if matches!(
                         e.code(),
-                        tonic::Code::Unavailable | tonic::Code::DeadlineExceeded
+                        vmm_rpc::Code::Unavailable | vmm_rpc::Code::DeadlineExceeded
                     ) =>
                 {
                     stale = true;

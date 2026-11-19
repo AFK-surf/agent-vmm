@@ -8,7 +8,7 @@ use crate::{
 use agent_vmm_proto::host::v1 as h;
 use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt, wrappers::ReceiverStream};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_guest_proto::{
     client::{ExecEvent, ExecInput},
     rpc as g,

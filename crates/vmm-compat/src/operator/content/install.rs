@@ -6,7 +6,7 @@ use prost::Message;
 use rusqlite::{OptionalExtension, params};
 use sha2::{Digest as _, Sha256};
 use std::time::{Duration, SystemTime};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use uuid::Uuid;
 use zeroize::Zeroizing;
 

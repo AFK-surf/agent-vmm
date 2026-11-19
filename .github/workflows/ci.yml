@@ -98,14 +98,11 @@ jobs:
           CODE_SIGNING_ALLOWED=NO
       - name: Build Swift generators from resolved packages
         run: |
-          for entry in 'swift-protobuf protoc-gen-swift' 'grpc-swift-protobuf protoc-gen-grpc-swift-2'; do
-            read -r package_name product <<< "$entry"
-            package="$RUNNER_TEMP/SourcePackages/checkouts/$package_name"
-            scratch="$RUNNER_TEMP/swift-generator-build/$package_name"
-            cp apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$package/Package.resolved"
-            swift build --package-path "$package" --scratch-path "$scratch" -c release --product "$product"
-            swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
-          done
+          package="$RUNNER_TEMP/SourcePackages/checkouts/swift-protobuf"
+          scratch="$RUNNER_TEMP/swift-generator-build/swift-protobuf"
+          cp apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$package/Package.resolved"
+          swift build --package-path "$package" --scratch-path "$scratch" -c release --product protoc-gen-swift
+          swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
       - name: Check Swift generated code
         run: make check-swift-generated
       - name: Test Host installer resume contract

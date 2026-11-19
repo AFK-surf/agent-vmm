@@ -2,7 +2,7 @@ use crate::context::core_status;
 use agent_vmm_proto::google::rpc;
 use prost::Message;
 use std::{future::Future, sync::Arc};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{BeginOperation, ReceiptState, RequestKey, Store};
 
 /// Commit the attempt before dispatch. Receiver cancellation cannot interrupt settlement.

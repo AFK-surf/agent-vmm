@@ -1,34 +1,18 @@
 import Foundation
-import GRPCCore
-import GRPCNIOTransportHTTP2Posix
 import SwiftProtobuf
 
-final class GRPCHostClient: HostServing, Sendable {
-    private let client: GRPCClient<HTTP2ClientTransport.Posix>
-    private let service: Agentvmm_Host_V1_OperatorService.Client<HTTP2ClientTransport.Posix>
-    let applianceService: Agentvmm_Appliance_V1_ApplianceAdminService.Client<HTTP2ClientTransport.Posix>
-    private let runTask: Task<Void, Error>
+final class SocketHostClient: HostServing, Sendable {
+    let service: VmmRpcClient
+    let applianceService: VmmRpcClient
 
-    init(socketPath: String) throws {
-        let transport = try HTTP2ClientTransport.Posix(
-            target: .unixDomainSocket(path: socketPath),
-            transportSecurity: .plaintext
-        )
-        let client = GRPCClient(transport: transport)
-        self.client = client
-        self.service = Agentvmm_Host_V1_OperatorService.Client(wrapping: client)
-        self.applianceService = Agentvmm_Appliance_V1_ApplianceAdminService.Client(wrapping: client)
-        self.runTask = Task { try await client.runConnections() }
-    }
-
-    deinit {
-        client.beginGracefulShutdown()
-        runTask.cancel()
+    init(socketPath: String) {
+        service = VmmRpcClient(path: socketPath, service: "agentvmm.host.v1.OperatorService")
+        applianceService = VmmRpcClient(path: socketPath, service: "agentvmm.appliance.v1.ApplianceAdminService")
     }
 
     func snapshot() async throws -> SystemSnapshotModel {
-        let response = try await service.getSystemSnapshot(.init())
-        return (response).domainModel
+        let response = try await service.unary("GetSystemSnapshot", Agentvmm_Host_V1_GetSystemSnapshotRequest(), as: Agentvmm_Host_V1_GetSystemSnapshotResponse.self)
+        return response.domainModel
     }
 
     func events(after sequence: UInt64) -> AsyncThrowingStream<ActivityEvent, Error> {
@@ -36,9 +20,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.afterSequence = sequence
         let query = request
         return serverStream({ emit in
-            try await self.service.watchEvents(query) { response in
-                for try await value in response.messages { emit(value) }
-            }
+            try await self.service.receive("WatchEvents", query, as: Agentvmm_Host_V1_WatchEventsResponse.self, emit: emit)
         }, map: { (value: Agentvmm_Host_V1_WatchEventsResponse) in value.domainModel })
     }
 
@@ -54,9 +36,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.query = query
         let input = request
         return serverStream({ emit in
-            try await self.service.logs(input) { response in
-                for try await value in response.messages { emit(value) }
-            }
+            try await self.service.receive("Logs", input, as: Agentvmm_Host_V1_OperatorServiceLogsResponse.self, emit: emit)
         }, map: { (value: Agentvmm_Host_V1_OperatorServiceLogsResponse) in value.domainModel })
     }
 
@@ -70,9 +50,7 @@ final class GRPCHostClient: HostServing, Sendable {
         }
         let input = request
         return serverStream({ emit in
-            try await self.service.watchMetrics(input) { response in
-                for try await value in response.messages { emit(value) }
-            }
+            try await self.service.receive("WatchMetrics", input, as: Agentvmm_Host_V1_WatchMetricsResponse.self, emit: emit)
         }, map: { (value: Agentvmm_Host_V1_WatchMetricsResponse) in value.usage.domainModel })
     }
 
@@ -96,7 +74,7 @@ final class GRPCHostClient: HostServing, Sendable {
     func images(environmentID: String) async throws -> [EnvironmentImageModel] {
         var request = Agentvmm_Host_V1_ListEnvironmentImagesRequest()
         request.environmentID = environmentID
-        return try await service.listEnvironmentImages(request).images.map {
+        return try await service.unary("ListEnvironmentImages", request, as: Agentvmm_Host_V1_ListEnvironmentImagesResponse.self).images.map {
             EnvironmentImageModel(
                 reference: $0.reference,
                 digest: $0.digest,
@@ -115,18 +93,18 @@ final class GRPCHostClient: HostServing, Sendable {
         request.reference = reference
         request.expectedGenerationID = expectedGenerationID
         request.expectedDigest = expectedDigest
-        _ = try await service.deleteEnvironmentImage(request)
+        _ = try await service.unary("DeleteEnvironmentImage", request, as: Agentvmm_Host_V1_DeleteEnvironmentImageResponse.self)
     }
 
     func getVMImpactSummary() async throws -> Agentvmm_Host_V1_GetVMImpactSummaryResponse {
-        try await service.getVMImpactSummary(.init())
+        try await service.unary("GetVMImpactSummary", Agentvmm_Host_V1_GetVMImpactSummaryRequest(), as: Agentvmm_Host_V1_GetVMImpactSummaryResponse.self)
     }
 
     func startVM(fence: Agentvmm_Host_V1_VMMutationFence) async throws -> OperationModel {
         var request = Agentvmm_Host_V1_StartVMRequest()
         request.requestID = UUID().uuidString
         request.fence = fence
-        return (try await service.startVM(request).operation).domainModel
+        return (try await service.unary("StartVM", request, as: Agentvmm_Host_V1_StartVMResponse.self).operation).domainModel
     }
 
     func stopVM(force: Bool, fence: Agentvmm_Host_V1_VMMutationFence) async throws -> OperationModel {
@@ -134,7 +112,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.requestID = UUID().uuidString
         request.force = force
         request.fence = fence
-        return (try await service.stopVM(request).operation).domainModel
+        return (try await service.unary("StopVM", request, as: Agentvmm_Host_V1_StopVMResponse.self).operation).domainModel
     }
 
     func stopContainer(environmentID: String, containerID: String) async throws {
@@ -142,7 +120,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.requestID = UUID().uuidString
         request.environmentID = environmentID
         request.containerID = containerID
-        _ = try await service.stopContainer(request)
+        _ = try await service.unary("StopContainer", request, as: Agentvmm_Host_V1_OperatorServiceStopContainerResponse.self)
     }
 
     func continueContainer(environmentID: String, containerID: String) async throws {
@@ -150,7 +128,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.requestID = UUID().uuidString
         request.environmentID = environmentID
         request.containerID = containerID
-        _ = try await service.continueContainer(request)
+        _ = try await service.unary("ContinueContainer", request, as: Agentvmm_Host_V1_ContinueContainerResponse.self)
     }
 
     func signalContainer(environmentID: String, containerID: String, signal: ContainerSignal) async throws {
@@ -159,7 +137,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.environmentID = environmentID
         request.containerID = containerID
         request.signal = signal == .kill ? .kill : .int
-        _ = try await service.signalContainer(request)
+        _ = try await service.unary("SignalContainer", request, as: Agentvmm_Host_V1_OperatorServiceSignalContainerResponse.self)
     }
 
     func deleteContainer(environmentID: String, containerID: String, expectedGenerationID: String) async throws {
@@ -168,7 +146,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.environmentID = environmentID
         request.containerID = containerID
         request.expectedGenerationID = expectedGenerationID
-        _ = try await service.deleteContainer(request)
+        _ = try await service.unary("DeleteContainer", request, as: Agentvmm_Host_V1_OperatorServiceDeleteContainerResponse.self)
     }
 
     func updatePolicy(environmentID: String, limits: EnvironmentLimits, allowsPublicEgress: Bool, expectedRevision: UInt64) async throws {
@@ -179,7 +157,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.limits.diskBytes = limits.diskBytes
         request.egressMode = allowsPublicEgress ? .publicInternet : .denyAll
         request.expectedRevision = expectedRevision
-        _ = try await service.updateEnvironmentPolicy(request)
+        _ = try await service.unary("UpdateEnvironmentPolicy", request, as: Agentvmm_Host_V1_UpdateEnvironmentPolicyResponse.self)
     }
 
     func cleanupPreview(environmentID: String, mode: CleanupMode) async throws -> CleanupPreview {
@@ -188,11 +166,11 @@ final class GRPCHostClient: HostServing, Sendable {
         case .reset:
             var request = Agentvmm_Host_V1_PlanResetEnvironmentRequest()
             request.environmentID = environmentID
-            plan = try await service.planResetEnvironment(request).plan
+            plan = try await service.unary("PlanResetEnvironment", request, as: Agentvmm_Host_V1_PlanResetEnvironmentResponse.self).plan
         case .discard:
             var request = Agentvmm_Host_V1_PlanDiscardEnvironmentRequest()
             request.environmentID = environmentID
-            plan = try await service.planDiscardEnvironment(request).plan
+            plan = try await service.unary("PlanDiscardEnvironment", request, as: Agentvmm_Host_V1_PlanDiscardEnvironmentResponse.self).plan
         }
         return CleanupPreview(
             mode: mode,
@@ -212,27 +190,27 @@ final class GRPCHostClient: HostServing, Sendable {
         request.requestID = UUID().uuidString
         request.plan = plan
         request.confirmedVolumeIds = preview.mode == .discard ? preview.volumeIDs : []
-        let response = try await service.executeCleanup(request)
-        return (response.operation).domainModel
+        let response = try await service.unary("ExecuteCleanup", request, as: Agentvmm_Host_V1_ExecuteCleanupResponse.self)
+        return response.operation.domainModel
     }
 
     func getOperation(id: String) async throws -> OperationModel {
         var request = Agentvmm_Host_V1_GetOperationRequest()
         request.operationID = id
-        return (try await service.getOperation(request).operation).domainModel
+        return (try await service.unary("GetOperation", request, as: Agentvmm_Host_V1_GetOperationResponse.self).operation).domainModel
     }
 
     func runDiagnostics(environmentID: String?) async throws -> OperationModel {
         var request = Agentvmm_Host_V1_RunDiagnosticsRequest()
         request.requestID = UUID().uuidString
         if let environmentID { request.environmentID = environmentID }
-        return (try await service.runDiagnostics(request).operation).domainModel
+        return (try await service.unary("RunDiagnostics", request, as: Agentvmm_Host_V1_RunDiagnosticsResponse.self).operation).domainModel
     }
 
     func supportPreview(environmentID: String?) async throws -> [SupportItem] {
         var request = Agentvmm_Host_V1_PreviewSupportBundleRequest()
         if let environmentID { request.environmentID = environmentID }
-        return try await service.previewSupportBundle(request).items.map {
+        return try await service.unary("PreviewSupportBundle", request, as: Agentvmm_Host_V1_PreviewSupportBundleResponse.self).items.map {
             SupportItem(name: $0.name, description: $0.description_p, sensitive: $0.sensitive, includedByDefault: $0.includedByDefault)
         }
     }
@@ -242,22 +220,22 @@ final class GRPCHostClient: HostServing, Sendable {
         request.requestID = UUID().uuidString
         if let environmentID { request.environmentID = environmentID }
         request.includeSensitiveItems = sensitiveItems
-        return (try await service.exportSupportBundle(request).operation).domainModel
+        return (try await service.unary("ExportSupportBundle", request, as: Agentvmm_Host_V1_ExportSupportBundleResponse.self).operation).domainModel
     }
 
     func deviceIdentity() async throws -> DeviceIdentityModel {
-        (try await service.getDeviceIdentity(.init())).domainModel
+        (try await service.unary("GetDeviceIdentity", Agentvmm_Host_V1_GetDeviceIdentityRequest(), as: Agentvmm_Host_V1_GetDeviceIdentityResponse.self)).domainModel
     }
 
     func listPersonalMeshes() async throws -> [PersonalMeshModel] {
-        try await service.listPersonalMeshes(.init()).meshes.map(\.domainModel)
+        try await service.unary("ListPersonalMeshes", Agentvmm_Host_V1_ListPersonalMeshesRequest(), as: Agentvmm_Host_V1_ListPersonalMeshesResponse.self).meshes.map(\.domainModel)
     }
 
     func createPersonalMesh(registryAudience: String) async throws -> PersonalMeshModel {
         var request = Agentvmm_Host_V1_CreatePersonalMeshRequest()
         request.requestID = UUID().uuidString
         request.registryAudience = registryAudience
-        return (try await service.createPersonalMesh(request).mesh).domainModel
+        return (try await service.unary("CreatePersonalMesh", request, as: Agentvmm_Host_V1_CreatePersonalMeshResponse.self).mesh).domainModel
     }
 
     func revokePersonalMeshMember(meshID: String, deviceID: String, expectedRevision: UInt64) async throws -> PersonalMeshModel {
@@ -266,7 +244,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.meshID = meshID
         request.deviceID = deviceID
         request.expectedRevision = expectedRevision
-        return (try await service.revokePersonalMeshMember(request).mesh).domainModel
+        return (try await service.unary("RevokePersonalMeshMember", request, as: Agentvmm_Host_V1_RevokePersonalMeshMemberResponse.self).mesh).domainModel
     }
 
     func beginPersonalMeshPairing(meshID: String, expectedRevision: UInt64, pin: String, canManageMembers: Bool) async throws -> PersonalMeshPairingModel {
@@ -276,7 +254,7 @@ final class GRPCHostClient: HostServing, Sendable {
         request.expectedRevision = expectedRevision
         request.pin = pin
         request.permissions = canManageMembers ? [.useServices, .manageMembers] : [.useServices]
-        return try (try await service.beginPersonalMeshPairing(request)).domainModel
+        return try (try await service.unary("BeginPersonalMeshPairing", request, as: Agentvmm_Host_V1_BeginPersonalMeshPairingResponse.self)).domainModel
     }
 
     func joinPersonalMeshPairing(invitationCode: String, pin: String) async throws -> PersonalMeshPairingModel {
@@ -284,38 +262,38 @@ final class GRPCHostClient: HostServing, Sendable {
         var request = Agentvmm_Host_V1_JoinPersonalMeshPairingRequest()
         request.invitation = try Agentvmm_Host_V1_PersonalMeshPairingInvitation(serializedBytes: data)
         request.pin = pin
-        return try (try await service.joinPersonalMeshPairing(request)).domainModel
+        return try (try await service.unary("JoinPersonalMeshPairing", request, as: Agentvmm_Host_V1_JoinPersonalMeshPairingResponse.self)).domainModel
     }
 
     func getPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
         var request = Agentvmm_Host_V1_GetPersonalMeshPairingRequest()
         request.sessionID = sessionID
-        return try (try await service.getPersonalMeshPairing(request)).domainModel
+        return try (try await service.unary("GetPersonalMeshPairing", request, as: Agentvmm_Host_V1_GetPersonalMeshPairingResponse.self)).domainModel
     }
 
     func confirmPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
         var request = Agentvmm_Host_V1_ConfirmPersonalMeshPairingRequest()
         request.sessionID = sessionID
-        return try (try await service.confirmPersonalMeshPairing(request)).domainModel
+        return try (try await service.unary("ConfirmPersonalMeshPairing", request, as: Agentvmm_Host_V1_ConfirmPersonalMeshPairingResponse.self)).domainModel
     }
 
     func rejectPersonalMeshPairing(sessionID: Data) async throws -> PersonalMeshPairingModel {
         var request = Agentvmm_Host_V1_RejectPersonalMeshPairingRequest()
         request.sessionID = sessionID
-        return try (try await service.rejectPersonalMeshPairing(request)).domainModel
+        return try (try await service.unary("RejectPersonalMeshPairing", request, as: Agentvmm_Host_V1_RejectPersonalMeshPairingResponse.self)).domainModel
     }
 
     func repairDeviceIdentity(confirmMembershipReset: Bool) async throws -> DeviceIdentityModel {
         var request = Agentvmm_Host_V1_RepairDeviceIdentityRequest()
         request.requestID = UUID().uuidString
         request.confirmMembershipReset = confirmMembershipReset
-        return (try await service.repairDeviceIdentity(request)).domainModel
+        return (try await service.unary("RepairDeviceIdentity", request, as: Agentvmm_Host_V1_RepairDeviceIdentityResponse.self)).domainModel
     }
 
 
 }
 
-extension GRPCHostClient {
+extension SocketHostClient {
     static func vmMutationFence(
         _ summary: Agentvmm_Host_V1_GetVMImpactSummaryResponse
     ) -> Agentvmm_Host_V1_VMMutationFence {

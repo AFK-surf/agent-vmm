@@ -9,7 +9,7 @@ use std::{
     path::{Path, PathBuf},
 };
 use tempfile::NamedTempFile;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{Digest, Store};
 
 fn io_error(_: std::io::Error) -> Status {

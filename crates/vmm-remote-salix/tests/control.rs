@@ -10,7 +10,6 @@ use std::{
     time::Duration,
 };
 use tokio::{sync::mpsc, time::timeout};
-use tokio_stream::wrappers::ReceiverStream;
 use vmm_core::{
     Core, ImageSource, Limits, SandboxDefinition, SandboxKey, SandboxState, ScopeState, Store,
     Volume, fake::FakeDom0Backend,
@@ -30,8 +29,66 @@ const ALLOCATION: &str = "workload";
 const GENERATION: u64 = 3;
 const POLICY: u64 = 7;
 
+struct RuntimeProbe;
+#[vmm_rpc::async_trait]
+impl vmm_rpc::Service for RuntimeProbe {
+    fn name(&self) -> &'static str {
+        "agentvmm.host.v1.AgentRuntimeService"
+    }
+    async fn call(
+        &self,
+        method: &str,
+        request: vmm_rpc::Request<vmm_rpc::Body>,
+    ) -> Result<vmm_rpc::Body, vmm_rpc::Status> {
+        if method == "Echo" {
+            return Ok(request.into_inner());
+        }
+        assert_eq!(method, "Probe");
+        let request = request.unary::<()>().await?;
+        let remote = request
+            .extensions()
+            .get::<vmm_core::RemoteIdentity>()
+            .unwrap();
+        assert_eq!(
+            (
+                &*remote.registration_id,
+                &*remote.allocation_id,
+                remote.generation,
+                &*remote.execution_owner_id
+            ),
+            (REGISTRATION, ALLOCATION, GENERATION, "instance:3")
+        );
+        let session = request.extensions().get::<vmm_core::Session>().unwrap();
+        assert_eq!(remote.session_id, session.id);
+        Ok(vmm_rpc::Response::new(session.scope_id.clone()).unary_body())
+    }
+}
+fn authorized<T>(ready: &vmm_remote_salix::remote::SessionReady, body: T) -> vmm_rpc::Request<T> {
+    let mut req = vmm_rpc::Request::new(body);
+    req.metadata_mut()
+        .insert("x-agentvmm-allocation-id", &ready.allocation_id);
+    req.metadata_mut().insert(
+        "x-agentvmm-allocation-generation",
+        ready.allocation_generation.to_string(),
+    );
+    req.metadata_mut()
+        .insert("authorization", format!("Bearer {}", ready.tunnel_nonce));
+    req
+}
+async fn probe(
+    peer: &vmm_rpc::Client,
+    ready: &vmm_remote_salix::remote::SessionReady,
+) -> Result<String, vmm_rpc::Status> {
+    let req = authorized(ready, vmm_rpc::once(async {}));
+    peer.call::<(), String, _>("/agentvmm.host.v1.AgentRuntimeService/Probe", req)
+        .await?
+        .into_inner()
+        .single()
+        .await
+}
+
 #[tokio::test]
-async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
+async fn claim_connect_replay_retire_and_call_back_over_mux() {
     timeout(Duration::from_secs(35), async {
         let candidate = CandidateCredential::generate().unwrap();
         let mut gateway = GatewayMock::start(&candidate).await;
@@ -56,7 +113,7 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
             .replace(REGISTRATION, candidate.as_bytes())
             .unwrap();
         let client = Gateway::new(REGISTRATION, &claim.remote_connection, credentials).unwrap();
-        let (runtime, mut incoming_runtime) = mpsc::channel(8);
+        let runtime = Some(Arc::new(RuntimeProbe) as Arc<dyn vmm_rpc::Service>);
         let backend = Arc::new(FakeDom0Backend::default());
         let core = Core::new(store.clone(), backend.clone());
         let endpoint = vmm_remote_salix::trust::EndpointObservation {
@@ -80,6 +137,7 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
 
         let mut attempt = start_attempt(&connector);
         let mut first = gateway.connections.recv().await.unwrap();
+        let _first_peer = gateway.peers.recv().await.unwrap();
         let epoch = first.hello.connection_epoch;
         assert_eq!(first.hello.endpoint_observation.as_ref(), Some(&endpoint));
         let renewed = vmm_remote_salix::trust::EndpointObservation {
@@ -95,7 +153,7 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
         assert_eq!(renewal.endpoint_observation, Some(renewed));
         assert_ne!(epoch, 0);
         assert_ne!(first.hello.inventory_watermark, 0);
-        assert_eq!(first.hello.protocol_version, "4");
+        assert_eq!(first.hello.protocol_version, "5");
         assert_eq!(first.hello.registration_id, REGISTRATION);
         assert!(first.hello.inventory.is_empty());
         assert_eq!(first.hello.observation.as_ref().unwrap().sequence, 1);
@@ -168,64 +226,18 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
         send_command(&second, "open", 3, 0, open.clone()).await;
         assert_ack(&mut second, "open", 3, Ack::Admitted).await;
         let ready = session_ready(result(&mut second, "open", 3).await);
-        let provided = gateway.tunnels.recv().await.unwrap();
-        let runtime = incoming_runtime.recv().await.unwrap();
-        assert_eq!(provided.header.registration_id, REGISTRATION);
-        assert_eq!(provided.header.allocation_id, ALLOCATION);
-        assert_eq!(provided.header.allocation_generation, GENERATION);
-        assert_eq!(provided.header.connection_epoch, next_epoch);
-        assert_eq!(provided.header.tunnel_nonce, ready.tunnel_nonce);
+        let peer = gateway.peers.recv().await.unwrap();
         assert_eq!(
-            provided.header.expires_unix_millis,
-            ready.expires_unix_millis
+            (ready.allocation_id.as_str(), ready.allocation_generation),
+            (ALLOCATION, GENERATION)
         );
-        assert!(!ready.tunnel_nonce.is_empty());
-        assert_eq!(runtime.execution_owner_id, "instance:3");
-        let scope = runtime.authorization.scope_id.clone();
+        assert!(ready.expires_unix_millis > vmm_remote_salix::unix_millis());
+        let scope = probe(&peer, &ready).await.unwrap();
         let sandbox = define_workload(&core, &scope).await;
         core.start(&sandbox).await.unwrap();
-        let previous_id = runtime.authorization.id.clone();
-        let previous_capability = runtime.capability.clone();
-        assert!(
-            store
-                .authenticate_session(&previous_id, previous_capability.as_ref())
-                .is_ok()
-        );
-
-        let (_reporter, service) = tonic_health::server::health_reporter();
-        let (incoming, rx) = mpsc::channel(1);
-        incoming
-            .send(Ok::<_, std::io::Error>(runtime.transport))
-            .await
-            .unwrap();
-        let server = tokio::spawn(async move {
-            tonic::transport::Server::builder()
-                .add_service(service)
-                .serve_with_incoming(ReceiverStream::new(rx))
-                .await
-                .unwrap();
-        });
-        let mut health = tonic_health::pb::health_client::HealthClient::new(
-            gateway::tunnel_channel(provided.transport).await,
-        );
-        let response = health
-            .check(tonic_health::pb::HealthCheckRequest {
-                service: String::new(),
-            })
-            .await
-            .unwrap();
-        assert_eq!(
-            response.into_inner().status(),
-            tonic_health::pb::health_check_response::ServingStatus::Serving
-        );
         drop(second);
         assert!(matches!(attempt.await.unwrap(), Err(Error::Disconnected)));
-        assert!(
-            store
-                .authenticate_session(&previous_id, previous_capability.as_ref())
-                .is_err()
-        );
-        server.abort();
+        assert!(probe(&peer, &ready).await.is_err());
 
         let attempt = start_attempt(&connector);
         let mut third = gateway.connections.recv().await.unwrap();
@@ -233,13 +245,12 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
         assert_ack(&mut third, "open", 1, Ack::Duplicate).await;
         let reopened = session_ready(result(&mut third, "open", 1).await);
         assert_ne!(reopened.tunnel_nonce, ready.tunnel_nonce);
-        let reopened_header = gateway.tunnels.recv().await.unwrap().header;
+        let peer = gateway.peers.recv().await.unwrap();
         assert_eq!(
-            reopened_header.connection_epoch,
-            third.hello.connection_epoch
+            probe(&peer, &ready).await.unwrap_err().code(),
+            vmm_rpc::Code::Unauthenticated
         );
-        assert_eq!(reopened_header.tunnel_nonce, reopened.tunnel_nonce);
-        let runtime = incoming_runtime.recv().await.unwrap();
+        assert_eq!(probe(&peer, &reopened).await.unwrap(), scope);
 
         let stale = Command::DisposeAllocation(DisposeAllocation {
             allocation_id: ALLOCATION.into(),
@@ -251,11 +262,7 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
         assert_ack(&mut third, "stale", 2, Ack::Admitted).await;
         let stale = result(&mut third, "stale", 2).await;
         assert_eq!(stale.reason(), ErrorReason::DisposalRevisionNotAccepted);
-        assert!(
-            store
-                .authenticate_session(&runtime.authorization.id, runtime.capability.as_ref())
-                .is_ok()
-        );
+        assert!(probe(&peer, &reopened).await.is_ok());
 
         let stale_release = Command::ReleaseAllocation(ReleaseAllocation {
             allocation_id: ALLOCATION.into(),
@@ -268,6 +275,20 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
             result(&mut third, "stale-release", 3).await.reason(),
             ErrorReason::StaleRevision
         );
+        let (input, frames) = mpsc::channel(2);
+        input.send("before".to_owned()).await.unwrap();
+        let mut echo = peer
+            .call::<String, String, _>(
+                "/agentvmm.host.v1.AgentRuntimeService/Echo",
+                authorized(
+                    &reopened,
+                    tokio_stream::wrappers::ReceiverStream::new(frames),
+                ),
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(echo.message().await.unwrap().as_deref(), Some("before"));
         let release = Command::ReleaseAllocation(ReleaseAllocation {
             allocation_id: ALLOCATION.into(),
             expected_revision: POLICY,
@@ -279,11 +300,12 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
             result(&mut third, "release", 4).await,
             AllocationState::Retained,
         );
-        assert!(
-            store
-                .authenticate_session(&runtime.authorization.id, runtime.capability.as_ref())
-                .is_err()
+        assert_eq!(
+            echo.message().await.unwrap_err().code(),
+            vmm_rpc::Code::Unauthenticated
         );
+        drop(input);
+        assert!(probe(&peer, &reopened).await.is_err());
 
         assert_eq!(backend.shutdown_calls().unwrap(), 1);
         assert_eq!(
@@ -303,10 +325,7 @@ async fn claim_connect_replay_retire_and_run_rpc_over_tunnel() {
             result(&mut third, "dispose", 5).await,
             AllocationState::Discarded,
         );
-        assert_eq!(
-            store.scope(&runtime.authorization.scope_id).unwrap().state,
-            ScopeState::Released
-        );
+        assert_eq!(store.scope(&scope).unwrap().state, ScopeState::Released);
 
         assert_eq!(
             store.sandbox(&sandbox).unwrap().state,
@@ -363,7 +382,7 @@ async fn protocol_details_and_authentication_stop_reconnect() {
             ConnectorConfig {
                 connection: gateway.settings.clone(),
                 scope_defaults: defaults(),
-                runtime: mpsc::channel(1).0,
+                runtime: None,
                 observe: None,
             },
         );
@@ -379,7 +398,7 @@ async fn protocol_details_and_authentication_stop_reconnect() {
         let Err(Error::Authentication(status)) = connector.run().await else {
             panic!("expected terminal authentication failure");
         };
-        assert_eq!(status.code(), tonic::Code::Unauthenticated);
+        assert_eq!(status.code(), vmm_rpc::Code::Unauthenticated);
         let registered = store.registration(REGISTRATION).unwrap();
         assert_eq!(registered.connection_epoch, 2);
         assert!(!registered.connected);

@@ -1,7 +1,7 @@
 // This suite exercises guest lifecycle and workspace RPCs. Any call into the
 // registry or service mesh during those RPCs is a test failure.
 use agent_vmm_proto::host::v1 as h;
-use tonic::{Status, Streaming};
+use vmm_rpc::{Status, Streaming};
 use vmm_compat::{
     RuntimeContext,
     guest::Output,
@@ -11,7 +11,7 @@ pub struct Unused;
 
 macro_rules! unused_driver {
     ($driver:ident { $($name:ident($req:ty) -> $out:ty),+ $(,)? }) => {
-        #[tonic::async_trait]
+        #[vmm_rpc::async_trait]
         impl $driver for Unused {
             $(async fn $name(&self, _: &RuntimeContext, _: $req) -> Result<$out, Status> {
                 panic!("unexpected call to {}", stringify!($name))
@@ -35,18 +35,18 @@ unused_driver! { MeshRuntime {
 }}
 
 impl vmm_compat::operator::RegistrationControl for Unused {
-    fn metadata(&self, _: &str) -> Result<(u64, String), tonic::Status> {
+    fn metadata(&self, _: &str) -> Result<(u64, String), vmm_rpc::Status> {
         unreachable!()
     }
     fn isolate(
         &self,
         _: &str,
         _: u64,
-        _: &mut dyn FnMut() -> Result<(), tonic::Status>,
-    ) -> Result<(), tonic::Status> {
+        _: &mut dyn FnMut() -> Result<(), vmm_rpc::Status>,
+    ) -> Result<(), vmm_rpc::Status> {
         unreachable!()
     }
-    fn delete_credential(&self, _: &str) -> Result<(), tonic::Status> {
+    fn delete_credential(&self, _: &str) -> Result<(), vmm_rpc::Status> {
         unreachable!()
     }
 }

@@ -1,4 +1,4 @@
-//! The production effects: the Host operator socket over gRPC, the helper process, and the files of the installation.
+//! The production effects: the Host operator socket over vmm-rpc, the helper process, and the files of the installation.
 
 use crate::envelope::{LOG_BYTES, LogRecord, redact_text};
 use crate::facts::{Facts, enum_name};
@@ -9,20 +9,20 @@ use hostv1::operator_service_client::OperatorServiceClient;
 use std::future::Future;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use tonic::transport::Channel;
+use vmm_rpc::Client as Channel;
 use vmm_lifecycle::{Deadline, timefmt};
 
-pub type Client = OperatorServiceClient<Channel>;
+pub type Client = OperatorServiceClient;
 
-/// Converts a gRPC status and keeps the reason and the metadata that the Host attached.
-pub fn failure(status: &tonic::Status) -> Failure {
-    let error = vmm_lifecycle::grpc::status_error(status);
-    let info = vmm_lifecycle::grpc::error_info(status).unwrap_or_default();
+/// Converts a RPC status and keeps the reason and the metadata that the Host attached.
+pub fn failure(status: &vmm_rpc::Status) -> Failure {
+    let error = vmm_lifecycle::rpc::status_error(status);
+    let info = vmm_lifecycle::rpc::error_info(status).unwrap_or_default();
     Failure { code: error.rpc_code(), reason: info.reason, metadata: info.metadata, message: error.message }
 }
 
-fn deadline_exceeded() -> tonic::Status {
-    tonic::Status::deadline_exceeded("context deadline exceeded")
+fn deadline_exceeded() -> vmm_rpc::Status {
+    vmm_rpc::Status::deadline_exceeded("context deadline exceeded")
 }
 
 /// Opens a lazy channel to the operator socket. The caller must be inside the Tokio runtime.
@@ -30,7 +30,7 @@ pub fn connect(socket: &str) -> Call<Channel> {
     if socket.is_empty() || !Path::new(socket).is_absolute() {
         return Err(Failure { message: "operator socket is unavailable".into(), ..Failure::default() });
     }
-    vmm_lifecycle::grpc::channel(Path::new(socket)).map_err(|error| Failure { message: error.message, ..Failure::default() })
+    Ok(Channel::unix(socket))
 }
 
 pub struct Production {
@@ -45,7 +45,7 @@ impl Production {
     /// Makes one unary call within the budget.
     fn call<T, F>(&self, socket: &str, budget: Deadline, call: impl FnOnce(Client) -> F) -> Call<T>
     where
-        F: Future<Output = Result<tonic::Response<T>, tonic::Status>>,
+        F: Future<Output = Result<vmm_rpc::Response<T>, vmm_rpc::Status>>,
     {
         self.runtime.block_on(async {
             let client = OperatorServiceClient::new(connect(socket)?);

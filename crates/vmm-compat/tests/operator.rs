@@ -1,6 +1,6 @@
 use agent_vmm_proto::host::v1 as h;
 use std::{collections::HashSet, sync::Arc};
-use tonic::Code;
+use vmm_rpc::Code;
 use vmm_compat::operator::{DiskSample, LocalInventory};
 use vmm_core::{EgressMode, Limits, Origin, RemoteScopePolicy, Scope, ScopeState, Store};
 

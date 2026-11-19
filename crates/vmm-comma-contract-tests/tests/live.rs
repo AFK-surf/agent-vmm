@@ -80,8 +80,8 @@ fn captured_outputs_satisfy_their_consumers() {
         assert!(hello["registrationId"].as_str().is_some_and(|id| !id.is_empty()), "hello.registrationId");
         assert!(consumer::decimal(&hello["connectionEpoch"]) && hello["connectionEpoch"] != json!("0"), "hello.connectionEpoch must be a non-zero decimal string");
         assert!(consumer::decimal(&hello["inventoryWatermark"]) && hello["inventoryWatermark"] != json!("0"), "hello.inventoryWatermark is required");
-        // controller/remote/control.go:24-27: the gateway accepts protocol 4 only.
-        assert_eq!(hello["protocolVersion"], json!("4"), "hello.protocolVersion");
+        // The multiplexed controller connection negotiates protocol 5.
+        assert_eq!(hello["protocolVersion"], json!("5"), "hello.protocolVersion");
         // controller/remote/control.go:296-305: allocation ids are non-empty and unique.
         let mut seen = std::collections::BTreeSet::new();
         for allocation in hello["inventory"].as_array().cloned().unwrap_or_default() {

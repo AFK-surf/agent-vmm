@@ -10,7 +10,7 @@ use agent_vmm_proto::host::v1 as h;
 use oci_spec::distribution::Reference;
 use prost::Message;
 use tokio::sync::mpsc;
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 
 fn progress(status: &str) -> h::PullImageResponse {
     h::PullImageResponse {

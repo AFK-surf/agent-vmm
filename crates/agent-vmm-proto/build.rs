@@ -1,3 +1,4 @@
+mod generator;
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let api = "../../api";
     let mut protos = Vec::new();
@@ -16,17 +17,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     protos.sort();
     let descriptor = std::path::PathBuf::from(std::env::var("OUT_DIR")?).join("agent-vmm.bin");
-    tonic_prost_build::configure()
-        .codec_path("crate::wire::WireCodec")
+    prost_build::Config::new()
+        .service_generator(Box::new(generator::Generator))
         .file_descriptor_set_path(descriptor)
         .extern_path(".google.rpc", "crate::google::rpc")
-        // The RemoteController RPC is itself named `Connect`, so omit tonic's
-        // transport convenience constructor while retaining typed RPC clients.
-        .build_client(true)
-        .build_server(true)
-        .build_transport(false)
         .compile_protos(&protos, &[std::path::PathBuf::from(api)])?;
-    tonic_prost_build::configure()
+    prost_build::Config::new()
+        .disable_comments([".google.rpc.Status"])
         .compile_protos(&["../../api/google/rpc/status.proto"], &[api])?;
     println!("cargo:rerun-if-changed=../../api/google/rpc/status.proto");
     for proto in protos {

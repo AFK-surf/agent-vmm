@@ -10,24 +10,20 @@ use tokio::{
     net::{TcpListener, UnixListener},
     sync::{Mutex, mpsc},
 };
-use tokio_stream::wrappers::{ReceiverStream, TcpListenerStream};
-use tonic::{
-    Request, Response, Status, Streaming,
-    transport::{Identity, Server, ServerTlsConfig},
-};
+use tokio_stream::wrappers::ReceiverStream;
 use vmm_carrier_macos::{
     mock::MockCarrierHypervisor,
     protocol::CONTROL_PORT,
     server::{CarrierHypervisor, serve},
 };
 use vmm_core::fake::FakeDom0Backend;
+use vmm_rpc::{Request, Response, Router, ServerTls, Status, Streaming};
 
 struct Controller(mpsc::Sender<r::RemoteObservationSnapshot>);
 
-#[tonic::async_trait]
+#[vmm_rpc::async_trait]
 impl RemoteControllerService for Controller {
     type ConnectStream = ReceiverStream<Result<r::ConnectResponse, Status>>;
-    type ServeSessionStream = ReceiverStream<Result<r::ServeSessionResponse, Status>>;
 
     async fn connect(
         &self,
@@ -73,13 +69,6 @@ impl RemoteControllerService for Controller {
         });
         Ok(Response::new(ReceiverStream::new(responses)))
     }
-
-    async fn serve_session(
-        &self,
-        _: Request<Streaming<r::ServeSessionRequest>>,
-    ) -> Result<Response<Self::ServeSessionStream>, Status> {
-        Err(Status::unimplemented("no sessions requested"))
-    }
 }
 
 #[tokio::test]
@@ -94,16 +83,19 @@ async fn enrolled_host_reports_carrier_health_in_hello_and_after_stop() {
     let port = listener.local_addr().unwrap().port();
     let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
     let pem = cert.cert.pem();
-    let tls =
-        ServerTlsConfig::new().identity(Identity::from_pem(&pem, cert.signing_key.serialize_pem()));
+    let tls = ServerTls::new(
+        vec![cert.cert.der().clone()],
+        cert.signing_key.serialize_der().try_into().unwrap(),
+    )
+    .unwrap();
     let (observations, mut report) = mpsc::channel(4);
-    let gateway = tokio::spawn(
-        Server::builder()
-            .tls_config(tls)
-            .unwrap()
-            .add_service(RemoteControllerServiceServer::new(Controller(observations)))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
-    );
+    let gateway = tokio::spawn(async move {
+        let router = Router::new(RemoteControllerServiceServer::new(Controller(observations)));
+        loop {
+            let (socket, _) = listener.accept().await.unwrap();
+            tls.accept(socket, router.clone()).await.unwrap();
+        }
+    });
 
     // Restore an existing registration so the connector can send Hello immediately at startup.
     let host = HostState::open(&database).unwrap();

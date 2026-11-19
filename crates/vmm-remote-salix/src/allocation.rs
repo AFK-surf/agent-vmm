@@ -4,7 +4,7 @@ use crate::{
         self, Allocation, CapacityDimension, CommandOutcome, CommandResult, ControllerCommand,
         ErrorReason, command_result, controller_command::Command,
     },
-    tunnel::Tunnels,
+    sessions::Sessions,
 };
 use vmm_core::{Channel, Origin, RemoteAllocation, RemoteScopePolicy, Scope, ScopeState};
 
@@ -12,19 +12,18 @@ pub(crate) async fn execute(
     connector: &Connector,
     channel: &Channel,
     command: &ControllerCommand,
-    tunnels: &mut Tunnels<'_>,
+    sessions: &mut Sessions<'_>,
 ) -> CommandResult {
     let result = match command.command.as_ref().expect("validated control command") {
         Command::EnsureAllocation(request) => return ensure(connector, channel, request),
-        Command::OpenSession(request) => tunnels
+        Command::OpenSession(request) => sessions
             .open(&command.command_id, request)
-            .await
             .map(command_result::Result::SessionReady),
         Command::ReleaseAllocation(request) => {
             return retire(
                 connector,
                 channel,
-                tunnels,
+                sessions,
                 &request.allocation_id,
                 request.expected_generation,
                 request.expected_revision,
@@ -36,7 +35,7 @@ pub(crate) async fn execute(
             return retire(
                 connector,
                 channel,
-                tunnels,
+                sessions,
                 &request.allocation_id,
                 request.expected_generation,
                 request.expected_revision,
@@ -117,7 +116,7 @@ fn ensure(
 async fn retire(
     connector: &Connector,
     channel: &Channel,
-    tunnels: &mut Tunnels<'_>,
+    sessions: &mut Sessions<'_>,
     id: &str,
     generation: u64,
     revision: u64,
@@ -144,7 +143,7 @@ async fn retire(
         }
         Err(error) => return core_failure(error),
     }
-    if tunnels.close(id).is_err() {
+    if sessions.close(id).is_err() {
         return failure(ErrorReason::Unavailable, CommandOutcome::Unknown);
     }
     match connector
@@ -235,7 +234,6 @@ mod tests {
         ConnectorConfig, EgressMode, Gateway, PoolPolicy, RemoteConnection, ResourceLimits,
     };
     use std::sync::Arc;
-    use tonic::transport::Endpoint;
     use vmm_core::{Core, Limits, Store, fake::FakeDom0Backend};
     use vmm_signing::FileCredentialStore;
 
@@ -246,9 +244,24 @@ mod tests {
         let registration = "registration";
         store.create_registration(registration).unwrap();
         let channel = store.connect(registration, 1).unwrap();
-        let gateway = Gateway::with_channel(
+        let cert = rcgen::generate_simple_self_signed(vec!["localhost".into()]).unwrap();
+        use base64::{Engine, engine::general_purpose::STANDARD};
+        let config = RemoteConnection {
+            gateway_endpoint: "localhost:1".into(),
+            trust_bundle: STANDARD.encode(cert.cert.pem()),
+            policy_revision: 7,
+            pool_policy: PoolPolicy {
+                per_environment_limits: ResourceLimits {
+                    pids: 64,
+                    disk_bytes: 2048,
+                },
+                max_egress_mode: EgressMode::PublicInternet,
+                stop_grace_seconds: 30,
+            },
+        };
+        let gateway = Gateway::new(
             registration,
-            Endpoint::from_static("http://127.0.0.1:1").connect_lazy(),
+            &config,
             Arc::new(FileCredentialStore::new(
                 directory.path().join("credentials"),
             )),
@@ -258,19 +271,7 @@ mod tests {
             Core::new(store.clone(), Arc::new(FakeDom0Backend::default())),
             gateway,
             ConnectorConfig {
-                connection: RemoteConnection {
-                    gateway_endpoint: String::new(),
-                    trust_bundle: String::new(),
-                    policy_revision: 7,
-                    pool_policy: PoolPolicy {
-                        per_environment_limits: ResourceLimits {
-                            pids: 64,
-                            disk_bytes: 2048,
-                        },
-                        max_egress_mode: EgressMode::PublicInternet,
-                        stop_grace_seconds: 30,
-                    },
-                },
+                connection: config,
                 scope_defaults: Limits {
                     pids_max: 0,
                     disk_quota_bytes: 0,
@@ -278,7 +279,7 @@ mod tests {
                     boot_ram_mb: 128,
                     max_ram_mb: 128,
                 },
-                runtime: tokio::sync::mpsc::channel(1).0,
+                runtime: None,
                 observe: None,
             },
         );

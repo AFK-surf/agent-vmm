@@ -58,16 +58,11 @@ async fn host_process_drives_carrier_and_adopts_its_running_boot() {
                 .spawn()
                 .unwrap(),
         );
-        let ep = tonic::transport::Endpoint::from_shared(format!(
-            "unix:{}",
-            path("state/operator.sock").display()
-        ))
-        .unwrap()
-        .timeout(Duration::from_secs(5));
+        let rpc_socket = path("state/operator.sock");
         let channel = tokio::time::timeout(Duration::from_secs(10), async {
             loop {
-                if let Ok(c) = ep.connect().await {
-                    break c;
+                if tokio::net::UnixStream::connect(&rpc_socket).await.is_ok() {
+                    break vmm_rpc::Client::unix(&rpc_socket);
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }

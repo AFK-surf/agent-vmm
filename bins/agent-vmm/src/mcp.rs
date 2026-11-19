@@ -7,7 +7,6 @@ use agent_vmm_proto::appliance::v1::ApplianceOperation;
 use agent_vmm_proto::appliance::v1::appliance_admin_service_client::ApplianceAdminServiceClient;
 use agent_vmm_proto::host::v1 as hostv1;
 use hostv1::operator_service_client::OperatorServiceClient;
-use std::path::Path;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -44,7 +43,7 @@ fn token(action: &str, socket: &str) -> Outcome<()> {
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
     runtime.block_on(async {
         let end = Instant::now() + TIMEOUT;
-        let channel = vmm_lifecycle::grpc::channel(Path::new(socket)).map_err(|error| error.message)?;
+        let channel = vmm_rpc::Client::unix(socket);
         let mut operator = OperatorServiceClient::new(channel.clone());
         if action == "create" {
             println!("{}", bounded(end, operator.create_mcp_token(hostv1::CreateMcpTokenRequest {})).await?.token);

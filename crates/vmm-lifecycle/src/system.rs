@@ -1,7 +1,7 @@
 //! The production effects: the Host operator socket, child processes, HTTPS, and signals.
 
 use crate::error::{Deadline, Error, Kind, Result, err};
-use crate::grpc::GrpcOperator;
+use crate::rpc::SocketOperator;
 use crate::operator::Operator;
 use crate::{CommandOutput, Context, HttpResponse, System};
 use std::io::Read;
@@ -35,7 +35,7 @@ fn loopback(url: &url::Url) -> bool {
 
 impl System for Production {
     fn operator(&self, socket: &Path) -> Result<Box<dyn Operator>> {
-        Ok(Box::new(GrpcOperator::connect(socket)?))
+        Ok(Box::new(SocketOperator::connect(socket)?))
     }
 
     fn run(&self, program: &str, arguments: &[&str], deadline: Deadline) -> Result<CommandOutput> {

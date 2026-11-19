@@ -3,7 +3,7 @@ use crate::{Containers, container::fingerprint, context::core_status};
 use agent_vmm_proto::host::v1 as h;
 use prost_types::Timestamp;
 use rusqlite::{OptionalExtension, params};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{AccessMode, Sandbox, SandboxState};
 use vmm_guest_proto::rpc::{MainState, ResourceUsage};
 

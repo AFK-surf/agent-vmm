@@ -9,7 +9,7 @@ mod args;
 mod cli;
 mod cutover;
 pub mod error;
-pub mod grpc;
+pub mod rpc;
 mod journal;
 mod legacy;
 mod local;

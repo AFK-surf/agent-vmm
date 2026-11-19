@@ -3,7 +3,7 @@ use std::{
     io::{Read, Write},
     sync::Arc,
 };
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::{
     error::{client_status, core_status, guest_status},
     workspace::{WorkspaceDriver, WorkspaceLease},

@@ -6,7 +6,7 @@ struct Registry(HashMap<String, Vec<u8>>);
 impl RegistrySource for Registry {
     async fn get(&mut self, id: &str, _: bool) -> Result<reqwest::Response, Status> {
         let bytes = self.0.get(id).expect("unexpected registry request").clone();
-        Ok(tonic::codegen::http::Response::new(bytes).into())
+        Ok(::http::Response::new(bytes).into())
     }
 }
 
@@ -76,10 +76,10 @@ async fn private_registry_is_rejected_before_connecting() {
     let details = agent_vmm_proto::google::rpc::Status::decode(status.details())
         .unwrap()
         .details;
-    let info = tonic_types::pb::ErrorInfo::decode(details[0].value.as_slice()).unwrap();
+    let info = crate::details::ErrorInfo::decode(details[0].value.as_slice()).unwrap();
     assert_eq!(info.reason, "IMAGE_REGISTRY_UNAVAILABLE");
     assert_eq!(info.domain, "agent-vmm");
-    let resource = tonic_types::pb::ResourceInfo::decode(details[1].value.as_slice()).unwrap();
+    let resource = crate::details::ResourceInfo::decode(details[1].value.as_slice()).unwrap();
     assert_eq!(resource.resource_name, reference.whole());
     assert_eq!(dir.path().read_dir().unwrap().count(), 0);
 }

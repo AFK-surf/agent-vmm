@@ -23,8 +23,7 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio_stream::wrappers::TcpListenerStream;
-use tonic::{Code, transport::Server};
+use vmm_rpc::Code;
 use vmm_compat::{
     Containers, runtime::RuntimeService, session::RuntimeAuth, workspace::WorkspaceService,
 };
@@ -34,7 +33,7 @@ use vmm_core::{
 use zeroize::Zeroizing;
 
 #[tokio::test]
-async fn session_drives_workload_and_workspace_over_tonic() {
+async fn session_drives_workload_and_workspace_over_rpc() {
     let dir = tempfile::tempdir().unwrap();
     let backend = Arc::new(FakeDom0Backend::default());
     let core = Core::new(
@@ -106,26 +105,19 @@ async fn session_drives_workload_and_workspace_over_tonic() {
             device_id: "host-device".into(),
         }),
     });
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let addr = listener.local_addr().unwrap();
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let server = tokio::spawn(
-        Server::builder()
-            .add_service(vmm_compat::operator::LocalOperatorServer(Arc::new(
+        vmm_rpc::Router::new(vmm_compat::operator::LocalOperatorServer(Arc::new(
                 operator,
             )))
-            .add_service(tonic::service::interceptor::InterceptedService::new(
+            .add_service(vmm_rpc::Intercepted::new(
                 AgentRuntimeServiceServer::from_arc(runtime.clone()),
                 auth,
             ))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
+            .serve_unix(listener, 128, std::future::pending()),
     );
-    let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
-        .unwrap()
-        .connect()
-        .await
-        .unwrap();
+    let channel = vmm_rpc::Client::unix(&endpoint);
     let mut operator = h::operator_service_client::OperatorServiceClient::new(channel.clone());
     let mut c = AgentRuntimeServiceClient::new(channel);
     let (bytes, header) = oci::fixture(b"expected", "arm64");

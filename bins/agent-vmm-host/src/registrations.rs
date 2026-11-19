@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tokio::task::JoinHandle;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::operator::RegistrationControl;
 use vmm_core::Store;
 use vmm_remote_salix::Connector;

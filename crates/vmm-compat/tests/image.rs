@@ -5,7 +5,7 @@ use agent_vmm_proto::host::v1::{
 mod oci;
 use oci::fixture;
 use std::path::Path;
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_compat::image::VerifiedArchive;
 
 async fn receive(
@@ -68,7 +68,7 @@ async fn import_binds_archive_platform_manifest_and_every_layer_before_publicati
 async fn idle_import_frees_staging_and_reports_invalid_fields() {
     use prost::Message;
     use tokio_stream::wrappers::ReceiverStream;
-    use tonic_types::pb::BadRequest;
+    use vmm_compat::details::BadRequest;
     let dir = tempfile::tempdir().unwrap();
     let (_, header) = fixture(b"expected", "arm64");
     let (sender, receiver) = tokio::sync::mpsc::channel(1);

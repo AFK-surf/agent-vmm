@@ -5,7 +5,7 @@ use crate::{
 };
 use agent_vmm_proto::host::v1 as h;
 use prost::Message;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::Error;
 
 fn registration(ctx: &RuntimeContext) -> Result<&str, Status> {

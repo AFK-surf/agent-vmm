@@ -1,15 +1,10 @@
-//! Terminate the service ALPN inside the host. Each iroh stream is one HTTP/2 connection.
+//! Terminate the service ALPN inside the host. Each iroh stream carries one RPC.
 use agent_vmm_proto::{
     service::v1::service_route_service_server::{ServiceRouteService, ServiceRouteServiceServer},
     trust::v1::EndpointObservation,
 };
 use std::{io, sync::Arc, time::Duration};
-use tokio::{
-    net::UnixStream,
-    sync::{mpsc, watch},
-    task::JoinSet,
-};
-use tokio_stream::wrappers::ReceiverStream;
+use tokio::{sync::watch, task::JoinSet};
 use vmm_compat::{
     node::{Channel, DataNode},
     operator::DeviceTrust,
@@ -43,7 +38,8 @@ impl ServiceNode {
         mut stop: watch::Receiver<bool>,
     ) -> io::Result<()> {
         let (tx, mut rx) = DataNode::incoming();
-        let (sockets, incoming) = mpsc::channel(32);
+        let router = vmm_rpc::Router::new(ServiceRouteServiceServer::new(routes))
+            .max_request_bytes(128 << 10);
         let mut bridges = JoinSet::new();
         let dispatch = async {
             loop {
@@ -52,9 +48,8 @@ impl ServiceNode {
                     tunnel = rx.recv() => {
                         let tunnel = tunnel.ok_or_else(|| io::Error::other("iroh listener closed"))?;
                         if tunnel.channel != Channel::Service { continue; }
-                        let (application, transport) = UnixStream::pair()?;
-                        sockets.send(Ok::<_,io::Error>(application)).await.map_err(io::Error::other)?;
-                        bridges.spawn(async move { let _ = tunnel.bridge(transport).await; });
+                        let router = router.clone();
+                        bridges.spawn(async move { router.serve_stream(tunnel.into_io()).await; });
                     }
                 }
             }
@@ -66,18 +61,11 @@ impl ServiceNode {
                     .send_replace(observation(&self.node, self.signer.clone()).await?);
             }
         };
-        let server = tonic::transport::Server::builder()
-            .max_concurrent_streams(32)
-            .add_service(
-                ServiceRouteServiceServer::new(routes).max_decoding_message_size(128 << 10),
-            )
-            .serve_with_incoming(ReceiverStream::new(incoming));
         let result = tokio::select! {
             _ = stop.changed() => Ok(()),
             _ = self.node.serve(tx) => Err(io::Error::other("iroh listener stopped")),
             r = renew => r,
             r = dispatch => r,
-            r = server => r.map_err(io::Error::other),
         };
         self.node.shutdown().await;
         result

@@ -1,5 +1,4 @@
 import Foundation
-import GRPCCore
 
 protocol HostServing: Sendable {
     func snapshot() async throws -> SystemSnapshotModel

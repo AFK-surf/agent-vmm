@@ -13,7 +13,7 @@ use tokio::{
     sync::mpsc,
 };
 use tokio_stream::wrappers::ReceiverStream;
-use tonic::{Request, Response, Status, Streaming};
+use vmm_rpc::{Request, Response, Status, Streaming};
 use vmm_compat::guest::GuestDriver;
 use vmm_core::{ServiceExport, Store};
 use vmm_signing::SignedMessage;
@@ -196,7 +196,7 @@ impl ServiceForward {
     }
 }
 
-#[tonic::async_trait]
+#[vmm_rpc::async_trait]
 impl s::service_route_service_server::ServiceRouteService for ServiceForward {
     type OpenServiceForwardStream = ReceiverStream<Result<s::OpenServiceForwardResponse, Status>>;
     async fn open_service_forward(

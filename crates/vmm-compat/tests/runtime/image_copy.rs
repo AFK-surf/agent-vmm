@@ -100,20 +100,13 @@ async fn remote_client_copies_retained_build_and_recovers_both_receipts() {
             generation: 1,
             execution_owner_id: "agent".into(),
         });
-    let listener = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let addr = listener.local_addr().unwrap();
+    let endpoint = dir.path().join(uuid::Uuid::new_v4().simple().to_string());
+    let listener = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let server = tokio::spawn(
-        Server::builder()
-            .add_service(AgentRuntimeServiceServer::with_interceptor(runtime, auth))
-            .serve_with_incoming(TcpListenerStream::new(listener)),
+        vmm_rpc::Router::new(vmm_rpc::Intercepted::new(AgentRuntimeServiceServer::new(runtime), auth))
+            .serve_unix(listener, 128, std::future::pending()),
     );
-    let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
-        .unwrap()
-        .connect()
-        .await
-        .unwrap();
+    let channel = vmm_rpc::Client::unix(&endpoint);
     let mut client = AgentRuntimeServiceClient::new(channel);
     let retained = client
         .list_images(h::ListImagesRequest {

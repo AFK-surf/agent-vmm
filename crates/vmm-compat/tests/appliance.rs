@@ -9,14 +9,13 @@ use std::{
     sync::Arc,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
-use tokio_stream::wrappers::TcpListenerStream;
-use tonic::transport::{Channel, Endpoint, Server};
+
 use vmm_compat::operator::{ApplianceOperations, McpManagement};
 use vmm_mcp::{FileSigningKeys, TokenAuthority};
 
 struct TestServer {
     stop: tokio::sync::oneshot::Sender<()>,
-    task: tokio::task::JoinHandle<Result<(), tonic::transport::Error>>,
+    task: tokio::task::JoinHandle<Result<(), std::io::Error>>,
 }
 impl TestServer {
     async fn close(self) {
@@ -28,7 +27,7 @@ impl TestServer {
             .unwrap();
     }
 }
-async fn open(root: &Path) -> (Client<Channel>, TestServer) {
+async fn open(root: &Path) -> (Client, TestServer) {
     let db = root.join("compat.sqlite");
     let keys = TokenAuthority::new(Arc::new(FileSigningKeys::open(root).unwrap()));
     let mcp = Arc::new(McpManagement::open(&db, keys).unwrap());
@@ -41,24 +40,16 @@ async fn open(root: &Path) -> (Client<Channel>, TestServer) {
         51 << 30,
     )
     .unwrap();
-    let socket = tokio::net::TcpListener::bind(("127.0.0.1", 0))
-        .await
-        .unwrap();
-    let addr = socket.local_addr().unwrap();
+    let endpoint = root.join(uuid::Uuid::new_v4().simple().to_string());
+    let socket = tokio::net::UnixListener::bind(&endpoint).unwrap();
     let (stop, closed) = tokio::sync::oneshot::channel();
     let job = tokio::spawn(
-        Server::builder()
-            .add_service(service)
-            .serve_with_incoming_shutdown(TcpListenerStream::new(socket), async {
+        vmm_rpc::Router::new(service)
+            .serve_unix(socket, 128, async {
                 let _ = closed.await;
             }),
     );
-    let channel = Endpoint::from_shared(format!("http://{addr}"))
-        .unwrap()
-        .timeout(Duration::from_secs(5))
-        .connect()
-        .await
-        .unwrap();
+    let channel = vmm_rpc::Client::unix(&endpoint);
     (Client::new(channel), TestServer { stop, task: job })
 }
 fn frames(
@@ -120,7 +111,7 @@ async fn appliance_content_is_verified_and_replays_the_original_receipt_after_re
             .await
             .unwrap_err()
             .code(),
-        tonic::Code::InvalidArgument
+        vmm_rpc::Code::InvalidArgument
     );
     assert!(
         !admin
@@ -226,7 +217,7 @@ async fn appliance_content_is_verified_and_replays_the_original_receipt_after_re
             .await
             .unwrap_err()
             .code(),
-        tonic::Code::Aborted
+        vmm_rpc::Code::Aborted
     );
     let expired = a::StageContentHeader {
         request_id: "expired".into(),
@@ -239,7 +230,7 @@ async fn appliance_content_is_verified_and_replays_the_original_receipt_after_re
             .await
             .unwrap_err()
             .code(),
-        tonic::Code::DeadlineExceeded
+        vmm_rpc::Code::DeadlineExceeded
     );
     job.close().await;
 }
@@ -341,7 +332,7 @@ async fn manifest_identity_and_stage_receipts_survive_restart_before_archive_upl
             .await
             .unwrap_err()
             .code(),
-        tonic::Code::Aborted
+        vmm_rpc::Code::Aborted
     );
     for bad in [
         a::ControllerApplianceManifest {
@@ -363,7 +354,7 @@ async fn manifest_identity_and_stage_receipts_survive_restart_before_archive_upl
                 .await
                 .unwrap_err()
                 .code(),
-            tonic::Code::FailedPrecondition
+            vmm_rpc::Code::FailedPrecondition
         );
     }
     job.close().await;
@@ -400,7 +391,7 @@ async fn approved_install_owns_one_private_registration_and_replays_after_restar
     };
     assert_eq!(
         client.plan_install(plan.clone()).await.unwrap_err().code(),
-        tonic::Code::FailedPrecondition
+        vmm_rpc::Code::FailedPrecondition
     );
     client
         .stage_content(frames(
@@ -422,7 +413,7 @@ async fn approved_install_owns_one_private_registration_and_replays_after_restar
     };
     assert_eq!(
         client.plan_install(denied).await.unwrap_err().code(),
-        tonic::Code::FailedPrecondition
+        vmm_rpc::Code::FailedPrecondition
     );
     let confirmed = client
         .plan_install(plan)
@@ -458,7 +449,7 @@ async fn approved_install_owns_one_private_registration_and_replays_after_restar
             .await
             .unwrap_err()
             .code(),
-        tonic::Code::Aborted
+        vmm_rpc::Code::Aborted
     );
     let mut status = client
         .get_appliance_status(a::GetApplianceStatusRequest {
@@ -518,9 +509,13 @@ async fn approved_install_owns_one_private_registration_and_replays_after_restar
         client
             .watch_appliance_operation(wrong.clone())
             .await
+            .unwrap()
+            .into_inner()
+            .message()
+            .await
             .unwrap_err()
             .code(),
-        tonic::Code::NotFound
+        vmm_rpc::Code::NotFound
     );
     let watched = client
         .watch_appliance_operation(a::WatchApplianceOperationRequest {

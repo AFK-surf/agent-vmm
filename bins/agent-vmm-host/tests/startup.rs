@@ -57,9 +57,6 @@ async fn offline_host_accepts_connections_and_releases_the_socket_on_sigterm() {
     let socket = dir.path().join("state/operator.sock");
     use agent_vmm_proto::{appliance::v1 as a, host::v1 as h};
     let mut receipt: Option<String> = None;
-    let endpoint = tonic::transport::Endpoint::from_shared(format!("unix:{}", socket.display()))
-        .unwrap()
-        .timeout(Duration::from_secs(4));
     for _ in 0..2 {
         let mut host = Host(
             Command::new(env!("CARGO_BIN_EXE_agent-vmm-host"))
@@ -79,7 +76,7 @@ async fn offline_host_accepts_connections_and_releases_the_socket_on_sigterm() {
             assert!(Instant::now() < deadline, "operator socket unavailable");
             tokio::time::sleep(Duration::from_millis(10)).await;
         }
-        let channel = endpoint.connect().await.unwrap();
+        let channel = vmm_rpc::Client::unix(&socket);
         let mut operator = h::operator_service_client::OperatorServiceClient::new(channel.clone());
         let mut appliances =
             a::appliance_admin_service_client::ApplianceAdminServiceClient::new(channel);

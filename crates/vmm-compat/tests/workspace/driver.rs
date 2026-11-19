@@ -8,7 +8,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tempfile::TempDir;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::workspace::{WorkspaceDriver, WorkspaceLease};
 use vmm_core::AccessMode;
 use vmm_guest_proto::rpc as g;

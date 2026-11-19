@@ -6,7 +6,7 @@ use crate::{
         self, CommandAck, CommandAckDisposition, CommandOutcome, CommandResult, ControllerCommand,
         ErrorReason, command_result, connect_request, controller_command::Command,
     },
-    tunnel::Tunnels,
+    sessions::Sessions,
 };
 use prost::Message;
 use std::{collections::VecDeque, time::Duration};
@@ -32,7 +32,7 @@ impl Commands {
         channel: &Channel,
         command: ControllerCommand,
         outbound: &mpsc::Sender<remote::ConnectRequest>,
-        tunnels: &mut Tunnels<'_>,
+        sessions: &mut Sessions<'_>,
     ) -> Result<()> {
         let received = Instant::now();
         let mut ack = CommandAck {
@@ -74,7 +74,7 @@ impl Commands {
                         if let Some(Command::OpenSession(open)) = &command.command
                             && receipt.state == ReceiptState::Succeeded
                         {
-                            let replay = tunnels.replay(&command.command_id, &open.allocation_id);
+                            let replay = sessions.replay(&command.command_id, &open.allocation_id);
                             let result = if let Some(ready) = replay {
                                 Some(success(command_result::Result::SessionReady(ready)))
                             } else if result.connection_epoch == channel.connection_epoch {
@@ -120,7 +120,7 @@ impl Commands {
             let timeout = Duration::from_millis(command.timeout_millis);
             match timeout_at(
                 received + timeout,
-                execute(connector, channel, &command, tunnels),
+                execute(connector, channel, &command, sessions),
             )
             .await
             {
@@ -137,7 +137,12 @@ impl Commands {
                 CommandOutcome::Rejected => ReceiptState::Failed,
                 _ => ReceiptState::Retryable,
             };
-            pending.finish(state, &result.encode_to_vec())?;
+            // A replay obtains its bearer from the live connection's session table.
+            let mut receipt = result.clone();
+            if let Some(command_result::Result::SessionReady(session)) = &mut receipt.result {
+                session.tunnel_nonce.clear();
+            }
+            pending.finish(state, &receipt.encode_to_vec())?;
         }
         result.inventory_watermark = store.remote_inventory(channel, 0)?.watermark;
         send(outbound, connect_request::Payload::Result(result)).await

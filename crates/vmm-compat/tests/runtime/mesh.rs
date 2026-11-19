@@ -1,8 +1,8 @@
 use super::{AgentRuntimeServiceClient, h};
 use agent_vmm_proto::service::v1::ServiceProtocol;
-use tonic::{Code, transport::Channel};
+use vmm_rpc::{Code};
 
-pub async fn exercise(client: &mut AgentRuntimeServiceClient<Channel>, instance: &str) {
+pub async fn exercise(client: &mut AgentRuntimeServiceClient, instance: &str) {
     let request = h::CreateServiceExportRequest {
         request_id: "export".into(),
         container_id: "worker".into(),

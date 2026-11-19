@@ -5,7 +5,7 @@ use crate::{
 };
 use agent_vmm_proto::host::v1 as host;
 use prost::Message;
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{Sandbox, Volume};
 
 impl RuntimeContext {

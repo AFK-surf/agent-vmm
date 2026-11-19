@@ -9,11 +9,11 @@ publish = false
 prost = "0.14.4"
 prost-reflect = "0.16"
 prost-types = "0.14.4"
-tonic = "0.14.6"
-tonic-prost = "0.14.6"
+vmm-rpc = { path = "../vmm-rpc" }
 
 [build-dependencies]
-tonic-prost-build = "0.14.6"
+prost-build = "0.14.4"
+heck = "0.5"
 
 [lints.rust]
 unsafe_code = "forbid"

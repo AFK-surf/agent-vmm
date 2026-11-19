@@ -64,12 +64,11 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
         let _ = stopped.await;
     });
     let client = async {
-        let endpoint =
-            tonic::transport::Endpoint::from_shared(format!("unix:{}", socket.display())).unwrap();
+        let rpc_socket = socket.clone();
         let channel = tokio::time::timeout(Duration::from_secs(5), async {
             loop {
-                if let Ok(channel) = endpoint.connect().await {
-                    break channel;
+                if tokio::net::UnixStream::connect(&rpc_socket).await.is_ok() {
+                    break vmm_rpc::Client::unix(&rpc_socket);
                 }
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
@@ -108,7 +107,7 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
 }
 
 async fn assert_sample(
-    client: &mut OperatorServiceClient<tonic::transport::Channel>,
+    client: &mut OperatorServiceClient,
     boot: &str,
     used: u64,
     staged: u64,

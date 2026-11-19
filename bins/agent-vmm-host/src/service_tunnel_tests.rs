@@ -6,11 +6,11 @@ use crate::{
 use agent_vmm_proto::{service::v1 as s, trust::v1 as t};
 use std::{os::unix::fs::PermissionsExt, sync::RwLock, time::SystemTime};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tonic::{Code, Status};
 use vmm_core::{
     BootIdentity, Core, EgressMode, ImageSource, Limits, Origin, SandboxDefinition, SandboxKey,
     Scope, ScopeState, ServiceExport, fake::FakeDom0Backend,
 };
+use vmm_rpc::{Code, Status};
 use vmm_signing::{FileIdentityKey, IdentitySigner, SignedMessage};
 
 #[derive(Default)]
@@ -21,7 +21,7 @@ impl RouteTrust for Trust {
     }
 }
 struct Guest(ServiceExport);
-#[tonic::async_trait]
+#[vmm_rpc::async_trait]
 impl vmm_compat::guest::GuestDriver for Guest {
     async fn client(
         &self,
@@ -205,25 +205,24 @@ async fn signed_endpoint_serves_only_live_trusted_service_routes_over_iroh() {
         let (stop, signal) = watch::channel(false);
         let serving = tokio::spawn(async move { service.serve(routes, signal).await.unwrap() });
         let peer = DataNode::bind_service().await.unwrap();
-        let stream = peer
-            .open(Channel::Service, status.endpoint_addr)
-            .await
-            .unwrap();
-        let path = dir.path().join("gateway.sock");
-        let listener = tokio::net::UnixListener::bind(&path).unwrap();
-        let bridge = tokio::spawn(async move {
-            let (socket, _) = listener.accept().await.unwrap();
-            stream.bridge(socket).await
+        let dial = peer.clone();
+        let addr = status.endpoint_addr;
+        let channel = vmm_rpc::Client::new(move || {
+            let node = dial.clone();
+            let addr = addr.clone();
+            Box::pin(async move {
+                let tunnel = node.open(Channel::Service, addr).await.map_err(|e| Status::unavailable(e.to_string()))?;
+                Ok(Box::new(tunnel.into_io()) as vmm_rpc::Transport)
+            })
         });
-        let channel = tonic::transport::Endpoint::from_shared(format!("unix:{}", path.display()))
-            .unwrap()
-            .connect()
-            .await
-            .unwrap();
         let mut client = s::service_route_service_client::ServiceRouteServiceClient::new(channel);
         assert_eq!(
             client
                 .open_service_forward(request(&header))
+                .await
+                .unwrap()
+                .into_inner()
+                .message()
                 .await
                 .unwrap_err()
                 .code(),
@@ -238,6 +237,10 @@ async fn signed_endpoint_serves_only_live_trusted_service_routes_over_iroh() {
         assert_eq!(
             client
                 .open_service_forward(request(&header))
+                .await
+                .unwrap()
+                .into_inner()
+                .message()
                 .await
                 .unwrap_err()
                 .code(),
@@ -264,6 +267,10 @@ async fn signed_endpoint_serves_only_live_trusted_service_routes_over_iroh() {
             client
                 .open_service_forward(request(&header))
                 .await
+                .unwrap()
+                .into_inner()
+                .message()
+                .await
                 .unwrap_err()
                 .code(),
             Code::ResourceExhausted
@@ -273,6 +280,10 @@ async fn signed_endpoint_serves_only_live_trusted_service_routes_over_iroh() {
             client
                 .open_service_forward(request(&header))
                 .await
+                .unwrap()
+                .into_inner()
+                .message()
+                .await
                 .unwrap_err()
                 .code(),
             Code::PermissionDenied
@@ -281,7 +292,6 @@ async fn signed_endpoint_serves_only_live_trusted_service_routes_over_iroh() {
         stop.send_replace(true);
         serving.await.unwrap();
         peer.shutdown().await;
-        let _ = bridge.await.unwrap();
     })
     .await
     .unwrap();

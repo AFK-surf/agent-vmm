@@ -1,6 +1,6 @@
 use super::{LocalOperator, h};
 use crate::error::{core_status, invalid_field};
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_core::{Core, HostSocketApproval};
 
 fn wire(row: HostSocketApproval) -> h::HostSocket {

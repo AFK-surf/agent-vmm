@@ -7,6 +7,7 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+vmm-rpc = { path = "../../crates/vmm-rpc" }
 agent-vmm-proto = { path = "../../crates/agent-vmm-proto" }
 getrandom = "0.3"
 prost = "0.14"
@@ -18,7 +19,6 @@ sha2 = "0.10"
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "sync", "time"] }
 tokio-stream = "0.1"
-tonic = "0.14"
 ureq = { version = "3", default-features = false, features = ["rustls", "platform-verifier"] }
 url = "2"
 uzers = "0.12"

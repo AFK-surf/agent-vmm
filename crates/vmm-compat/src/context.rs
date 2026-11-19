@@ -1,7 +1,7 @@
 use crate::error::{detailed_status, host_status, with_metadata};
 use agent_vmm_proto::host::v1::ErrorReason;
 use std::collections::HashMap;
-use tonic::{Code, Request, Status};
+use vmm_rpc::{Code, Request, Status};
 use vmm_core::{CapacityDimension, Core, Error, Scope, Session};
 
 /// Scope selected by the session interceptor, never by caller-provided resource IDs.

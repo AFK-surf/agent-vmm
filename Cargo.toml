@@ -19,6 +19,7 @@ members = [
     "crates/vmm-l4hctl",
     "crates/vmm-lifecycle",
     "crates/vmm-remote-salix",
+    "crates/vmm-rpc",
     "crates/vmm-signing",
     "data/agent-vmm-data",
     "data/agent-vmm-data/netdev-compat",

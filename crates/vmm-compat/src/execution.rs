@@ -7,7 +7,7 @@ use crate::{
 use agent_vmm_proto::host::v1 as h;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use std::time::{SystemTime, UNIX_EPOCH};
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::{BootIdentity, SandboxState};
 
 pub(crate) fn initialize(db: &Connection) -> Result<(), Status> {

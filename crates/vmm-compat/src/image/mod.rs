@@ -18,7 +18,7 @@ use std::{path::Path, time::Duration};
 use tempfile::NamedTempFile;
 use tokio::io::AsyncWriteExt;
 use tokio_stream::{Stream, StreamExt};
-use tonic::Status;
+use vmm_rpc::Status;
 
 pub const MAX_ARCHIVE_BYTES: u64 = 8 << 30;
 const MAX_CHUNK: usize = 3 << 20;

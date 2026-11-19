@@ -4,7 +4,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
-use tonic::Status;
+use vmm_rpc::Status;
 use vmm_compat::RuntimeDriver;
 use vmm_compat::guest::GuestDriver;
 use vmm_core::{BootIdentity, HostShareMount};

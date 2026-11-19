@@ -9,7 +9,7 @@ use std::{
     sync::{Arc, Mutex},
     time::{Duration, SystemTime},
 };
-use tonic::{Code, Status};
+use vmm_rpc::{Code, Status};
 use vmm_core::Core;
 
 #[async_trait]

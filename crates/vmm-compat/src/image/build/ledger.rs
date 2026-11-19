@@ -2,7 +2,7 @@ use crate::{Containers, RuntimeContext, container::db_error, execution};
 use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use rusqlite::{OptionalExtension, params};
-use tonic::Status;
+use vmm_rpc::Status;
 
 pub(super) struct Record {
     pub receipt: h::ImageOperationReceipt,
@@ -33,7 +33,7 @@ impl Record {
     }
     pub fn failed(&mut self, error: &Status, settled: bool) {
         let state = match error.code() {
-            tonic::Code::Cancelled | tonic::Code::DeadlineExceeded => {
+            vmm_rpc::Code::Cancelled | vmm_rpc::Code::DeadlineExceeded => {
                 h::ImageOperationState::Stopped
             }
             _ if !settled => h::ImageOperationState::Unknown,

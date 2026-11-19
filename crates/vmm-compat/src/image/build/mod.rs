@@ -14,7 +14,7 @@ use ledger::Record;
 use prost::Message;
 use std::{collections::HashMap, sync::Arc, time::Duration};
 use tokio::sync::{Mutex, mpsc, watch};
-use tonic::{Status, Streaming};
+use vmm_rpc::{Status, Streaming};
 use vmm_core::{EgressMode, RetainedImage, Scope, Store};
 use vmm_guest_proto::client::Client;
 

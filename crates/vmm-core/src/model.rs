@@ -268,3 +268,13 @@ pub struct ServiceRoute {
     pub binding: RouteBinding,
     pub revision: i64,
 }
+
+/// Metadata supplied by the authenticated control tunnel when it opens a session.
+#[derive(Clone)]
+pub struct RemoteIdentity {
+    pub session_id: String,
+    pub registration_id: String,
+    pub allocation_id: String,
+    pub generation: u64,
+    pub execution_owner_id: String,
+}

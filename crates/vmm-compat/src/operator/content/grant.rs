@@ -4,7 +4,7 @@ use std::{
     collections::{HashMap, HashSet},
     net::Ipv4Addr,
 };
-use tonic::Status;
+use vmm_rpc::Status;
 
 fn within(small: Option<&h::ResourceLimits>, large: Option<&h::ResourceLimits>) -> bool {
     let (Some(small), Some(large)) = (small, large) else {
