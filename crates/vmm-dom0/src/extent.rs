@@ -186,6 +186,19 @@ impl Pool {
         })
     }
 
+    pub(crate) fn allocated_and_capacity_bytes(&self) -> Result<(u64, u64)> {
+        let db = self.db.lock().map_err(|_| Error::Interrupted)?;
+        let allocated = db.query_row("SELECT COALESCE(SUM(count),0) FROM extents", [], |r| {
+            read_unsigned(r, 0)
+        })?;
+        let bytes = |sectors: u64| {
+            sectors
+                .checked_mul(512)
+                .ok_or(Error::Invalid("pool byte count"))
+        };
+        Ok((bytes(allocated)?, bytes(self.end - self.first)?))
+    }
+
     pub fn disk(&self) -> u64 {
         self.disk
     }

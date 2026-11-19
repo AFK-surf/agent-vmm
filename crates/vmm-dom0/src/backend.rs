@@ -75,6 +75,13 @@ pub struct LocalDom0Backend {
     _instance: std::fs::File,
 }
 
+impl Drop for LocalDom0Backend {
+    fn drop(&mut self) {
+        // A forked child may still hold the same open file description.
+        let _ = self._instance.unlock();
+    }
+}
+
 impl LocalDom0Backend {
     pub fn open(
         pool: Arc<Pool>,

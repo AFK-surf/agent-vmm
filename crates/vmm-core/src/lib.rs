@@ -4,6 +4,7 @@ pub mod fake;
 mod lifecycle;
 mod list;
 mod model;
+mod operator_disposal;
 mod receipt;
 mod remote;
 mod route;

@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "bins/agent-vmm",
     "bins/agent-vmm-carrier",
+    "bins/agent-vmm-host",
     "bins/agent-vmm-lifecycle",
     "bins/agent-vmm-service-executor",
     "bins/l4h-dom0d",
@@ -10,11 +11,13 @@ members = [
     "crates/agent-vmm-proto",
     "crates/vmm-carrier-macos",
     "crates/vmm-comma-contract-tests",
+    "crates/vmm-compat",
     "crates/vmm-core",
     "crates/vmm-dom0",
     "crates/vmm-guest-proto",
     "crates/vmm-l4hctl",
     "crates/vmm-lifecycle",
+    "crates/vmm-mcp",
     "crates/vmm-remote-salix",
     "crates/vmm-signing",
     "data/agent-vmm-data",
@@ -27,3 +30,9 @@ edition = "2024"
 
 [patch.crates-io]
 netdev = { path = "data/agent-vmm-data/netdev-compat" }
+
+[profile.dev]
+debug = 0
+
+[profile.test]
+debug = 0

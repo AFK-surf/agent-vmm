@@ -1,0 +1,39 @@
+[package]
+name = "agent-vmm-host"
+version = "0.1.0"
+edition.workspace = true
+license = "AGPL-3.0-or-later"
+publish = false
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+serde_json = "1"
+tonic-health = "0.14"
+agent-vmm-proto = { path = "../../crates/agent-vmm-proto" }
+rustix = { version = "1", features = ["process"] }
+tokio-stream = { version = "0.1", features = ["net"] }
+async-trait = "0.1"
+tokio = { version = "1", features = ["rt-multi-thread", "signal", "net", "macros", "sync"] }
+tonic = "0.14"
+vmm-compat = { path = "../../crates/vmm-compat" }
+vmm-core = { path = "../../crates/vmm-core" }
+vmm-remote-salix = { path = "../../crates/vmm-remote-salix" }
+vmm-signing = { path = "../../crates/vmm-signing" }
+vmm-mcp = { path = "../../crates/vmm-mcp" }
+uuid = {version="1",features=["v4"]}
+zeroize = "1"
+getrandom = "0.4"
+vmm-dom0 = { path = "../../crates/vmm-dom0" }
+vmm-guest-proto = { path = "../../crates/vmm-guest-proto" }
+
+rusqlite = { version = "0.39", features = ["bundled"] }
+tempfile = "3"
+
+[lints.rust]
+unsafe_code = "forbid"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+security-framework = { version = "3.7", features = ["OSX_10_15"] }
+
+[dev-dependencies]
+vmm-l4hctl = { path = "../../crates/vmm-l4hctl" }

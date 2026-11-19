@@ -1,6 +1,6 @@
 //! Pairing tasks own their connection and secrets. The registry holds command and status handles.
 
-use agent_vmm_data::{
+use crate::{
     pairing::{PairingRecordLayer, PairingRole},
     pairing_session::{PairingFailure, PairingSession, PairingSessionState},
     pairing_wire::{

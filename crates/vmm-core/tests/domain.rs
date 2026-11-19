@@ -311,7 +311,7 @@ async fn sandbox_pids_must_fit_the_current_scope_at_definition_and_start() {
     definition.pids_max = Some(0);
     assert!(matches!(
         f.core.define_sandbox(&definition).await,
-        Err(Error::Invalid("sandbox pids"))
+        Err(Error::Invalid("pids_max"))
     ));
     definition.pids_max = Some(scope.limits.pids_max + 1);
     assert!(matches!(

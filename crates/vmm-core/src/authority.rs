@@ -135,6 +135,23 @@ pub(crate) fn ensure_scope(
     Ok(updated)
 }
 
+/// Ordinary draining scopes can serve existing work until irreversible disposal is accepted.
+pub(crate) fn admit_existing(db: &Connection, scope: &Scope) -> Result<()> {
+    match scope.state {
+        ScopeState::Active => Ok(()),
+        ScopeState::Draining
+            if db.query_row(
+                "SELECT disposal_request IS NULL FROM scopes WHERE id=?",
+                [&scope.id],
+                |r| r.get(0),
+            )? =>
+        {
+            Ok(())
+        }
+        _ => Err(Error::Draining),
+    }
+}
+
 pub(crate) fn issue_session(
     db: &Connection,
     scope_id: &str,
@@ -142,9 +159,7 @@ pub(crate) fn issue_session(
 ) -> Result<(Session, [u8; 16])> {
     let scope = load_scope(db, scope_id)?;
     authorize(db, &scope.origin, channel)?;
-    if !matches!(scope.state, ScopeState::Active | ScopeState::Draining) {
-        return Err(Error::Draining);
-    }
+    admit_existing(db, &scope)?;
     db.execute(
         "UPDATE sessions SET revoked=1 WHERE scope=? AND revoked=0",
         [scope_id],
@@ -172,6 +187,9 @@ impl Store {
     pub fn connect(&self, id: &str, epoch: u64) -> Result<Channel> {
         self.write(|db| {
             let previous = registration(db, id)?;
+            if crate::operator_disposal::accepted_request(db, id)?.is_some() {
+                return Err(Error::Fenced);
+            }
             if epoch <= previous.connection_epoch {
                 return Err(Error::Fenced);
             }
@@ -202,6 +220,9 @@ impl Store {
     }
     pub fn set_admission(&self, id: &str, draining: bool) -> Result<()> {
         self.write(|db| {
+            if !draining && crate::operator_disposal::accepted_request(db, id)?.is_some() {
+                return Err(Error::Fenced);
+            }
             if db.execute(
                 "UPDATE registrations SET draining=? WHERE id=?",
                 params![draining, id],
@@ -238,6 +259,9 @@ impl Store {
             let mut scope = load_scope(db, id)?;
             authorize(db, &scope.origin, channel)?;
             if scope.revision != expected_revision {
+                return Err(Error::Fenced);
+            }
+            if db.query_row("SELECT disposal_request IS NOT NULL FROM scopes WHERE id=?", [id], |r| r.get(0))? {
                 return Err(Error::Fenced);
             }
             use ScopeState::*;

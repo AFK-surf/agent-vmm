@@ -1,20 +1,17 @@
-mod pairing_runtime;
-
-use agent_vmm_data::{ALPNS, Accounting, Command, MAX_STREAMS, SERVICE_TUNNEL_ALPN, probe};
+use agent_vmm_data::{
+    Command,
+    node::{Channel, DataNode, Tunnel},
+};
 use anyhow::{Context, Result};
-use iroh::{Endpoint, endpoint::presets};
-use pairing_runtime::{PAIRING_INCOMING_LIMIT, PairingSessions};
 use std::{
     io::Read,
     os::unix::fs::MetadataExt,
     path::{Path, PathBuf},
-    sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
-    sync::{Mutex, Semaphore},
+    sync::mpsc,
 };
 use zeroize::Zeroizing;
 
@@ -29,41 +26,19 @@ async fn main() -> Result<()> {
         tokio::fs::remove_file(&socket).await?;
     }
 
-    let endpoint = Endpoint::builder(presets::N0)
-        .alpns(ALPNS.iter().map(|value| value.to_vec()).collect())
-        .bind()
-        .await
-        .context("bind iroh endpoint")?;
-    let generation = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos() as u64;
-    let accounting = Arc::new(Accounting::default());
-    let pairing_sessions: PairingSessions = Arc::new(Mutex::new(std::collections::HashMap::new()));
-    let semaphore = Arc::new(Semaphore::new(MAX_STREAMS));
+    let node = DataNode::bind().await?;
     let listener = UnixListener::bind(&socket).context("bind local control socket")?;
-    let socket_identity = file_identity(&socket).context("read local control socket identity")?;
+    let socket_identity = file_identity(&socket)?;
+    let (tx, rx) = DataNode::incoming();
 
-    let ipc = tokio::spawn(serve_ipc(
-        listener,
-        endpoint.clone(),
-        accounting.clone(),
-        pairing_sessions.clone(),
-        generation,
-    ));
-    let incoming = tokio::spawn(serve_incoming(
-        endpoint.clone(),
-        accounting.clone(),
-        semaphore,
-        service_socket,
-        mesh_control_socket,
-        pairing_sessions,
-    ));
     tokio::select! {
-        result = tokio::signal::ctrl_c() => result?,
+        result = tokio::signal::ctrl_c() => { result?; },
         _ = host_exited => {}
+        _ = serve_ipc(listener, node.clone()) => {}
+        _ = node.serve(tx) => {}
+        _ = serve_sockets(rx, service_socket, mesh_control_socket) => {}
     }
-    accounting.drain();
-    endpoint.close().await;
-    ipc.abort();
-    incoming.abort();
+    node.shutdown().await;
     remove_owned_socket(&socket, socket_identity);
     Ok(())
 }
@@ -133,30 +108,31 @@ fn ensure_absolute(path: &std::path::Path, label: &str) -> Result<()> {
     Ok(())
 }
 
-async fn serve_ipc(
-    listener: UnixListener,
-    endpoint: Endpoint,
-    accounting: Arc<Accounting>,
-    pairing_sessions: PairingSessions,
-    generation: u64,
-) {
-    while let Ok((stream, _)) = listener.accept().await {
-        let accounting = accounting.clone();
-        let endpoint = endpoint.clone();
-        let pairing_sessions = pairing_sessions.clone();
+async fn serve_sockets(mut rx: mpsc::Receiver<Tunnel>, service: PathBuf, mesh: PathBuf) {
+    while let Some(tunnel) = rx.recv().await {
+        let path = match tunnel.channel {
+            Channel::Service => &service,
+            Channel::MeshControl => &mesh,
+        }
+        .clone();
         tokio::spawn(async move {
-            let _ = handle_ipc(stream, endpoint, accounting, pairing_sessions, generation).await;
+            if let Ok(socket) = UnixStream::connect(path).await {
+                let _ = tunnel.bridge(socket).await;
+            }
         });
     }
 }
 
-async fn handle_ipc(
-    mut stream: UnixStream,
-    endpoint: Endpoint,
-    accounting: Arc<Accounting>,
-    pairing_sessions: PairingSessions,
-    generation: u64,
-) -> Result<()> {
+async fn serve_ipc(listener: UnixListener, node: DataNode) {
+    while let Ok((stream, _)) = listener.accept().await {
+        let node = node.clone();
+        tokio::spawn(async move {
+            let _ = handle_ipc(stream, node).await;
+        });
+    }
+}
+
+async fn handle_ipc(mut stream: UnixStream, node: DataNode) -> Result<()> {
     let mut input = Zeroizing::new(Vec::with_capacity(1024));
     {
         let mut reader = BufReader::new(&mut stream).take(4097);
@@ -166,184 +142,19 @@ async fn handle_ipc(
         input.ends_with(b"\n"),
         "local command must end with newline"
     );
-    let response = match serde_json::from_slice::<Command>(&input)? {
-        Command::Status => Some(serde_json::to_vec(
-            &accounting.status(endpoint.addr(), generation),
-        )?),
-        Command::Drain => {
-            accounting.drain();
-            Some(serde_json::to_vec(
-                &accounting.status(endpoint.addr(), generation),
-            )?)
-        }
-        Command::Probe {
-            endpoint_addr,
-            payload,
-        } => {
-            let echoed = probe(&endpoint, endpoint_addr, payload.as_bytes()).await?;
-            accounting.add_out(payload.len() as u64);
-            accounting.add_in(echoed.len() as u64);
-            let mut status = accounting.status(endpoint.addr(), generation);
-            status.probe_payload = Some(String::from_utf8(echoed)?);
-            Some(serde_json::to_vec(&status)?)
-        }
-        Command::OpenServiceTunnel { endpoint_addr } => {
-            anyhow::ensure!(
-                accounting.stream_opened(),
-                "data worker is draining or full"
-            );
-            let result =
-                open_service_tunnel(&mut stream, &endpoint, endpoint_addr, &accounting).await;
-            accounting.stream_closed();
-            result?;
-            None
-        }
-        Command::OpenMeshControlTunnel { endpoint_addr } => {
-            anyhow::ensure!(
-                accounting.stream_opened(),
-                "data worker is draining or full"
-            );
-            let result = open_tunnel(
-                &mut stream,
-                &endpoint,
-                endpoint_addr,
-                agent_vmm_data::MESH_CONTROL_ALPN,
-                &accounting,
-            )
-            .await;
-            accounting.stream_closed();
-            result?;
-            None
-        }
+    let (channel, addr) = match serde_json::from_slice::<Command>(&input)? {
+        Command::OpenServiceTunnel { endpoint_addr } => (Channel::Service, endpoint_addr),
+        Command::OpenMeshControlTunnel { endpoint_addr } => (Channel::MeshControl, endpoint_addr),
         command => {
-            Some(pairing_runtime::handle_command(command, &endpoint, &pairing_sessions).await?)
+            let response = node.command(command).await?;
+            stream.write_all(&response).await?;
+            stream.write_all(b"\n").await?;
+            return Ok(());
         }
     };
-    if let Some(response) = response {
-        stream.write_all(&response).await?;
-        stream.write_all(b"\n").await?;
-    }
-    Ok(())
-}
-
-async fn open_service_tunnel(
-    local: &mut UnixStream,
-    endpoint: &Endpoint,
-    endpoint_addr: iroh::EndpointAddr,
-    accounting: &Accounting,
-) -> Result<()> {
-    open_tunnel(
-        local,
-        endpoint,
-        endpoint_addr,
-        SERVICE_TUNNEL_ALPN,
-        accounting,
-    )
-    .await
-}
-
-async fn open_tunnel(
-    local: &mut UnixStream,
-    endpoint: &Endpoint,
-    endpoint_addr: iroh::EndpointAddr,
-    alpn: &[u8],
-    accounting: &Accounting,
-) -> Result<()> {
-    let connection = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        endpoint.connect(endpoint_addr, alpn).await
-    })
-    .await
-    .context("service tunnel connect timed out")??;
-    let (send, receive) = connection.open_bi().await?;
-    local.write_all(b"{\"ready\":true}\n").await?;
-    bridge(local, send, receive, accounting).await?;
-    connection.close(0u32.into(), b"service tunnel complete");
-    Ok(())
-}
-
-async fn serve_incoming(
-    endpoint: Endpoint,
-    accounting: Arc<Accounting>,
-    semaphore: Arc<Semaphore>,
-    service_socket: PathBuf,
-    mesh_control_socket: PathBuf,
-    pairing_sessions: PairingSessions,
-) {
-    let pairing_semaphore = Arc::new(Semaphore::new(PAIRING_INCOMING_LIMIT));
-    while let Some(incoming) = endpoint.accept().await {
-        if !accounting.accepting() {
-            continue;
-        }
-        let accounting = accounting.clone();
-        let semaphore = semaphore.clone();
-        let service_socket = service_socket.clone();
-        let mesh_control_socket = mesh_control_socket.clone();
-        let pairing_sessions = pairing_sessions.clone();
-        let pairing_semaphore = pairing_semaphore.clone();
-        tokio::spawn(async move {
-            if let Ok(connection) = incoming.await {
-                if connection.alpn() == agent_vmm_data::PAIRING_ALPN {
-                    let _ = pairing_runtime::handle_incoming(
-                        connection,
-                        pairing_sessions,
-                        pairing_semaphore,
-                    )
-                    .await;
-                    return;
-                }
-                let target = match connection.alpn() {
-                    SERVICE_TUNNEL_ALPN => Some(service_socket),
-                    agent_vmm_data::MESH_CONTROL_ALPN => Some(mesh_control_socket),
-                    _ => None,
-                };
-                let Some(target) = target else { return };
-                while let Ok((send, recv)) = connection.accept_bi().await {
-                    let Ok(permit) = semaphore.clone().try_acquire_owned() else {
-                        break;
-                    };
-                    if !accounting.stream_opened() {
-                        break;
-                    }
-                    let accounting = accounting.clone();
-                    let target = target.clone();
-                    tokio::spawn(async move {
-                        let _permit = permit;
-                        if let Ok(mut local) = UnixStream::connect(target).await {
-                            let _ = bridge(&mut local, send, recv, &accounting).await;
-                        }
-
-                        accounting.stream_closed();
-                    });
-                }
-            }
-        });
-    }
-}
-
-async fn bridge(
-    local: &mut UnixStream,
-    mut send: iroh::endpoint::SendStream,
-    mut receive: iroh::endpoint::RecvStream,
-    accounting: &Accounting,
-) -> Result<()> {
-    let (mut local_read, mut local_write) = local.split();
-    let (outbound, inbound) = tokio::join!(
-        async {
-            let count = tokio::io::copy(&mut local_read, &mut send).await?;
-            send.finish()?;
-            Result::<u64>::Ok(count)
-        },
-        async {
-            let count = tokio::io::copy(&mut receive, &mut local_write).await?;
-            local_write.shutdown().await?;
-            Result::<u64>::Ok(count)
-        },
-    );
-    let outbound = outbound?;
-    let inbound = inbound?;
-    accounting.add_out(outbound);
-    accounting.add_in(inbound);
-    Ok(())
+    let tunnel = node.open(channel, addr).await?;
+    stream.write_all(b"{\"ready\":true}\n").await?;
+    tunnel.bridge(stream).await
 }
 
 #[cfg(test)]

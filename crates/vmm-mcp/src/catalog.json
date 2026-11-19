@@ -1,0 +1,1015 @@
+{
+  "outputSchema": {
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "ok"
+    ],
+    "properties": {
+      "ok": {
+        "type": "boolean"
+      },
+      "data": {},
+      "error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "retryable"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "retryable": {
+            "type": "boolean"
+          },
+          "resource": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "kind",
+              "id"
+            ],
+            "properties": {
+              "kind": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "tools": [
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "cleanup_execute",
+        "description": "Execute a current reset or irreversible discard plan after explicit confirmation; the MCP process drains after success.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "plan_revision"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "reset",
+                "discard"
+              ]
+            },
+            "plan_revision": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,19}$"
+            },
+            "confirm_reset": {
+              "type": "boolean"
+            },
+            "confirm_irreversible": {
+              "type": "boolean"
+            },
+            "confirmed_volume_ids": {
+              "type": "array",
+              "maxItems": 1000,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+              }
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "cleanup_plan",
+        "description": "Plan an environment reset or irreversible discard without executing it.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "reset",
+                "discard"
+              ]
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "container_delete",
+        "description": "Delete one stopped container without deleting its named volumes.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 600,
+      "tool": {
+        "name": "container_exec",
+        "description": "Execute a non-interactive process with explicit argv; use an explicit shell argv when shell syntax is required.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id",
+            "argv"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "argv": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "stdin": {
+              "type": "string",
+              "maxLength": 1048576
+            },
+            "env": {
+              "type": "object",
+              "maxProperties": 128,
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "propertyNames": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              }
+            },
+            "workdir": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[0-9]+(?::[0-9]+)?$"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600
+            },
+            "max_output_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 131072
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": true
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "container_get",
+        "description": "Inspect one container in this environment.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "container_list",
+        "description": "List containers in this environment with bounded pagination.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "state": {
+              "enum": [
+                "created",
+                "running",
+                "stopped",
+                "unknown"
+              ]
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "container_logs",
+        "description": "Read a bounded snapshot of container logs using an opaque cursor.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "tail_records": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            "since": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "after_cursor": {
+              "type": "string",
+              "maxLength": 1024
+            },
+            "max_bytes": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 262144
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "container_run",
+        "description": "Create and launch one container, then report its observed state after a short bounded interval. launch_succeeded confirms process launch, not service readiness. Image ENTRYPOINT and CMD are preserved unless overridden. Containers run without Linux capabilities; images must not require chown, setuid, or privileged startup.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id",
+            "image"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "image": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "entrypoint": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "command": {
+              "type": "array",
+              "maxItems": 256,
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "env": {
+              "type": "object",
+              "maxProperties": 128,
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 65536
+              },
+              "propertyNames": {
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              }
+            },
+            "workdir": {
+              "type": "string",
+              "maxLength": 4096
+            },
+            "user": {
+              "type": "string",
+              "pattern": "^[0-9]+(?::[0-9]+)?$"
+            },
+            "volumes": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "destination"
+                ],
+                "oneOf": [
+                  {
+                    "required": [
+                      "owned_volume"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "host_share"
+                    ]
+                  }
+                ],
+                "properties": {
+                  "host_share": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "owned_volume": {
+                    "type": "string",
+                    "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+                  },
+                  "destination": {
+                    "type": "string",
+                    "pattern": "^/",
+                    "maxLength": 4096
+                  },
+                  "read_only": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            },
+            "read_only_root": {
+              "type": "boolean"
+            },
+            "log_limit_bytes": {
+              "type": "integer",
+              "minimum": 1048576,
+              "maximum": 67108864
+            },
+            "startup_observation_ms": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 5000
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": true
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "container_signal",
+        "description": "Send INT, TERM, or KILL to the retained workload process of one running container. Read container_get or container_wait afterward because the process may exit naturally while the signal is in flight.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id",
+            "signal"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "signal": {
+              "enum": [
+                "INT",
+                "TERM",
+                "KILL"
+              ]
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "container_start",
+        "description": "Start one existing created or stopped container.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "container_stop",
+        "description": "Stop one running container with a bounded grace period.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 120
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 600,
+      "tool": {
+        "name": "container_wait",
+        "description": "Wait for one container to stop, with a bounded timeout.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "timeout_seconds": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 600
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "environment_get",
+        "description": "Inspect this session's environment health, limits, usage, and resource counts.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {}
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "image_delete",
+        "description": "Remove one canonical image record from this environment. The image must not be referenced by a container; shared content may remain in the virtual machine.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reference"
+          ],
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "image_list",
+        "description": "List canonical image references visible in this environment.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 600,
+      "tool": {
+        "name": "image_pull",
+        "description": "Pull one image from its registry, import it into this environment if it is not already present, and report bounded progress.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "reference"
+          ],
+          "properties": {
+            "reference": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": true
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "mesh_service_list",
+        "description": "List this environment's service exports and imports. Remote export IDs are not enumerable here; obtain them from the destination environment or controller. Recreate routes after a container restart.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "service_export",
+        "description": "Export a port from a current container instance in this environment. Use the instance_id returned by container_get/list; it changes after restart. A route is visible only to authorized mesh peers.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "container_id",
+            "container_instance_id",
+            "port",
+            "protocol"
+          ],
+          "properties": {
+            "container_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "container_instance_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "protocol": {
+              "enum": [
+                "tcp",
+                "http"
+              ]
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "service_import",
+        "description": "Import a service into a current container. Use destination_device_id=local and omit capability for another environment on this VM/controller domain; use a controller capability for a cross-device route; or use mesh_id with an explicit personal-mesh budget. The source instance_id must be current.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "description": "Choose one route form: destination_device_id=local with no capability for another environment on this VM/controller domain; a controller capability for a cross-device route; or mesh_id with all three budget fields for a personal mesh route.",
+          "additionalProperties": false,
+          "required": [
+            "source_container_id",
+            "source_container_instance_id",
+            "destination_device_id",
+            "destination_export_id",
+            "virtual_service_name"
+          ],
+          "properties": {
+            "source_container_id": {
+              "type": "string",
+              "description": "Current source container ID.",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "source_container_instance_id": {
+              "type": "string",
+              "description": "Current source instance_id; refresh after restart.",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "destination_device_id": {
+              "type": "string",
+              "description": "Device hosting the destination export, or the literal value local for a same-device route.",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "destination_export_id": {
+              "type": "string",
+              "description": "Destination service export ID. Remote IDs are supplied by the destination environment/controller and are not enumerable here.",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "destination_port": {
+              "type": "integer",
+              "description": "Required for a remote capability route; omit for local and personal-mesh routes.",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "virtual_service_name": {
+              "type": "string",
+              "description": "DNS alias visible to the source container.",
+              "pattern": "^[a-z][a-z0-9-]{0,62}$"
+            },
+            "capability": {
+              "type": "string",
+              "description": "Controller-issued capability for a cross-device route; omit only for destination_device_id=local or when using mesh_id.",
+              "minLength": 16,
+              "maxLength": 16384
+            },
+            "mesh_id": {
+              "type": "string",
+              "description": "Personal mesh ID; use instead of capability and provide all three budget fields.",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "connection_limit": {
+              "type": "integer",
+              "description": "Personal mesh connection budget.",
+              "minimum": 1,
+              "maximum": 1000
+            },
+            "byte_limit": {
+              "type": "integer",
+              "description": "Personal mesh byte budget.",
+              "minimum": 1,
+              "maximum": 1099511627776
+            },
+            "concurrency_limit": {
+              "type": "integer",
+              "description": "Personal mesh concurrency budget.",
+              "minimum": 1,
+              "maximum": 256
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "service_route_revoke",
+        "description": "Revoke one service export or import owned by this bound environment.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "id",
+            "expected_revision"
+          ],
+          "properties": {
+            "kind": {
+              "enum": [
+                "export",
+                "import"
+              ]
+            },
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expected_revision": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "volume_create",
+        "description": "Create one named volume, optionally initializing its numeric owner and permission mode for a non-root image.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "volume_id"
+          ],
+          "dependentRequired": {
+            "owner_uid": [
+              "owner_gid"
+            ],
+            "owner_gid": [
+              "owner_uid"
+            ]
+          },
+          "properties": {
+            "volume_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "owner_uid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "owner_gid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "mode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 511
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": false,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 120,
+      "tool": {
+        "name": "volume_delete",
+        "description": "Delete one unmounted named volume.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "volume_id"
+          ],
+          "dependentRequired": {
+            "owner_uid": [
+              "owner_gid"
+            ],
+            "owner_gid": [
+              "owner_uid"
+            ]
+          },
+          "properties": {
+            "volume_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$"
+            },
+            "owner_uid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "owner_gid": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 4294967295
+            },
+            "mode": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 511
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": false,
+          "destructiveHint": true,
+          "idempotentHint": false,
+          "openWorldHint": false
+        }
+      }
+    },
+    {
+      "timeout": 30,
+      "tool": {
+        "name": "volume_list",
+        "description": "List named volumes in this environment with bounded pagination.",
+        "inputSchema": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "limit": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 100
+            },
+            "cursor": {
+              "type": "string",
+              "maxLength": 1024
+            }
+          }
+        },
+        "annotations": {
+          "readOnlyHint": true,
+          "destructiveHint": false,
+          "idempotentHint": true,
+          "openWorldHint": false
+        }
+      }
+    }
+  ]
+}

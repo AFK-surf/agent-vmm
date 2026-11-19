@@ -26,6 +26,29 @@ pub(crate) fn staged_at_startup(
 }
 
 impl LocalDom0Backend {
+    /// Allocated pool bytes, virtual pool capacity, and unpublished staging file bytes.
+    pub fn disk_accounting(&self) -> Result<(u64, u64, u64)> {
+        let (allocated, capacity) = self.pool.allocated_and_capacity_bytes()?;
+        let mut staged = 0u64;
+        for entry in self.cfg.staging.read_dir()? {
+            let entry = entry?;
+            if !entry.file_name().to_str().is_some_and(valid_token) {
+                continue;
+            }
+            let metadata = match entry.metadata() {
+                Ok(metadata) => metadata,
+                Err(err) if err.kind() == ErrorKind::NotFound => continue,
+                Err(err) => return Err(err.into()),
+            };
+            if metadata.is_file() {
+                staged = staged
+                    .checked_add(metadata.len())
+                    .ok_or(Error::Invalid("staging byte count"))?;
+            }
+        }
+        Ok((allocated, capacity, staged))
+    }
+
     pub fn discard_staged_image(&self, token: &str) -> Result<()> {
         if !valid_token(token) {
             return Err(Error::Invalid("staged image ID"));

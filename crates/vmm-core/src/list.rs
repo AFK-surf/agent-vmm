@@ -35,10 +35,39 @@ impl Store {
         )
     }
 
+    /// Return at most one indexed page of registration IDs, including cursor positions
+    /// occupied by private appliances. The operator filters those positions from its response.
+    pub fn operator_registration_page(
+        &self,
+        after: &str,
+        limit: usize,
+    ) -> Result<Vec<(Registration, bool, bool)>> {
+        self.page(
+            "SELECT r.id,r.epoch,r.connected,r.draining,
+             EXISTS(SELECT 1 FROM appliances a WHERE a.registration=r.id),
+             EXISTS(SELECT 1 FROM operator_registration_disposals d WHERE d.registration=r.id)
+             FROM registrations r WHERE r.id>? ORDER BY r.id LIMIT ?",
+            params![after, sql_limit(limit)],
+            |row| Ok((registration_from_row(row)?, row.get(4)?, row.get(5)?)),
+        )
+    }
+
     pub fn list_scopes(&self, after_id: Option<&str>, limit: usize) -> Result<Vec<Scope>> {
         self.page(
             "SELECT data FROM scopes WHERE id>? ORDER BY id LIMIT ?",
             params![after_id.unwrap_or_default(), sql_limit(limit)],
+            |row| decode(&row.get::<_, String>(0)?),
+        )
+    }
+
+    /// The local operator's resource view excludes the runtime's system namespaces
+    /// and the private registrations created for managed appliances.
+    pub fn list_operator_scopes(&self, after: &str, limit: usize) -> Result<Vec<Scope>> {
+        self.page(
+            "SELECT s.data FROM scopes s WHERE s.id>? AND s.id NOT LIKE 'system.%'
+             AND NOT EXISTS (SELECT 1 FROM appliances a WHERE a.registration=s.registration)
+             ORDER BY s.id LIMIT ?",
+            params![after, sql_limit(limit)],
             |row| decode(&row.get::<_, String>(0)?),
         )
     }

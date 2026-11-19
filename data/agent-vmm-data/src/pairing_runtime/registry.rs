@@ -1,5 +1,5 @@
 use super::*;
-use agent_vmm_data::{Command, PAIRING_ALPN, PairingSecretKind, pairing::PairingSecret};
+use crate::{Command, PAIRING_ALPN, PairingSecretKind, pairing::PairingSecret};
 use std::collections::HashMap;
 use tokio::sync::Mutex;
 

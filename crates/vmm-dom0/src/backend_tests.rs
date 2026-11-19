@@ -59,6 +59,32 @@ fn options(dir: &Path) -> Options {
     Options::new(vec![].into(), dir.join("staging"))
 }
 
+#[test]
+fn disk_accounting_measures_extents_and_only_token_named_stage_files() -> Result<()> {
+    use crate::extent::BLOCK_BYTES;
+    let (dir, pool, ctl) = setup()?;
+    let backend = open(&pool, &ctl, options(dir.path()))?;
+    let capacity = 8 * BLOCK_BYTES;
+    assert_eq!(backend.disk_accounting()?, (0, capacity, 0));
+    pool.allocate("small", 1)?;
+    pool.allocate("large", BLOCK_BYTES + 1)?;
+    let token = "0123456789abcdef0123456789abcdef";
+    let other = "ffffffffffffffffffffffffffffffff";
+    std::fs::write(backend.cfg.staging.join(token), [8; 91])?;
+    std::fs::write(backend.cfg.staging.join(other), [2; 9])?;
+    std::fs::write(backend.cfg.staging.join("temporary"), [0; 16])?;
+    std::fs::create_dir(backend.cfg.staging.join("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee"))?;
+    std::os::unix::fs::symlink(
+        dir.path().join("pool.db"),
+        backend.cfg.staging.join("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+    )?;
+    assert_eq!(backend.disk_accounting()?, (3 * BLOCK_BYTES, capacity, 100));
+    std::fs::remove_file(backend.cfg.staging.join(token))?;
+    pool.discard("large")?;
+    assert_eq!(backend.disk_accounting()?, (BLOCK_BYTES, capacity, 9));
+    Ok(())
+}
+
 #[tokio::test]
 async fn staged_files_and_properties_follow_install_discard_and_restart() -> Result<()> {
     let (dir, pool, ctl) = setup()?;

@@ -50,7 +50,7 @@ pub struct Reconciliation {
 
 fn validate_sandbox_pids(definition: &SandboxDefinition, scope: &Scope) -> Result<()> {
     match definition.pids_max {
-        Some(0) => Err(Error::Invalid("sandbox pids")),
+        Some(0) => Err(Error::Invalid("pids_max")),
         Some(pids) if pids > scope.limits.pids_max => Err(Error::Capacity(CapacityDimension::Pids)),
         _ => Ok(()),
     }
@@ -124,9 +124,7 @@ impl Core {
                 return Err(Error::Conflict("sandbox is not stopped"));
             }
             let scope = load_scope(db, &key.scope_id)?;
-            if !matches!(scope.state, ScopeState::Active | ScopeState::Draining) {
-                return Err(Error::Draining);
-            }
+            crate::authority::admit_existing(db, &scope)?;
             validate_sandbox_pids(&sb.definition, &scope)?;
             let conflict: bool = db.query_row("SELECT EXISTS(SELECT 1 FROM mounts wanted JOIN mounts owner
                 ON (owner.scope,owner.volume)=(wanted.scope,wanted.volume)

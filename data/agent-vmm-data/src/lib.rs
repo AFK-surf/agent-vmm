@@ -3,7 +3,9 @@ use iroh::{Endpoint, EndpointAddr};
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
+pub mod node;
 pub mod pairing;
+mod pairing_runtime;
 pub mod pairing_session;
 pub mod pairing_wire;
 

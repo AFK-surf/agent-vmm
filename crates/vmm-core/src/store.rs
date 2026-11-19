@@ -17,7 +17,15 @@ pub struct Store {
     next: AtomicUsize,
     // An async backend call and its SQL commits are one host operation.
     pub(crate) effects: tokio::sync::Mutex<()>,
+    pub(crate) operator_disposals: tokio::sync::Mutex<()>,
     _owner: File,
+}
+
+impl Drop for Store {
+    fn drop(&mut self) {
+        // A forked child may still hold the same open file description.
+        let _ = self._owner.unlock();
+    }
 }
 
 impl Store {
@@ -60,6 +68,7 @@ impl Store {
         if version < 2 {
             tx.execute_batch(include_str!("remote_schema.sql"))?;
         }
+        tx.execute_batch(include_str!("operator_disposal.sql"))?;
         tx.execute("UPDATE registrations SET connected=0 WHERE connected=1", [])?;
         // A previous host cannot publish a terminal reply after ownership changes.
         // Keep the fingerprint so a retry can inspect the resource without re-executing.
@@ -80,6 +89,7 @@ impl Store {
             readers,
             next: AtomicUsize::new(0),
             effects: Default::default(),
+            operator_disposals: Default::default(),
             _owner: owner,
         })
     }

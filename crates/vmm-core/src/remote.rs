@@ -230,13 +230,12 @@ impl Store {
         })
     }
 
-    fn finish_remote_retirement(
+    fn finish_scope_retirement(
         &self,
-        current: &mut RemoteAllocation,
+        previous: &Scope,
         disposal_request: Option<&str>,
-    ) -> Result<()> {
+    ) -> Result<Scope> {
         self.write(|db| {
-            let previous = &current.scope;
             let mut scope = load_scope(db, &previous.id)?;
             if scope != *previous {
                 return Err(Error::Fenced);
@@ -267,8 +266,7 @@ impl Store {
             }
             scope.state = if discard { ScopeState::Released } else { ScopeState::Retained };
             db.execute("UPDATE scopes SET data=? WHERE id=?", params![encode(&scope)?, scope.id])?;
-            current.scope = scope;
-            Ok(())
+            Ok(scope)
         })
     }
 }
@@ -291,14 +289,22 @@ impl Core {
             revision,
             disposal_request,
         )?;
+        current.scope = self
+            .drive_retirement(current.scope, disposal_request)
+            .await?;
+        Ok(current)
+    }
+
+    pub(crate) async fn drive_retirement(
+        &self,
+        current: Scope,
+        disposal_request: Option<&str>,
+    ) -> Result<Scope> {
         let discard = disposal_request.is_some();
-        if matches!(
-            current.scope.state,
-            ScopeState::Retained | ScopeState::Released
-        ) {
+        if matches!(current.state, ScopeState::Retained | ScopeState::Released) {
             return Ok(current);
         }
-        let scope = &current.scope.id;
+        let scope = &current.id;
         let mut cursor = None;
         loop {
             let page = self.store.list_sandboxes(scope, cursor.as_deref(), 32)?;
@@ -343,8 +349,7 @@ impl Core {
             }
         }
         self.store
-            .finish_remote_retirement(&mut current, disposal_request)?;
-        Ok(current)
+            .finish_scope_retirement(&current, disposal_request)
     }
 }
 

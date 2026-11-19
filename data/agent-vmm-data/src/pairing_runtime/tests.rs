@@ -1,5 +1,5 @@
 use super::*;
-use agent_vmm_data::{pairing::OwnedPairingContext, pairing_session::PAIRING_TTL};
+use crate::{pairing::OwnedPairingContext, pairing_session::PAIRING_TTL};
 use iroh::endpoint::presets;
 use tokio::io::AsyncWriteExt;
 
@@ -18,26 +18,25 @@ fn context() -> OwnedPairingContext {
 fn session(context: OwnedPairingContext, now: Instant) -> PairingSession {
     PairingSession::new(
         context,
-        agent_vmm_data::pairing::PairingSecret::from_pin(b"12345678").unwrap(),
+        crate::pairing::PairingSecret::from_pin(b"12345678").unwrap(),
         now,
     )
     .unwrap()
 }
 async fn endpoints() -> (Endpoint, Endpoint, Connection, Connection) {
     let manager = Endpoint::builder(presets::Minimal)
-        .alpns(vec![agent_vmm_data::PAIRING_ALPN.to_vec()])
+        .alpns(vec![crate::PAIRING_ALPN.to_vec()])
         .bind()
         .await
         .unwrap();
     let joiner = Endpoint::builder(presets::Minimal)
-        .alpns(vec![agent_vmm_data::PAIRING_ALPN.to_vec()])
+        .alpns(vec![crate::PAIRING_ALPN.to_vec()])
         .bind()
         .await
         .unwrap();
-    let (peer, local) = tokio::join!(
-        joiner.connect(manager.addr(), agent_vmm_data::PAIRING_ALPN),
-        async { manager.accept().await.unwrap().await.unwrap() }
-    );
+    let (peer, local) = tokio::join!(joiner.connect(manager.addr(), crate::PAIRING_ALPN), async {
+        manager.accept().await.unwrap().await.unwrap()
+    });
     (manager, joiner, local, peer.unwrap())
 }
 
@@ -177,10 +176,10 @@ async fn confirmed_peer_still_expires_and_releases_the_connection() {
         (peer_send, peer_receive, result)
     });
     let (mut send, mut receive) = connection.accept_bi().await.unwrap();
-    let hello = agent_vmm_data::pairing_wire::receive_manager_hello(&mut receive)
+    let hello = crate::pairing_wire::receive_manager_hello(&mut receive)
         .await
         .unwrap();
-    let mut result = agent_vmm_data::pairing_wire::run_manager_after_hello(
+    let mut result = crate::pairing_wire::run_manager_after_hello(
         &mut send,
         &mut receive,
         &mut manager_session,
