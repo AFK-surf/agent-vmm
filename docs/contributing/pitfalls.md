@@ -20,6 +20,23 @@ Start tests and workloads with the matching numeric UID/GID instead of relying o
 Containerd can retain a `running` label after task reaping.
 Use inspectContainer task reconciliation. A missing task means stopped, not raw NotFound or stale running state.
 
+## Guest init
+
+`std::process::Command` keeps the descriptors of its `Stdio` values until it is dropped.
+Drop the command after the spawn, or the output pipe of the child never reports its end.
+The standard library waits for a child whose `exec` failed.
+The reaper must hold the child table lock while it calls `waitpid(-1)`. Otherwise it collects that child first and the spawn panics.
+
+A `/proc/self/fd/N` path names the directory that the descriptor opened, also after a filesystem is mounted on it.
+Resolve the path again to reach the mounted filesystem.
+Move `/proc` into the workload root last. Descriptor paths stop resolving after the move.
+
+Plain dm-crypt does not detect a wrong key.
+Only dom0 knows that a disk is empty. The Guest formats a disk only when the boot configuration says so.
+
+Device-mapper loads a writable table on a read-only block device without an error.
+Load the table with `DM_READONLY_FLAG`, so the mapping is read-only too.
+
 ## Build and install
 
 A shared data reset fences old install requests before it removes their plans.
