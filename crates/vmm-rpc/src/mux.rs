@@ -25,8 +25,7 @@ impl MuxSession {
         let mut config = yamux::Config::default();
         config
             .set_split_send_size(8 * 1024)
-            .set_max_num_streams(128)
-            .set_max_connection_receive_window(Some(128 << 20));
+            .set_max_num_streams(2048);
         let mut connection = yamux::Connection::new(io.compat(), config, mode);
         let (open, mut requests) = mpsc::channel::<Open>(128);
         let driver = tokio::spawn(async move {

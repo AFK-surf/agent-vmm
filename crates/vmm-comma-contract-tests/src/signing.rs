@@ -4,7 +4,7 @@
 //! `systems/apps/salix_store/test/testdata/agent_vmm_signing_vectors.json` in
 //! Cue and to `api/trust/v1/testdata/signing-vectors.json` in agent-vmm.
 //!
-//! Canonical input (agent-vmm `pkg/signing/canonical.go:14-46`, Cue
+//! Canonical input (agent-vmm `crates/vmm-signing/src/canonical.rs`, Cue
 //! `personal_mesh_proto_vectors_test.exs:5,23`):
 //!
 //! ```text
@@ -24,7 +24,7 @@ use sha2::{Digest, Sha256};
 pub const DOMAIN: &[u8] = b"agent-vmm/signature/v1\0";
 
 /// Signed type name, protobuf message, and the field cleared before signing
-/// (agent-vmm `pkg/signing/canonical.go:48-80`).
+/// (agent-vmm `crates/vmm-signing/src/canonical.rs`).
 pub const SIGNED_TYPES: &[(&str, &str, &str)] = &[
     ("ApplianceLaunchClaim", "agentvmm.appliance.v1.ApplianceLaunchClaim", "signature"),
     ("PersonalMeshDescriptor", "agentvmm.trust.v1.PersonalMeshDescriptor", "genesis_signature"),

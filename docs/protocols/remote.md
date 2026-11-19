@@ -1,12 +1,12 @@
 # Remote controller protocol
 
 The public wire owner is `api/remote/v1/remote.proto`.
-Controllers use [the Go controller SDK](../../controller/remote) for stream validation and virtual connections.
-`ControlSession` and `AcceptSession` own stream decoding. Integrations must not copy a private decoder.
+The Host connector is [`vmm-remote-salix`](../../crates/vmm-remote-salix).
+Controllers generate their stream decoders from this file. Integrations must not copy a private decoder.
 
 ## Protocol window
 
-`controller/remote` defines integer `ProtocolVersion=4` and `MinProtocolVersion=4`.
+The controller defines integer `ProtocolVersion=4` and `MinProtocolVersion=4`.
 Hello sends the version as a decimal integer string.
 The controller accepts the inclusive range between those values.
 Versions 1 through 3 are unsupported. The first window contains only version 4.

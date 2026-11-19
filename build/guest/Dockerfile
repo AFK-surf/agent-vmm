@@ -1,7 +1,7 @@
 FROM golang:1.26-alpine AS tools
 RUN apk add --no-cache coreutils cpio curl file findutils grep jq squashfs-tools tar xz
 WORKDIR /src
-COPY go.mod go.sum ./
+COPY go.mod ./
 COPY build/guest/kernel/ build/guest/kernel/
 COPY build/guest/oci/ build/guest/oci/
 COPY build/notices/ build/notices/

@@ -2,7 +2,6 @@
 !Cargo.toml
 !Cargo.lock
 !go.mod
-!go.sum
 !api/
 !build/
 !bins/

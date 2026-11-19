@@ -8,7 +8,6 @@ Guest path, numeric-owner, quota, and port-53 tests need root.
 Network kernel regressions run in a private network namespace.
 
 Use [the build guide](../build.md#guest) for the Guest image smoke test.
-Use [the E2E guide](../../test/e2e/README.md) for macOS VM and external controller tests.
 An opt-in test that skips without configuration does not validate a deployed integration.
 
 ## Protocol and model checks

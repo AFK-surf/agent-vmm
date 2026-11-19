@@ -82,7 +82,7 @@ fn captured_outputs_satisfy_their_consumers() {
         assert!(consumer::decimal(&hello["inventoryWatermark"]) && hello["inventoryWatermark"] != json!("0"), "hello.inventoryWatermark is required");
         // The multiplexed controller connection negotiates protocol 5.
         assert_eq!(hello["protocolVersion"], json!("5"), "hello.protocolVersion");
-        // controller/remote/control.go:296-305: allocation ids are non-empty and unique.
+        // The controller requires non-empty, unique allocation ids.
         let mut seen = std::collections::BTreeSet::new();
         for allocation in hello["inventory"].as_array().cloned().unwrap_or_default() {
             let id = allocation["allocationId"].as_str().unwrap_or_default().to_string();

@@ -25,7 +25,7 @@ Set `PROTO_BASE_REF` to select another commit or ref. Pull request CI uses its b
 Authorized retirement can remove an RPC or message. All other `PACKAGE` compatibility checks remain active.
 Retained fields, types, tags, JSON names, and RPC shapes must preserve their existing contracts.
 
-`make check-generated` compares regenerated Go files with the source tree.
+`make check-api-docs` compares the regenerated API reference with the source tree.
 `make check-swift-generated` compares regenerated Swift files with the source tree.
 
 ## Check a change
@@ -48,9 +48,6 @@ xcodebuild test -project apps/macos/AgentVMM/AgentVMM.xcodeproj \
 During development, run the smallest test set that covers the changed behavior.
 Run broader phase checks after focused tests pass.
 Run the full suite at final convergence or for a justified broad regression check.
-
-`make e2e` needs a macOS machine that can boot Virtualization.framework Guests.
-Read [the external controller fixture contract](test/e2e/README.md) for cross-repository tests.
 
 `make tla` runs the models. Read [the model testing rules](docs/contributing/testing.md#protocol-and-model-checks).
 

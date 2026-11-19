@@ -52,7 +52,7 @@ jobs:
           setup_only: true
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-      - name: Check Go and generated code
+      - name: Check Go build tools and protobuf lint
         run: make check GOTESTFLAGS=-race
       - name: Check protobuf compatibility
         if: github.event_name == 'pull_request'
@@ -79,10 +79,8 @@ jobs:
           brew install protobuf
           rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-darwin
           rustup default 1.96.0
-      - name: Test Go protocol with the race detector
+      - name: Test Go build tools with the race detector
         run: make vet test GOTESTFLAGS=-race
-      - name: Compile the external Host bridge
-        run: go vet -tags=e2e ./test/e2e
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/SourcePackages
@@ -105,6 +103,8 @@ jobs:
           swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
       - name: Check Swift generated code
         run: make check-swift-generated
+      - name: Check generated API reference
+        run: make check-api-docs
       - name: Test Host installer resume contract
         run: build/host/install.test.sh
       - name: Package the ad-hoc Host and check the Comma contracts

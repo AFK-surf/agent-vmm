@@ -16,9 +16,9 @@ P-256 SEC1 public keys use compressed 33-byte form.
 ECDSA signatures use fixed-width 64-byte `r || s` with low-S normalization.
 V1 uses SHA-256.
 
-[CanonicalInput](../../pkg/signing/canonical.go) defines the Go encoding.
+[`vmm-signing`](../../crates/vmm-signing/src/canonical.rs) defines the canonical encoding.
 [Shared signing vectors](../../api/trust/v1/testdata/signing-vectors.json) cover canonical bytes and cross-language signatures.
-[Canonical tests](../../pkg/signing/canonical_test.go) consume those vectors.
+[Canonical tests](../../crates/vmm-signing/tests/vectors.rs) consume those vectors.
 A matching digest does not replace signature verification.
 
 ## Bounds and reconciliation
