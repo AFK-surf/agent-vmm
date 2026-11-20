@@ -2286,9 +2286,14 @@ checksum = "a4933f3f57a8e9d9da04db23fb153356ecaf00cbd14aee46279c33dc80925c37"
 name = "l4h-dom0d"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "libc",
+ "quinn",
+ "rcgen",
+ "rustls",
  "tokio",
  "tokio-rustls",
+ "vmm-core",
  "vmm-dom0",
 ]
 
@@ -5106,7 +5111,9 @@ dependencies = [
  "objc2",
  "objc2-foundation",
  "objc2-virtualization",
+ "quinn",
  "rustix",
+ "rustls",
  "serde",
  "serde_json",
  "sha2 0.10.9",

@@ -15,6 +15,9 @@ pub trait CarrierHypervisor: Send {
     async fn status(&mut self) -> io::Result<CarrierStatus>;
     async fn ensure_started(&mut self, operation_id: String) -> io::Result<()>;
     fn request_stop(&mut self) -> io::Result<()>;
+    async fn graceful_stop(&mut self) -> io::Result<()> {
+        self.request_stop()
+    }
     async fn force_stop(&mut self) -> io::Result<()>;
     async fn set_target_virtual_machine_memory_size(&mut self, bytes: u64) -> io::Result<()>;
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()>;
@@ -54,7 +57,7 @@ async fn connection<H: CarrierHypervisor>(
             Request::EnsureStarted { operation_id } => vm.ensure_started(operation_id).await?,
             Request::Stop { force: true } => vm.force_stop().await?,
             Request::Stop { force: false } => {
-                vm.request_stop()?;
+                vm.graceful_stop().await?;
                 let mut status = vm.status().await?;
                 let stopping_boot = status.boot_id.clone();
                 drop(vm);

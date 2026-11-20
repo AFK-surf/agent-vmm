@@ -9,12 +9,24 @@ use std::{
     sync::Arc,
 };
 use tokio::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::{TcpListener, TcpStream},
     sync::{Mutex, watch},
     task::JoinSet,
 };
 use vmm_core::{Error, Result};
+
+/// Bridges an accepted sandbox 9p2000.L TCP stream to a remote host-share
+/// provider (such as the macOS carrier over a reverse QUIC stream).
+#[async_trait::async_trait]
+pub trait RemoteShareDialer: Send + Sync {
+    async fn bridge(
+        &self,
+        share_id: &str,
+        read_only: bool,
+        stream: TcpStream,
+    ) -> std::io::Result<()>;
+}
 
 #[derive(Default)]
 pub(crate) struct Shares(Mutex<BTreeMap<(String, String), Export>>);
@@ -56,7 +68,54 @@ impl Shares {
                     accepted=listener.accept(), if conns.len()<64=>{
                         let Ok((s,peer))=accepted else{break;};
                         if peer.ip()==source{
-                            conns.spawn(handle(s,root.clone(),name.clone(),read_only,stopped.clone()));
+                            conns.spawn(serve_stream(s,root.clone(),name.clone(),read_only,stopped.clone()));
+                        }
+                    }
+                }
+            }
+            drop(listener);
+            while conns.join_next().await.is_some() {}
+        });
+        map.insert(key, Export { port, end, task });
+        Ok(port)
+    }
+
+    pub async fn export_remote(
+        &self,
+        instance: &str,
+        name: &str,
+        read_only: bool,
+        source: Ipv4Addr,
+        gateway: SocketAddrV4,
+        dialer: Arc<dyn RemoteShareDialer>,
+    ) -> Result<u16> {
+        let mut map = self.0.lock().await;
+        let key = (instance.to_owned(), name.to_owned());
+        if let Some(export) = map.get(&key) {
+            return Ok(export.port);
+        }
+        let listener = TcpListener::bind(gateway).await?;
+        let port = listener.local_addr()?.port();
+        let (end, mut stopped) = watch::channel(false);
+        let name = name.to_owned();
+        let task = tokio::spawn(async move {
+            let mut conns = JoinSet::new();
+            loop {
+                tokio::select! {biased;
+                    _=stopped.changed()=>break,
+                    Some(_)=conns.join_next(), if !conns.is_empty()=>{},
+                    accepted=listener.accept(), if conns.len()<64=>{
+                        let Ok((s,peer))=accepted else{break;};
+                        if peer.ip()==source{
+                            let dialer = dialer.clone();
+                            let name = name.clone();
+                            let mut stop = stopped.clone();
+                            conns.spawn(async move {
+                                tokio::select! {
+                                    _ = stop.changed() => Ok(()),
+                                    r = dialer.bridge(&name, read_only, s) => r,
+                                }
+                            });
                         }
                     }
                 }
@@ -84,8 +143,9 @@ impl Shares {
     }
 }
 
-async fn handle(
-    mut stream: TcpStream,
+/// Serve one 9p2000.L session over any bidirectional byte stream.
+pub async fn serve_stream<S: AsyncRead + AsyncWrite + Unpin>(
+    mut stream: S,
     root: Arc<File>,
     name: String,
     ro: bool,

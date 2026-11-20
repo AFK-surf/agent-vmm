@@ -6,17 +6,25 @@ mount -t devtmpfs devtmpfs /dev
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 
-for module in virtio_pci virtio_mmio virtio_rng virtio_blk virtio_net vmw_vsock_virtio_transport squashfs; do
-  modprobe "$module"
-done
+if [ -d /lib/modules ]; then
+  for module in virtio_pci virtio_mmio virtio_rng virtio_blk virtio_net squashfs; do
+    modprobe "$module" 2>/dev/null || true
+  done
+fi
 
 root=
 for serial in /sys/block/vd*/serial; do
+  [ -r "$serial" ] || continue
   if [ "$(tr -d '\000\n' <"$serial")" = AGENT_ROOT ]; then
     root=/dev/$(basename "$(dirname "$serial")")
     break
   fi
 done
+# Under l4h dom0, Disk 0 (/dev/vda) is the RW pool disk (dom0_disk0_mb)
+# and Disk 1 (/dev/vdb) is the read-only squashfs rootfs.
+if [ -z "$root" ] && [ -b /dev/vdb ]; then
+  root=/dev/vdb
+fi
 test -n "$root"
 mkdir -p /newroot
 mount -t squashfs -o ro "$root" /newroot

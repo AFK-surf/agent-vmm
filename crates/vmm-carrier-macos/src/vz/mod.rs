@@ -1,5 +1,6 @@
 mod config;
-mod socket;
+mod netlink;
+mod quic;
 use crate::{
     bundle::Bundle,
     protocol::*,
@@ -11,12 +12,11 @@ use dispatch2::{DispatchQueue, DispatchRetained};
 use objc2::{AnyThread, rc::Retained};
 use objc2_foundation::NSError;
 use objc2_virtualization::*;
-pub use socket::VsockListener;
 use std::{
-    collections::BTreeMap,
     fs::{File, OpenOptions},
     io,
     path::PathBuf,
+    sync::{Arc, RwLock},
 };
 use tokio::sync::mpsc;
 
@@ -30,14 +30,14 @@ pub struct Settings {
 
 impl Settings {
     pub fn validate(&self) -> io::Result<()> {
-        config::configuration(self, &Shares::new()).map(drop)
+        let (_host, guest) = netlink::socket_pair()?;
+        config::configuration(self, Some(guest)).map(drop)
     }
 }
 
 #[derive(Default)]
 struct Machine {
     vm: Option<Retained<VZVirtualMachine>>,
-    listeners: BTreeMap<u32, Retained<socket::Delegate>>,
 }
 // SAFETY: the retained VM is created, accessed and released only inside its serial DispatchQueue.
 // Moving the slot across threads does not dereference the object. VzHypervisor::drop drains the slot.
@@ -56,7 +56,8 @@ pub struct VzHypervisor {
     settings: Settings,
     boot: Option<String>,
     target: u64,
-    shares: Shares,
+    shares: Arc<RwLock<Shares>>,
+    quic: Option<quic::CarrierQuicClient>,
     last_error: Option<String>,
 }
 
@@ -68,7 +69,8 @@ impl VzHypervisor {
             boot: None,
             target: settings.memory,
             settings,
-            shares: Shares::new(),
+            shares: Arc::new(RwLock::new(Shares::new())),
+            quic: None,
             last_error: None,
         }
     }
@@ -83,9 +85,11 @@ impl VzHypervisor {
         result.expect("synchronous dispatch completed")
     }
     fn release(&mut self) {
+        if let Some(quic) = self.quic.take() {
+            quic.close();
+        }
         let _ = self.on_queue(|m, _| {
             m.vm.take();
-            m.listeners.clear();
             Ok(())
         });
         self.boot = None;
@@ -161,13 +165,14 @@ impl CarrierHypervisor for VzHypervisor {
         sparse::ensure_emergency_headroom(&self.settings.pool, 0, sparse::EMERGENCY_BYTES)?;
         let mut id = [0u8; 16];
         getrandom::getrandom(&mut id).map_err(|e| io::Error::other(e.to_string()))?;
+        let (host_sock, guest_fd) = netlink::socket_pair()?;
+        let quic = quic::CarrierQuicClient::new(host_sock, self.shares.clone())?;
         let settings = &self.settings;
-        let shares = &self.shares;
         let slot = &mut self.machine;
         let queue = &*self.queue;
         let mut result = None;
         queue.exec_sync(|| {
-            result = Some(config::configuration(settings, shares).map(|cfg| {
+            result = Some(config::configuration(settings, Some(guest_fd)).map(|cfg| {
                 let (block, rx) = completion();
                 // SAFETY: configuration was validated, the VM stays retained in the queue-confined slot;
                 // VZ copies the callback for asynchronous delivery.
@@ -188,10 +193,18 @@ impl CarrierHypervisor for VzHypervisor {
             Err(err) => Err(err),
         };
         if let Err(e) = started {
+            quic.close();
             self.release();
             self.last_error = Some(e.to_string());
             return Err(e);
         }
+        if let Err(e) = quic.wait_ready(std::time::Duration::from_secs(90)).await {
+            quic.close();
+            let _ = self.force_stop().await;
+            self.last_error = Some(e.to_string());
+            return Err(e);
+        }
+        self.quic = Some(quic);
         self.boot = Some(hex::encode(id));
         self.target = self.settings.memory;
         self.last_error = None;
@@ -206,6 +219,16 @@ impl CarrierHypervisor for VzHypervisor {
             // SAFETY: requestStopWithError executes on the queue that owns this VM.
             unsafe { m.vm()?.requestStopWithError() }.map_err(config::error)
         })
+    }
+    async fn graceful_stop(&mut self) -> io::Result<()> {
+        if self.state()? != State::Running {
+            self.release();
+            return Ok(());
+        }
+        if let Some(quic) = self.quic.clone() {
+            let _ = quic.request_shutdown().await;
+        }
+        self.force_stop().await
     }
     async fn force_stop(&mut self) -> io::Result<()> {
         if self.state()? == State::Running {
@@ -228,35 +251,14 @@ impl CarrierHypervisor for VzHypervisor {
         {
             return Err(io::Error::other("invalid balloon target"));
         }
-        self.on_queue(|m, _| {
-            // SAFETY: configuration installs exactly one traditional balloon; the setter runs on the VM queue.
-            unsafe {
-                let device = m.vm()?.memoryBalloonDevices().objectAtIndex(0);
-                device
-                    .downcast_ref::<VZVirtioTraditionalMemoryBalloonDevice>()
-                    .ok_or_else(|| io::Error::other("missing balloon device"))?
-                    .setTargetVirtualMachineMemorySize(bytes);
-            }
-            Ok(())
-        })?;
         self.target = bytes;
         Ok(())
     }
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()> {
-        self.on_queue(|m, _| {
-            let share = config::share(&shares)?;
-            if let Some(vm) = &m.vm {
-                // SAFETY: configuration installs one VirtioFS device and replacement happens on its VM queue.
-                unsafe {
-                    let fs = vm.directorySharingDevices().objectAtIndex(0);
-                    fs.downcast_ref::<VZVirtioFileSystemDevice>()
-                        .ok_or_else(|| io::Error::other("missing VirtioFS device"))?
-                        .setShare(Some(&share));
-                }
-            }
-            Ok(())
-        })?;
-        self.shares = shares;
+        config::validate_shares(&shares)?;
+        if let Ok(mut guard) = self.shares.write() {
+            *guard = shares;
+        }
         Ok(())
     }
     async fn punch(&mut self, offset: u64, len: u64) -> io::Result<()> {
@@ -273,35 +275,11 @@ impl CarrierHypervisor for VzHypervisor {
         file.sync_all()
     }
     fn begin_open_vsock(&mut self, port: u32) -> io::Result<PendingVsock> {
-        let rx = self.on_queue(|m, _| {
-            let (tx, rx) = mpsc::unbounded_channel();
-            let callback = RcBlock::new(
-                move |connection: *mut VZVirtioSocketConnection, err: *mut NSError| {
-                    // SAFETY: VZ keeps callback arguments alive until return. Duplicate its borrowed descriptor
-                    // before returning, so the Rust stream owns its copy when VZ releases the connection.
-                    let result = unsafe {
-                        if let Some(conn) = connection.as_ref() {
-                            socket::duplicate(conn)
-                        } else {
-                            Err(io::Error::other(
-                                err.as_ref()
-                                    .map(ToString::to_string)
-                                    .unwrap_or_else(|| "VZ connection failed".into()),
-                            ))
-                        }
-                    };
-                    let _ = tx.send(result);
-                },
-            );
-            // SAFETY: one socket device is installed and connect runs on its owning queue.
-            unsafe {
-                m.socket()?.connectToPort_completionHandler(port, &callback);
-            }
-            Ok(rx)
-        })?;
-        Ok(Box::pin(
-            async move { socket::stream(completed(rx).await?) },
-        ))
+        let quic = self
+            .quic
+            .clone()
+            .ok_or_else(|| io::Error::other("carrier stopped"))?;
+        Ok(Box::pin(async move { quic.open_stream(port).await }))
     }
 }
 impl Machine {

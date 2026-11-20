@@ -73,7 +73,7 @@ fi
 tar -xzf "$miniroot" -C "$root"
 cp /etc/resolv.conf "$root/etc/resolv.conf"
 set -- openrc ca-certificates-bundle iproute2 nftables erofs-utils jq e2fsprogs \
-  e2fsprogs-extra device-mapper cryptsetup kmod xz squashfs-tools linux-virt
+  e2fsprogs-extra device-mapper cryptsetup kmod xz squashfs-tools
 apk_repositories=/tmp/agent-vmm-apk-repositories
 : > "$root$apk_repositories"
 apk_repository=0
@@ -116,15 +116,5 @@ rm -rf "$root/tmp/agent-vmm-apk" "$root$apk_repositories"
 for package do
   chroot "$root" /sbin/apk info -e "$package"
 done
-
-kernel_config=$(find "$root/boot" -name 'config-*' -type f)
-for symbol in ARM64 BRIDGE CGROUPS CGROUP_BPF EXT4_FS INET NETFILTER NF_TABLES OVERLAY_FS RD_XZ SECCOMP SECCOMP_FILTER SQUASHFS SQUASHFS_XZ SQUASHFS_ZSTD TUN VETH VIRTIO VIRTIO_BALLOON VIRTIO_BLK VIRTIO_CONSOLE VIRTIO_NET VIRTIO_VSOCKETS VSOCKETS XZ_DEC XZ_DEC_ARM64; do
-  grep -Eq "^CONFIG_${symbol}=[ym]$" "$kernel_config" || { echo "missing CONFIG_$symbol" >&2; exit 1; }
-done
-for symbol in RTC_DRV_PL031 RTC_HCTOSYS; do
-  grep -Eq "^CONFIG_${symbol}=y$" "$kernel_config" || { echo "missing CONFIG_$symbol" >&2; exit 1; }
-done
-guest-kernel "$root/boot/vmlinuz-"* >"$bundle/Image"
-test -s "$bundle/Image"
 
 find "$root" "$bundle" -exec touch -h -d @0 {} +

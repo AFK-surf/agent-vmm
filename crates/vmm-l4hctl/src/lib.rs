@@ -214,7 +214,7 @@ impl HypervisorCtl for MockHypervisorCtl {
             return Err(Error::InvalidExtent);
         }
         self.check_free(disk, extent)?;
-        for (i, block) in bytes.chunks_exact(4096).enumerate() {
+        for (i, block) in bytes.as_chunks::<4096>().0.iter().enumerate() {
             self.sectors
                 .insert((disk, sector + i as u64 * 8), block.to_vec());
         }

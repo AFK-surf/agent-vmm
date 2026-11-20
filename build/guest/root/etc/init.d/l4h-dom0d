@@ -1,14 +1,84 @@
 #!/sbin/openrc-run
 
 command=/usr/bin/l4h-dom0d
-config=/etc/agent-vmm/dom0.json
-command_args="$config"
+static_config=/etc/agent-vmm/dom0.json
+runtime_config=/run/agent-vmm/dom0.json
 command_background=true
 pidfile=/run/l4h-dom0d.pid
+output_log=/dev/console
+error_log=/dev/console
 
 depend() {
 	need localmount
 	after networking
+}
+
+configure_carrier_network() {
+	carrier_if=
+	nat_if=
+	internal_if=
+	for path in /sys/class/net/eth*; do
+		[ -r "$path/address" ] || continue
+		iface=$(basename "$path")
+		mac=$(tr 'A-F' 'a-f' < "$path/address")
+		case "$mac" in
+			02:56:4d:4d:00:02) carrier_if=$iface ;;
+			02:56:4d:4d:00:10) nat_if=$iface ;;
+			*) [ -z "$internal_if" ] && internal_if=$iface ;;
+		esac
+	done
+	if [ -n "$carrier_if" ]; then
+		ip link set "$carrier_if" up || true
+		ip addr replace 169.254.77.2/30 dev "$carrier_if" || true
+	fi
+	if [ -n "$nat_if" ]; then
+		ip link set "$nat_if" up || true
+		udhcpc -b -i "$nat_if" -p "/run/udhcpc.$nat_if.pid" >/dev/null 2>&1 || true
+	fi
+	if [ -n "$internal_if" ]; then
+		ip link set "$internal_if" up || true
+	fi
+	CARRIER_INTERNAL_IF=${internal_if:-eth2}
+	einfo "carrier net: carrier_if=$carrier_if nat_if=$nat_if internal_if=$CARRIER_INTERNAL_IF"
+}
+
+mount_carrier_state() {
+	[ -b /dev/vda ] || return 1
+	[ -d /var/lib/agent-vmm ] || mkdir -p /var/lib/agent-vmm
+	if mountpoint -q /var/lib/agent-vmm; then
+		mount -o remount,rw,discard /var/lib/agent-vmm || return 1
+	else
+		if ! mount -t ext4 -o discard /dev/vda /var/lib/agent-vmm 2>/dev/null; then
+			mkfs.ext4 -F -q -E lazy_itable_init=1,lazy_journal_init=1,nodiscard /dev/vda || return 1
+			mount -t ext4 -o discard /dev/vda /var/lib/agent-vmm || return 1
+		fi
+	fi
+	einfo "carrier state mounted on /var/lib/agent-vmm"
+	mkdir -p /var/lib/agent-vmm/state /run/agent-vmm
+	chmod 0700 /var/lib/agent-vmm/state
+}
+
+write_runtime_config() {
+	# Disk 0 first 4096 MiB (8388608 sectors) is dom0's ext4 state filesystem;
+	# sectors: 0 tells l4h-dom0d to query disk 0's real size from /dev/l4hctl.
+	# trusted_builder() auto-discovers /usr/lib/agent-vmm/buildkit.{oci.tar,digest} when present.
+	cat > "$runtime_config" <<EOF
+{
+  "state_dir": "/var/lib/agent-vmm/state",
+  "backing_filesystem": "/var/lib/agent-vmm",
+  "disk": 0,
+  "first_sector": 8388608,
+  "sectors": 0,
+  "emergency_bytes": 67108864,
+  "master_key": "/var/lib/agent-vmm/master.key",
+  "initrd": "/usr/lib/agent-vmm/workload-initramfs.cpio",
+  "interface": "$CARRIER_INTERNAL_IF",
+  "switch": 2,
+  "helper_root": "/usr/lib/agent-vmm/helper-root",
+  "helper_digest": "0000000000000000000000000000000000000000000000000000000000000000",
+  "carrier_quic_listen": "169.254.77.2:8180"
+}
+EOF
 }
 
 start() {
@@ -16,13 +86,21 @@ start() {
 		einfo "The kernel has no l4h control device"
 		return 0
 	fi
-	if [ ! -f "$config" ]; then
-		einfo "Missing dom0 configuration at $config"
-		return 0
+	if [ -f "$static_config" ]; then
+		config="$static_config"
+		master_key=$(jq -er '.master_key | strings | select(startswith("/"))' "$config") || return 1
+		state_dir=$(jq -er '.state_dir | strings | select(startswith("/"))' "$config") || return 1
+	else
+		configure_carrier_network
+		mount_carrier_state || {
+			eerror "Failed to mount carrier state disk /dev/vda"
+			return 1
+		}
+		write_runtime_config || return 1
+		config="$runtime_config"
+		master_key=/var/lib/agent-vmm/master.key
+		state_dir=/var/lib/agent-vmm/state
 	fi
-
-	master_key=$(jq -er '.master_key | strings | select(startswith("/"))' "$config") || return 1
-	state_dir=$(jq -er '.state_dir | strings | select(startswith("/"))' "$config") || return 1
 	if [ ! -e "$master_key" ]; then
 		if [ -e "$state_dir/pool.db" ]; then
 			eerror "The existing pool needs its original master key"
@@ -36,6 +114,11 @@ start() {
 			return 1
 		fi
 		rm -f "$key_file"
+	fi
+	if [ ! -e "$state_dir/pool.db" ]; then
+		command_args="$config --init-pool"
+	else
+		command_args="$config"
 	fi
 	default_start
 }

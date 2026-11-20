@@ -18,7 +18,7 @@ use tokio_rustls::{
 };
 use vmm_dom0::{
     local::{Dom0Config, Result, TlsConfig, private_dir},
-    remote::{serve_connection, serve_host_connection},
+    remote::serve_connection,
 };
 
 fn acceptor(c: &TlsConfig) -> Result<TlsAcceptor> {
@@ -46,20 +46,19 @@ pub async fn run() -> Result<()> {
     };
     let mut config = Dom0Config::read(Path::new(&path))?;
     let socket = config.socket.take();
-    if socket.is_none() && config.vsock_control_port.is_none() {
-        return Err("configure a Unix or vsock control listener".into());
+    if socket.is_none() && config.carrier_quic_listen.is_none() {
+        return Err("configure a Unix or carrier QUIC control listener".into());
     }
-    let control = config
-        .vsock_control_port
-        .map(crate::vsock::Listener::bind)
-        .transpose()?;
-    let relay = config
-        .vsock_relay_port
-        .map(crate::vsock::Listener::bind)
+    let quic = config
+        .carrier_quic_listen
+        .map(crate::quic::Server::bind)
         .transpose()?;
     let tls_config = config.tls.take();
     let mut handle = config.open(init).await?;
     let backend = handle.backend.clone();
+    if let Some(q) = &quic {
+        backend.set_remote_share_dialer(q.dialer());
+    }
     let tls = match tls_config {
         Some(t) => Some((TcpListener::bind(t.listen).await?, acceptor(&t)?)),
         None => None,
@@ -75,10 +74,6 @@ pub async fn run() -> Result<()> {
             let b = backend.clone();
             tokio::select! {
                 s=optional(unix.as_ref().map(UnixListener::accept))=>{let (s,_)=s?;tokio::spawn(async move{let _permit=permit;let _=serve_connection(s,b.as_ref()).await;});},
-                s=optional(control.as_ref().map(crate::vsock::Listener::accept))=>{
-                    let stream=s?;
-                    tokio::spawn(async move {let _permit=permit;let _=serve_host_connection(stream,&b).await;});
-                }
                 s=async{match &tls{Some((tcp,a))=>tcp.accept().await.map(|(s,_)|(s,a.clone())),None=>std::future::pending().await}}=>{
                     let (s,a)=s?;
                     tokio::spawn(async move{
@@ -89,26 +84,16 @@ pub async fn run() -> Result<()> {
             }
         }
     };
-    let relay_server = async {
-        let listener = match relay {
-            Some(listener) => listener,
-            None => return std::future::pending().await,
-        };
-        let permits = Arc::new(Semaphore::new(1024));
-        loop {
-            let permit = permits.clone().acquire_owned().await?;
-            let stream = listener.accept().await?;
-            tokio::spawn(async move {
-                let _permit = permit;
-                let _ =
-                    crate::relay::serve_guest_relay(stream, tokio::net::TcpStream::connect).await;
-            });
+    let quic_server = async {
+        match quic {
+            Some(server) => server.serve(backend.clone()).await,
+            None => std::future::pending().await,
         }
     };
     tokio::select! {
         result = handle.wait() => result,
         result = control_server => result,
-        result = relay_server => result,
+        result = quic_server => result,
     }
 }
 

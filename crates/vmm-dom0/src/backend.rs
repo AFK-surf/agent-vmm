@@ -72,6 +72,7 @@ pub struct LocalDom0Backend {
     pub(crate) effects: Mutex<()>,
     pub(crate) routes: Mutex<crate::policy::Routes>,
     pub(crate) shares: crate::host_share::Shares,
+    pub(crate) remote_shares: std::sync::RwLock<Option<Arc<dyn crate::host_share::RemoteShareDialer>>>,
     pub(crate) remote_image_upload: tokio::sync::Semaphore,
     pub(crate) remote_mounts: tokio::sync::Semaphore,
     pub(crate) mounts: crate::helper_vm::MountLocks,
@@ -147,12 +148,34 @@ impl LocalDom0Backend {
                 ..Default::default()
             }),
             shares: Default::default(),
+            remote_shares: std::sync::RwLock::new(None),
             // Leave control capacity for individual Guest handshakes while mount leases are held.
             remote_image_upload: tokio::sync::Semaphore::new(1),
             remote_mounts: tokio::sync::Semaphore::new(32),
             mounts: Default::default(),
             _instance: instance,
         })
+    }
+    pub fn set_remote_share_dialer(
+        &self,
+        dialer: Arc<dyn crate::host_share::RemoteShareDialer>,
+    ) {
+        if let Ok(mut guard) = self.remote_shares.write() {
+            *guard = Some(dialer);
+        }
+    }
+    pub fn flush_for_shutdown(&self) {
+        if let Ok(db) = self.pool.db.lock() {
+            let _ = db.execute_batch("PRAGMA wal_checkpoint(TRUNCATE);");
+        }
+        if let Ok(mut ctl) = self.ctl.lock() {
+            let _ = ctl.blk_flush(self.pool.disk());
+        }
+    }
+    pub(crate) fn remote_share_dialer(
+        &self,
+    ) -> Option<Arc<dyn crate::host_share::RemoteShareDialer>> {
+        self.remote_shares.read().ok().and_then(|g| g.clone())
     }
     pub(crate) fn catalog(&self) -> Catalog<'_> {
         Catalog(&self.pool)

@@ -25,7 +25,7 @@ struct Artifact {
 #[derive(Debug, Clone)]
 pub struct Bundle {
     pub kernel: PathBuf,
-    pub initramfs: PathBuf,
+    pub initramfs: Option<PathBuf>,
     pub rootfs: Option<PathBuf>,
 }
 
@@ -78,7 +78,11 @@ impl Bundle {
         };
         Ok(Self {
             kernel: verify("kernel")?,
-            initramfs: verify("initramfs")?,
+            initramfs: manifest
+                .artifacts
+                .contains_key("initramfs")
+                .then(|| verify("initramfs"))
+                .transpose()?,
             rootfs: manifest
                 .artifacts
                 .contains_key("rootfs")

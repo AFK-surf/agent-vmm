@@ -78,9 +78,9 @@ impl Pool {
         if !region.sector.is_multiple_of(BLOCK_SECTORS)
             || !region.sectors.is_multiple_of(BLOCK_SECTORS)
             || region.sectors == 0
-            || !disks
-                .iter()
-                .any(|d| d.id == disk && !d.failed && !d.owned && end <= d.sectors)
+            || !disks.iter().any(|d| {
+                d.id == disk && !d.failed && (!d.owned || region.sector > 0) && end <= d.sectors
+            })
         {
             return Err(Error::Invalid("pool region"));
         }

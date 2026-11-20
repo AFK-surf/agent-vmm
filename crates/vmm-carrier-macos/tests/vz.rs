@@ -11,7 +11,7 @@ fn validated_carrier_configuration() -> std::io::Result<()> {
     Settings {
         bundle: Bundle {
             kernel: path("Image"),
-            initramfs: path("initramfs"),
+            initramfs: None,
             rootfs: Some(path("rootfs")),
         },
         pool: path("pool.raw"),

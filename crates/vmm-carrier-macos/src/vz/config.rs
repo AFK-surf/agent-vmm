@@ -1,9 +1,13 @@
-use super::Settings;
+use super::{Settings, netlink};
 use crate::protocol::Shares;
 use objc2::{AnyThread, rc::Retained};
-use objc2_foundation::{NSArray, NSDictionary, NSError, NSString, NSURL};
+use objc2_foundation::{NSArray, NSError, NSFileHandle, NSString, NSURL};
 use objc2_virtualization::*;
-use std::{io, path::Path};
+use std::{
+    io,
+    os::fd::{IntoRawFd, OwnedFd},
+    path::Path,
+};
 
 pub(super) fn error(e: Retained<NSError>) -> io::Error {
     io::Error::other(e.to_string())
@@ -12,32 +16,13 @@ fn url(path: &Path) -> io::Result<Retained<NSURL>> {
     NSURL::from_file_path(path).ok_or_else(|| io::Error::other("invalid file URL"))
 }
 
-pub(super) fn share(paths: &Shares) -> io::Result<Retained<VZMultipleDirectoryShare>> {
-    let mut names = Vec::new();
-    let mut dirs = Vec::new();
-    // SAFETY: keys are validated with the framework and the directory URLs stay alive through initialization.
-    unsafe {
-        for (name, path) in paths {
-            if !path.is_absolute() || !path.is_dir() {
-                return Err(io::Error::other("invalid share directory"));
-            }
-            let name = NSString::from_str(name);
-            VZMultipleDirectoryShare::validateName_error(&name).map_err(error)?;
-            names.push(name);
-            let url = url(path)?;
-            dirs.push(VZSharedDirectory::initWithURL_readOnly(
-                VZSharedDirectory::alloc(),
-                &url,
-                false,
-            ));
+pub(super) fn validate_shares(paths: &Shares) -> io::Result<()> {
+    for (name, path) in paths {
+        if name.is_empty() || !path.is_absolute() || !path.is_dir() {
+            return Err(io::Error::other("invalid share directory"));
         }
-        let keys: Vec<_> = names.iter().map(|n| &**n).collect();
-        let map = NSDictionary::from_retained_objects(&keys, &dirs);
-        Ok(VZMultipleDirectoryShare::initWithDirectories(
-            VZMultipleDirectoryShare::alloc(),
-            &map,
-        ))
     }
+    Ok(())
 }
 
 fn disk(path: &Path, ro: bool, id: &str) -> io::Result<Retained<VZStorageDeviceConfiguration>> {
@@ -61,23 +46,21 @@ fn disk(path: &Path, ro: bool, id: &str) -> io::Result<Retained<VZStorageDeviceC
 
 pub(super) fn configuration(
     settings: &Settings,
-    shares: &Shares,
+    guest_link_fd: Option<OwnedFd>,
 ) -> io::Result<Retained<VZVirtualMachineConfiguration>> {
     let kernel = url(&settings.bundle.kernel)?;
-    let initrd = url(&settings.bundle.initramfs)?;
     let log = url(&settings.serial_log)?;
+    // Disk 0 = pool.raw (l4h dom0_disk0, RW); Disk 1 = rootfs.squashfs (RO).
     let mut disks = Vec::new();
+    disks.push(disk(&settings.pool, false, "AGENT_POOL")?);
     if let Some(root) = &settings.bundle.rootfs {
         disks.push(disk(root, true, "AGENT_ROOT")?);
     }
-    disks.push(disk(&settings.pool, false, "AGENT_POOL")?);
-    let shares = share(shares)?;
     // SAFETY: each attachment belongs to the matching device class. Configuration is local to the caller
     // until all device arrays have been copied and validateWithError has succeeded.
     unsafe {
         let cfg = VZVirtualMachineConfiguration::new();
         let boot = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
-        boot.setInitialRamdiskURL(Some(&initrd));
         boot.setCommandLine(&NSString::from_str("console=hvc0 panic=-1 psi=1"));
         cfg.setBootLoader(Some(&boot));
         cfg.setCPUCount(settings.cpus);
@@ -95,21 +78,37 @@ pub(super) fn configuration(
         cfg.setEntropyDevices(&NSArray::from_retained_slice(&[
             VZVirtioEntropyDeviceConfiguration::new().into_super(),
         ]));
-        cfg.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
-            VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
-        ]));
-        cfg.setSocketDevices(&NSArray::from_retained_slice(&[
-            VZVirtioSocketDeviceConfiguration::new().into_super(),
-        ]));
-        let network = VZVirtioNetworkDeviceConfiguration::new();
-        network.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
-        cfg.setNetworkDevices(&NSArray::from_retained_slice(&[network.into_super()]));
-        let fs = VZVirtioFileSystemDeviceConfiguration::initWithTag(
-            VZVirtioFileSystemDeviceConfiguration::alloc(),
-            &NSString::from_str("agent.hostshares"),
-        );
-        fs.setShare(Some(&shares));
-        cfg.setDirectorySharingDevices(&NSArray::from_retained_slice(&[fs.into_super()]));
+        let mut networks: Vec<Retained<VZNetworkDeviceConfiguration>> = Vec::new();
+        let nat = VZVirtioNetworkDeviceConfiguration::new();
+        if let Some(mac) = VZMACAddress::initWithString(
+            VZMACAddress::alloc(),
+            &NSString::from_str("02:56:4d:4d:00:10"),
+        ) {
+            nat.setMACAddress(&mac);
+        }
+        nat.setAttachment(Some(&VZNATNetworkDeviceAttachment::new()));
+        networks.push(nat.into_super());
+        if let Some(fd) = guest_link_fd {
+            let link = VZVirtioNetworkDeviceConfiguration::new();
+            if let Some(mac) = VZMACAddress::initWithString(
+                VZMACAddress::alloc(),
+                &NSString::from_str(netlink::GUEST_MAC_STR),
+            ) {
+                link.setMACAddress(&mac);
+            }
+            let handle = NSFileHandle::initWithFileDescriptor_closeOnDealloc(
+                NSFileHandle::alloc(),
+                fd.into_raw_fd(),
+                true,
+            );
+            let attach = VZFileHandleNetworkDeviceAttachment::initWithFileHandle(
+                VZFileHandleNetworkDeviceAttachment::alloc(),
+                &handle,
+            );
+            link.setAttachment(Some(&attach));
+            networks.push(link.into_super());
+        }
+        cfg.setNetworkDevices(&NSArray::from_retained_slice(&networks));
         cfg.validateWithError().map_err(error)?;
         Ok(cfg)
     }

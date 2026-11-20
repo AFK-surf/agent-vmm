@@ -290,7 +290,7 @@ impl LocalDom0Backend {
     }
     fn create(&self, b: &SavedBoot, disks: &[DiskVolume], ip: std::net::Ipv4Addr) -> Result<u64> {
         let cmdline = format!(
-            "console=ttyS0 vmm.slot={} vmm.boot_port={}",
+            "console=hvc0 vmm.slot={} vmm.boot_port={}",
             b.slot, self.cfg.boot_port
         );
         self.ctl

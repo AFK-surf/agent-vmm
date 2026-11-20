@@ -39,26 +39,35 @@ impl LocalDom0Backend {
     pub(crate) async fn prepare_network(&self, b: &mut SavedBoot) -> Result<()> {
         let src = self.slot(b)?;
         for m in &b.definition.host_shares {
-            let path = self
-                .cfg
-                .host_shares
-                .get(&m.share_id)
-                .ok_or(Error::Missing("host share grant"))?;
             let listen = SocketAddrV4::new(
                 self.cfg.gateway,
                 b.share_ports.get(&m.share_id).copied().unwrap_or(0),
             );
-            let port = self
-                .shares
-                .export(
-                    &b.identity.instance_id,
-                    &m.share_id,
-                    path,
-                    m.read_only,
-                    src,
-                    listen,
-                )
-                .await?;
+            let port = if let Some(path) = self.cfg.host_shares.get(&m.share_id) {
+                self.shares
+                    .export(
+                        &b.identity.instance_id,
+                        &m.share_id,
+                        path,
+                        m.read_only,
+                        src,
+                        listen,
+                    )
+                    .await?
+            } else if let Some(dialer) = self.remote_share_dialer() {
+                self.shares
+                    .export_remote(
+                        &b.identity.instance_id,
+                        &m.share_id,
+                        m.read_only,
+                        src,
+                        listen,
+                        dialer,
+                    )
+                    .await?
+            } else {
+                return Err(Error::Missing("host share grant"));
+            };
             b.share_ports.insert(m.share_id.clone(), port);
         }
         for r in &b.scope.host_socket_rules {

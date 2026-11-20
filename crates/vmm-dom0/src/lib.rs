@@ -8,7 +8,7 @@ pub use proxy::ExternalServiceRoute;
 #[cfg(test)]
 mod backend_tests;
 pub mod helper_vm;
-mod host_share;
+pub mod host_share;
 pub mod image;
 pub mod inventory;
 pub mod keys;

@@ -19,7 +19,7 @@ use std::{
 };
 use tokio::{net::TcpListener, task::JoinSet};
 use vmm_core::backend::Dom0Backend;
-use vmm_l4hctl::{DiskExtent, LinuxL4hCtl};
+use vmm_l4hctl::{DiskExtent, HypervisorCtl, LinuxL4hCtl};
 use zeroize::Zeroizing;
 
 pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + Sync>>;
@@ -43,12 +43,12 @@ pub struct Dom0Config {
     #[serde(default)]
     builder_digest: Option<String>,
     #[serde(default)]
+    emergency_bytes: Option<u64>,
+    #[serde(default)]
     host_shares: BTreeMap<String, PathBuf>,
     pub socket: Option<PathBuf>,
     #[serde(default)]
-    pub vsock_control_port: Option<u32>,
-    #[serde(default)]
-    pub vsock_relay_port: Option<u32>,
+    pub carrier_quic_listen: Option<SocketAddr>,
     pub tls: Option<TlsConfig>,
 }
 #[derive(Deserialize)]
@@ -114,6 +114,23 @@ impl Dom0Config {
             return Err("master key must contain exactly 32 bytes".into());
         }
         let ctl = Arc::new(Mutex::new(LinuxL4hCtl::open()?));
+        let sectors = if self.sectors == 0 {
+            let disks = ctl
+                .lock()
+                .map_err(|_| "l4hctl mutex poisoned")?
+                .blk_disks()?;
+            let disk = disks
+                .into_iter()
+                .find(|d| d.id == self.disk)
+                .ok_or_else(|| format!("pool disk {} not found", self.disk))?;
+            let avail = disk
+                .sectors
+                .checked_sub(self.first_sector)
+                .ok_or("pool disk smaller than first_sector")?;
+            avail - (avail % crate::extent::BLOCK_SECTORS)
+        } else {
+            self.sectors
+        };
         let db = self.state_dir.join("pool.db");
         if !init_pool && !db.try_exists()? {
             return Err(
@@ -126,10 +143,10 @@ impl Dom0Config {
             self.disk,
             DiskExtent {
                 sector: self.first_sector,
-                sectors: self.sectors,
+                sectors,
             },
             Arc::new(FilesystemHeadroom(self.backing_filesystem)),
-            DEFAULT_EMERGENCY_BYTES,
+            self.emergency_bytes.unwrap_or(DEFAULT_EMERGENCY_BYTES),
         )?);
         let mut options = Options::new(
             std::fs::read(self.initrd)?.into(),
