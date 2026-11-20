@@ -255,20 +255,35 @@ pub fn io_ports(_alloc: &mut Alloc, _base: u16, _len: u16) -> Option<sel4::cap::
     None
 }
 
-/// An IRQ handler for MSI vector `vector` of `d`, into `dst`.
-pub fn msi_irq(d: &Device, vector: u64, dst: &sel4::AbsoluteCPtr) {
+/// An IRQ handler for MSI vector `vector` of `d`, into `dst`, routed to `core`.
+pub fn msi_irq_core(d: &Device, vector: u64, core: usize, dst: &sel4::AbsoluteCPtr) {
     #[cfg(target_arch = "x86_64")]
-    sel4::init_thread::slot::IRQ_CONTROL
-        .cap()
-        .irq_control_get_msi(d.bus as u64, d.dev as u64, d.func as u64, 0, vector, dst)
-        .expect("MSI IRQ handler");
+    {
+        let _ = core;
+        sel4::init_thread::slot::IRQ_CONTROL
+            .cap()
+            .irq_control_get_msi(d.bus as u64, d.dev as u64, d.func as u64, 0, vector, dst)
+            .expect("MSI IRQ handler");
+    }
     #[cfg(target_arch = "aarch64")]
     {
-        let _ = d;
-        assert!(vector < 64);
-        slot::IRQ_CONTROL.cap().irq_control_get_trigger_core(80 + vector, true, 0, dst)
-            .expect("GICv2m IRQ handler");
+        if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) {
+            // Apple VZ has no GICv2m/ITS; PCI slot `dev` INTA maps 1:1 to GICv3 SPI 0x20 + dev (INTID 64 + dev), level-high.
+            // Route to the driver's core so ICC_IAR1_EL1 and ICC_DIR_EL1 (irq_handler_ack) execute on the same vCPU.
+            slot::IRQ_CONTROL.cap().irq_control_get_trigger_core(64 + d.dev as u64, false, core as u64, dst)
+                .expect("Apple VZ INTx IRQ handler");
+        } else {
+            let _ = (d, core);
+            assert!(vector < 64);
+            slot::IRQ_CONTROL.cap().irq_control_get_trigger_core(80 + vector, true, 0, dst)
+                .expect("GICv2m IRQ handler");
+        }
     }
+}
+
+/// An IRQ handler for MSI vector `vector` of `d`, into `dst`.
+pub fn msi_irq(d: &Device, vector: u64, dst: &sel4::AbsoluteCPtr) {
+    msi_irq_core(d, vector, 0, dst);
 }
 
 /// The functions whose ECAM pages a partition mapped, a bit per BDF.
@@ -828,9 +843,11 @@ impl Pci {
         for (n, b) in bars.iter_mut().enumerate() {
             if b.size == 0 || b.is_io { continue; }
             // The size is the device's: a power of two, and the BAR must fit.
+            let bar_limit = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x6ffe_0000 } else { 0x3eff_0000 };
+            let align = b.size.max(4096);
             let end = Some(b.size).filter(|s| s.is_power_of_two())
-                .and_then(|s| self.next_bar.get().checked_next_multiple_of(s)?.checked_add(s))
-                .filter(|&end| end <= 0x3eff_0000);
+                .and_then(|s| self.next_bar.get().checked_next_multiple_of(align)?.checked_add(s))
+                .filter(|&end| end <= bar_limit);
             let Some(end) = end else {
                 log!("l4h-root: pci {:02x}:{:02x}.{}: BAR {} of {:#x} bytes does not fit the MMIO aperture, unused", bus, dev, func, n, b.size);
                 *b = Bar::default();
@@ -862,10 +879,17 @@ impl Pci {
         })
     }
 
-    /// Enable memory decoding and bus mastering, disable INTx.
+    /// Enable memory decoding and bus mastering; disable INTx (we use MSI-X or
+    /// enable INTx explicitly via `enable_intx` for interrupt-driven devices).
     pub fn enable(&self, d: &Device) {
         let cmd = self.read16(d.bus, d.dev, d.func, 4);
         self.write16(d.bus, d.dev, d.func, 4, cmd | 0x2 | 0x4 | 0x400);
+    }
+
+    /// Enable legacy INTx (clear PCI Command Interrupt Disable bit 10).
+    pub fn enable_intx(&self, d: &Device) {
+        let cmd = self.read16(d.bus, d.dev, d.func, 4);
+        self.write16(d.bus, d.dev, d.func, 4, cmd & !0x400);
     }
 
     /// Enable I/O space decoding (registers of a legacy virtio device).
@@ -1011,12 +1035,14 @@ impl Pci {
     pub fn new(alloc: &mut Alloc, devmem: &mut crate::devmem::DevMem) -> Self {
         use sel4::{CapRights, VmAttributes};
         use crate::mem::ObjCtx;
-        let frames = devmem.frames(&mut alloc.slots, 0x3f00_0000, 1 << 24).expect("PCI ECAM frames");
+        let ecam_paddr = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x4000_0000 } else { 0x3f00_0000 };
+        let bar_start = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x5000_0000 } else { 0x1000_0000 };
+        let frames = devmem.frames(&mut alloc.slots, ecam_paddr, 1 << 24).expect("PCI ECAM frames");
         for (n, frame) in frames.map(crate::devmem::granule).enumerate() {
             crate::vspace::map_frame(&mut ObjCtx::global(alloc), slot::VSPACE.cap(), frame,
                 Self::ECAM_VA + n * 4096, CapRights::read_write(), VmAttributes::EXECUTE_NEVER);
         }
-        Self { next_bar: core::cell::Cell::new(0x1000_0000) }
+        Self { next_bar: core::cell::Cell::new(bar_start) }
     }
     fn config(&self, bus: u8, dev: u8, func: u8, off: u8) -> *mut u32 {
         assert!(bus < 16);

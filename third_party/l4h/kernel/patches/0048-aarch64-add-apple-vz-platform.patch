@@ -1,0 +1,579 @@
+From 32927757850d590bb2a7937d62b5c53ea9185e83 Mon Sep 17 00:00:00 2001
+From: l4h <l4h@localhost>
+Date: Fri, 20 Nov 2026 08:59:34 +0000
+Subject: [PATCH] aarch64: add apple-vz GICv3 platform with dynamic FDT RAM and
+ CPU discovery
+
+---
+ include/arch/arm/arch/64/mode/machine/timer.h |   4 +-
+ include/arch/arm/arch/machine/timer.h         |   6 +-
+ .../apple-vz/sel4/plat/api/constants.h        |  19 ++
+ src/arch/arm/kernel/boot.c                    | 203 +++++++++++++++++-
+ src/arch/arm/machine/gic_v3.c                 |  14 +-
+ src/arch/arm/machine/io.c                     |   8 +
+ src/drivers/timer/generic_timer.c             |   4 +-
+ src/plat/apple-vz/apple-vz.dts                |  41 ++++
+ src/plat/apple-vz/config.cmake                |  18 ++
+ tools/hardware.yml                            |   2 +-
+ 10 files changed, 299 insertions(+), 20 deletions(-)
+ create mode 100644 libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h
+ create mode 100644 src/plat/apple-vz/apple-vz.dts
+ create mode 100644 src/plat/apple-vz/config.cmake
+
+diff --git a/include/arch/arm/arch/64/mode/machine/timer.h b/include/arch/arm/arch/64/mode/machine/timer.h
+index 297522d..fc677bd 100644
+--- a/include/arch/arm/arch/64/mode/machine/timer.h
++++ b/include/arch/arm/arch/64/mode/machine/timer.h
+@@ -18,7 +18,7 @@
+  */
+ static inline PURE ticks_t getMaxTicksToUs(void)
+ {
+-#if defined(CONFIG_PLAT_QEMU_ARM_VIRT)
++#if (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ))
+     return armKSGenericTimerFrequency >= HZ_IN_MHZ ? UINT64_MAX :
+            (UINT64_MAX / HZ_IN_MHZ) * armKSGenericTimerFrequency;
+ #elif USE_KHZ
+@@ -30,7 +30,7 @@ static inline PURE ticks_t getMaxTicksToUs(void)
+ 
+ static inline PURE time_t ticksToUs(ticks_t ticks)
+ {
+-#if defined(CONFIG_PLAT_QEMU_ARM_VIRT)
++#if (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ))
+     return (ticks / armKSGenericTimerFrequency) * HZ_IN_MHZ +
+            ((ticks % armKSGenericTimerFrequency) * HZ_IN_MHZ) / armKSGenericTimerFrequency;
+ #elif USE_KHZ
+diff --git a/include/arch/arm/arch/machine/timer.h b/include/arch/arm/arch/machine/timer.h
+index 71fdba9..ef2284a 100644
+--- a/include/arch/arm/arch/machine/timer.h
++++ b/include/arch/arm/arch/machine/timer.h
+@@ -22,7 +22,7 @@
+ #define TIMER_CLOCK_MHZ (TIMER_CLOCK_HZ / HZ_IN_MHZ)
+ 
+ #include <plat/platform_gen.h>
+-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_PLAT_QEMU_ARM_VIRT)
++#if defined(CONFIG_ARCH_AARCH64) && (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ))
+ /* HVF can expose the host counter rate instead of QEMU TCG's DT rate. */
+ extern word_t armKSGenericTimerFrequency;
+ #endif
+@@ -35,7 +35,7 @@ void initTimer(void);
+  */
+ static inline PURE time_t getMaxUsToTicks(void)
+ {
+-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_PLAT_QEMU_ARM_VIRT)
++#if defined(CONFIG_ARCH_AARCH64) && (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ))
+     /* A conservative bound in whole ticks per microsecond. */
+     return UINT64_MAX / ((armKSGenericTimerFrequency + HZ_IN_MHZ - 1) / HZ_IN_MHZ);
+ #elif USE_KHZ
+@@ -47,7 +47,7 @@ static inline PURE time_t getMaxUsToTicks(void)
+ 
+ static inline PURE ticks_t usToTicks(time_t us)
+ {
+-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_PLAT_QEMU_ARM_VIRT)
++#if defined(CONFIG_ARCH_AARCH64) && (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ))
+     /* Split before multiplying, including for non-integral MHz rates. */
+     return (us / HZ_IN_MHZ) * armKSGenericTimerFrequency +
+            ((us % HZ_IN_MHZ) * armKSGenericTimerFrequency) / HZ_IN_MHZ;
+diff --git a/libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h b/libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h
+new file mode 100644
+index 0000000..abbda1f
+--- /dev/null
++++ b/libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h
+@@ -0,0 +1,19 @@
++/*
++ * Copyright 2020, Data61, CSIRO (ABN 41 687 119 230)
++ *
++ * SPDX-License-Identifier: BSD-2-Clause
++ */
++
++#pragma once
++
++#include <sel4/config.h>
++
++#if defined(CONFIG_ARM_CORTEX_A53)
++#include <sel4/arch/constants_cortex_a53.h>
++#elif defined(CONFIG_ARM_CORTEX_A57)
++#include <sel4/arch/constants_cortex_a57.h>
++#elif defined(CONFIG_ARM_CORTEX_A72)
++#include <sel4/arch/constants_cortex_a72.h>
++#else
++#error "unsupported core"
++#endif
+diff --git a/src/arch/arm/kernel/boot.c b/src/arch/arm/kernel/boot.c
+index f770dcb..ee0ca9f 100644
+--- a/src/arch/arm/kernel/boot.c
++++ b/src/arch/arm/kernel/boot.c
+@@ -39,10 +39,166 @@ BOOT_BSS static volatile _Atomic int node_boot_lock;
+ 
+ BOOT_BSS static region_t reserved[NUM_RESERVED_REGIONS];
+ 
++
++#ifdef CONFIG_PLAT_APPLE_VZ
++static BOOT_CODE uint32_t fdt_be32(const uint8_t *p)
++{
++    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
++           ((uint32_t)p[2] << 8) | (uint32_t)p[3];
++}
++
++static BOOT_CODE uint64_t fdt_be64(const uint8_t *p)
++{
++    return ((uint64_t)fdt_be32(p) << 32) | (uint64_t)fdt_be32(p + 4);
++}
++
++static BOOT_CODE bool_t fdt_str_eq(const char *a, const char *b)
++{
++    while (*a && *b && *a == *b) {
++        a++;
++        b++;
++    }
++    return *a == 0 && *b == 0;
++}
++
++static BOOT_CODE bool_t fdt_str_prefix(const char *s, const char *prefix)
++{
++    while (*prefix) {
++        if (*s++ != *prefix++) {
++            return false;
++        }
++    }
++    return true;
++}
++
++static BOOT_CODE void apple_vz_parse_fdt(
++    const void *dtb_ptr,
++    word_t dtb_size,
++    p_region_t *mem_regs,
++    word_t max_regs,
++    word_t *out_num_regs,
++    word_t *out_num_cpus
++)
++{
++    const uint8_t *b = (const uint8_t *)dtb_ptr;
++    *out_num_regs = 0;
++    *out_num_cpus = 0;
++    if (dtb_size < 40 || fdt_be32(b) != 0xd00dfeedU) {
++        return;
++    }
++    uint32_t totalsize = fdt_be32(b + 4);
++    uint32_t off_struct = fdt_be32(b + 8);
++    uint32_t off_strings = fdt_be32(b + 12);
++    if (totalsize > dtb_size || off_struct >= totalsize || off_strings >= totalsize) {
++        return;
++    }
++    uint32_t pos = off_struct;
++    int depth = 0;
++    bool_t in_cpus = false;
++    bool_t in_memory = false;
++    while (pos + 4 <= totalsize) {
++        uint32_t tok = fdt_be32(b + pos);
++        pos += 4;
++        if (tok == 1) { /* FDT_BEGIN_NODE */
++            const char *name = (const char *)(b + pos);
++            uint32_t end = pos;
++            while (end < totalsize && b[end] != 0) {
++                end++;
++            }
++            if (end >= totalsize) {
++                break;
++            }
++            if (depth == 1) {
++                in_cpus = fdt_str_eq(name, "cpus");
++                in_memory = fdt_str_eq(name, "memory") || fdt_str_prefix(name, "memory@");
++            } else if (depth == 2 && in_cpus) {
++                if (fdt_str_eq(name, "cpu") || fdt_str_prefix(name, "cpu@")) {
++                    (*out_num_cpus)++;
++                }
++            }
++            pos = (end + 4U) & ~3U;
++            depth++;
++        } else if (tok == 2) { /* FDT_END_NODE */
++            depth--;
++            if (depth <= 1) {
++                in_cpus = false;
++                in_memory = false;
++            }
++        } else if (tok == 3) { /* FDT_PROP */
++            if (pos + 8 > totalsize) {
++                break;
++            }
++            uint32_t plen = fdt_be32(b + pos);
++            uint32_t nameoff = fdt_be32(b + pos + 4);
++            pos += 8;
++            if (pos + plen > totalsize || off_strings + nameoff >= totalsize) {
++                break;
++            }
++            const char *pname = (const char *)(b + off_strings + nameoff);
++            if (in_memory && depth == 2 && fdt_str_eq(pname, "reg")) {
++                for (uint32_t off = 0; off + 16 <= plen && *out_num_regs < max_regs; off += 16) {
++                    paddr_t start = (paddr_t)fdt_be64(b + pos + off);
++                    paddr_t size = (paddr_t)fdt_be64(b + pos + off + 8);
++                    if (size == 0 || start > UINTPTR_MAX - size) {
++                        continue;
++                    }
++                    paddr_t end = start + size;
++                    if (start < physBase()) {
++                        start = physBase();
++                    }
++                    if (end > PADDR_TOP) {
++                        end = PADDR_TOP;
++                    }
++                    start = ROUND_UP(start, PAGE_BITS);
++                    end = ROUND_DOWN(end, PAGE_BITS);
++                    if (end > start) {
++                        mem_regs[*out_num_regs].start = start;
++                        mem_regs[*out_num_regs].end = end;
++                        (*out_num_regs)++;
++                    }
++                }
++            }
++            pos = (pos + plen + 3U) & ~3U;
++        } else if (tok == 4) { /* FDT_NOP */
++            continue;
++        } else { /* FDT_END or invalid */
++            break;
++        }
++    }
++    /* Sort mem_regs ascending by start (FDT nodes may be in lexical order, e.g. memory@500000000 before memory@70000000). */
++    for (word_t i = 1; i < *out_num_regs; i++) {
++        p_region_t key = mem_regs[i];
++        word_t j = i;
++        while (j > 0 && mem_regs[j - 1].start > key.start) {
++            mem_regs[j] = mem_regs[j - 1];
++            j--;
++        }
++        mem_regs[j] = key;
++    }
++    /* Merge adjacent/overlapping regions. */
++    if (*out_num_regs > 1) {
++        word_t w = 0;
++        for (word_t i = 1; i < *out_num_regs; i++) {
++            if (mem_regs[i].start <= mem_regs[w].end) {
++                if (mem_regs[i].end > mem_regs[w].end) {
++                    mem_regs[w].end = mem_regs[i].end;
++                }
++            } else {
++                w++;
++                mem_regs[w] = mem_regs[i];
++            }
++        }
++        *out_num_regs = w + 1;
++    }
++}
++#endif
++
+ BOOT_CODE static bool_t arch_init_freemem(p_region_t ui_p_reg,
+                                           p_region_t dtb_p_reg,
+                                           v_region_t it_v_reg,
+-                                          word_t extra_bi_size_bits)
++                                          word_t extra_bi_size_bits,
++                                          word_t n_avail,
++                                          const p_region_t *avail)
+ {
+     /* reserve the kernel image region */
+     reserved[0] = paddr_to_pptr_reg(get_p_reg_kernel_img());
+@@ -109,8 +265,18 @@ BOOT_CODE static bool_t arch_init_freemem(p_region_t ui_p_reg,
+         reserve_region(ui_p_reg);
+     }
+ 
+-    /* avail_p_regs comes from the auto-generated code */
+-    return init_freemem(ARRAY_SIZE(avail_p_regs), avail_p_regs,
++    /* Keep reserved[] sorted by start address (e.g. when live FDT is placed above ui_p_reg). */
++    for (int i = 1; i < index; i++) {
++        region_t key = reserved[i];
++        int j = i - 1;
++        while (j >= 0 && reserved[j].start > key.start) {
++            reserved[j + 1] = reserved[j];
++            j--;
++        }
++        reserved[j + 1] = key;
++    }
++
++    return init_freemem(n_avail, avail,
+                         index, reserved,
+                         it_v_reg, extra_bi_size_bits);
+ }
+@@ -321,7 +487,7 @@ BOOT_CODE static bool_t try_init_kernel_secondary_core(void)
+     return true;
+ }
+ 
+-BOOT_CODE static void release_secondary_cpus(void)
++BOOT_CODE static void release_secondary_cpus(word_t target_cpus)
+ {
+     /* release the cpus at the same time */
+     assert(0 == node_boot_lock); /* Sanity check for a proper lock state. */
+@@ -345,7 +511,7 @@ BOOT_CODE static void release_secondary_cpus(void)
+ #endif
+ 
+     /* Wait until all the secondary cores are done initialising */
+-    while (ksNumCPUs != CONFIG_MAX_NUM_NODES) {
++    while (ksNumCPUs != target_cpus) {
+ #ifdef ENABLE_SMP_CLOCK_SYNC_TEST_ON_BOOT
+         NODE_STATE(ksCurTime) = getCurrentTime();
+ #endif
+@@ -460,7 +626,26 @@ static BOOT_CODE bool_t try_init_kernel(
+         return false;
+     }
+ 
+-    if (!arch_init_freemem(ui_p_reg, dtb_p_reg, it_v_reg, extra_bi_size_bits)) {
++    word_t num_cpus = CONFIG_MAX_NUM_NODES;
++    const p_region_t *mem_regs = avail_p_regs;
++    word_t num_mem_regs = ARRAY_SIZE(avail_p_regs);
++#ifdef CONFIG_PLAT_APPLE_VZ
++    BOOT_BSS static p_region_t fdt_mem_regs[MAX_NUM_FREEMEM_REG];
++    if (dtb_size > 0) {
++        word_t fdt_n_regs = 0;
++        word_t fdt_n_cpus = 0;
++        apple_vz_parse_fdt((const void *)paddr_to_pptr(dtb_phys_addr), dtb_size,
++                           fdt_mem_regs, MAX_NUM_FREEMEM_REG, &fdt_n_regs, &fdt_n_cpus);
++        if (fdt_n_regs > 0) {
++            mem_regs = fdt_mem_regs;
++            num_mem_regs = fdt_n_regs;
++        }
++        if (fdt_n_cpus > 0) {
++            num_cpus = fdt_n_cpus > CONFIG_MAX_NUM_NODES ? CONFIG_MAX_NUM_NODES : fdt_n_cpus;
++        }
++    }
++#endif
++    if (!arch_init_freemem(ui_p_reg, dtb_p_reg, it_v_reg, extra_bi_size_bits, num_mem_regs, mem_regs)) {
+         printf("ERROR: free memory management initialization failed\n");
+         return false;
+     }
+@@ -486,7 +671,7 @@ static BOOT_CODE bool_t try_init_kernel(
+     init_smc(root_cnode_cap);
+ #endif
+ 
+-    populate_bi_frame(0, CONFIG_MAX_NUM_NODES, ipcbuf_vptr, extra_bi_size);
++    populate_bi_frame(0, num_cpus, ipcbuf_vptr, extra_bi_size);
+ 
+     /* put DTB in the bootinfo block, if present. */
+     seL4_BootInfoHeader header;
+@@ -568,7 +753,7 @@ static BOOT_CODE bool_t try_init_kernel(
+     }
+ 
+ #ifdef CONFIG_KERNEL_MCS
+-    init_sched_control(root_cnode_cap, CONFIG_MAX_NUM_NODES);
++    init_sched_control(root_cnode_cap, num_cpus);
+ #endif
+ 
+     /* create the initial thread's IPC buffer */
+@@ -645,7 +830,7 @@ static BOOT_CODE bool_t try_init_kernel(
+ 
+     /* initialize BKL before booting up other cores */
+     SMP_COND_STATEMENT(clh_lock_init());
+-    SMP_COND_STATEMENT(release_secondary_cpus());
++    SMP_COND_STATEMENT(release_secondary_cpus(num_cpus));
+ 
+     /* All cores now use the kernel's translation tables. Before this point,
+      * secondary cores still need the loader's tables, which reside in free
+diff --git a/src/arch/arm/machine/gic_v3.c b/src/arch/arm/machine/gic_v3.c
+index ad9769a..342d4dc 100644
+--- a/src/arch/arm/machine/gic_v3.c
++++ b/src/arch/arm/machine/gic_v3.c
+@@ -15,7 +15,11 @@
+ /* One GICR region and one GICR_SGI region */
+ #define GICR_PER_CORE_SIZE  (0x20000)
+ /* Assume 8 cores */
++#ifdef CONFIG_PLAT_APPLE_VZ
++#define GICR_SIZE           (0x1e0000)
++#else
+ #define GICR_SIZE           (0x100000)
++#endif
+ 
+ #define GIC_DEADLINE_MS 2
+ #define GIC_REG_WIDTH   32
+@@ -191,7 +195,7 @@ BOOT_CODE static void dist_init(void)
+     }
+ 
+     /* group 1 for non-secure */
+-    if (config_set(CONFIG_PLAT_QEMU_ARM_VIRT)) {
++    if (config_set(CONFIG_PLAT_QEMU_ARM_VIRT) || config_set(CONFIG_PLAT_APPLE_VZ)) {
+         for (i = SPI_START; i < nr_lines; i += 32) {
+             gic_dist->igrouprn[(i / 32)] = IRQ_SET_ALL;
+         }
+@@ -254,7 +258,7 @@ BOOT_CODE static void gicr_locate_interface(void)
+      */
+     for (offset = 0; offset < GICR_SIZE; offset += GICR_PER_CORE_SIZE) {
+ 
+-        uint64_t typer = ((struct gic_rdist_map *)((word_t)gicr_base + offset))->typer;
++        uint64_t typer = ((volatile struct gic_rdist_map *)((word_t)gicr_base + offset))->typer;
+         if ((typer >> 32) == ((MPIDR_AFF3(mpidr) << 24) |
+                               (MPIDR_AFF2(mpidr) << 16) |
+                               (MPIDR_AFF1(mpidr) <<  8) |
+@@ -287,6 +291,10 @@ BOOT_CODE static void gicr_locate_interface(void)
+             }
+             break;
+         }
++        if (typer & BIT(4)) {
++            offset = GICR_SIZE;
++            break;
++        }
+     }
+     if (offset >= GICR_SIZE) {
+         printf("GICv3: GICR base for CPU %d %d %d %d (Logic ID %d) not found\n",
+@@ -322,7 +330,7 @@ BOOT_CODE static void gicr_init(void)
+      */
+     gic_rdist_sgi_ppi_map[CURRENT_CPU_INDEX()]->icenabler0 = 0xffff0000;
+     gic_rdist_sgi_ppi_map[CURRENT_CPU_INDEX()]->isenabler0 = 0x0000ffff;
+-    if (config_set(CONFIG_PLAT_QEMU_ARM_VIRT)) {
++    if (config_set(CONFIG_PLAT_QEMU_ARM_VIRT) || config_set(CONFIG_PLAT_APPLE_VZ)) {
+         gic_rdist_sgi_ppi_map[CURRENT_CPU_INDEX()]->igroupr0 = IRQ_SET_ALL;
+     }
+ 
+@@ -434,5 +442,25 @@ void arch_ipi_send_target(irq_t irq, word_t cpuTargetList)
+     uint64_t sgi1r_base = ((word_t) IRQT_TO_IRQ(irq)) << ICC_SGI1R_INTID_SHIFT;
+     word_t sgi1r[CONFIG_MAX_NUM_NODES];
+     word_t last_aff1 = 0;
++#ifdef CONFIG_PLAT_APPLE_VZ
++    (void)sgi1r;
++    (void)last_aff1;
++    dsb();
++    for (word_t i = 0; i < CONFIG_MAX_NUM_NODES; i++) {
++        if (cpuTargetList & BIT(i)) {
++            word_t mpidr = mpidr_map[i];
++            uint64_t aff0 = MPIDR_AFF0(mpidr);
++            uint64_t val = sgi1r_base
++                | (1ULL << (aff0 & 0xf))
++                | (((aff0 >> 4) & 0xf) << ICC_SGI1R_RS_SHIFT)
++                | ((uint64_t)MPIDR_AFF1(mpidr) << ICC_SGI1R_AFF1_SHIFT)
++                | ((uint64_t)MPIDR_AFF2(mpidr) << ICC_SGI1R_AFF2_SHIFT)
++                | ((uint64_t)MPIDR_AFF3(mpidr) << ICC_SGI1R_AFF3_SHIFT);
++            SYSTEM_WRITE_64(ICC_SGI1R_EL1, val);
++        }
++    }
++    isb();
++    return;
++#endif
+ 
+     for (word_t i = 0; i < CONFIG_MAX_NUM_NODES; i++) {
+diff --git a/src/arch/arm/machine/io.c b/src/arch/arm/machine/io.c
+index ca859bb..1181ae3 100644
+--- a/src/arch/arm/machine/io.c
++++ b/src/arch/arm/machine/io.c
+@@ -11,13 +11,21 @@
+ #ifdef CONFIG_PRINTING
+ void kernel_putDebugChar(unsigned char c)
+ {
++#ifdef CONFIG_PLAT_APPLE_VZ
++    (void)c;
++#else
+     uart_console_putchar(c);
++#endif
+ }
+ #endif /* CONFIG_PRINTING */
+ 
+ #ifdef CONFIG_DEBUG_BUILD
+ unsigned char kernel_getDebugChar(void)
+ {
++#ifdef CONFIG_PLAT_APPLE_VZ
++    return 0;
++#else
+     return uart_drv_getchar();
++#endif
+ }
+ #endif /* CONFIG_DEBUG_BUILD */
+diff --git a/src/drivers/timer/generic_timer.c b/src/drivers/timer/generic_timer.c
+index 855b32f..0d96cb3 100644
+--- a/src/drivers/timer/generic_timer.c
++++ b/src/drivers/timer/generic_timer.c
+@@ -6,13 +6,13 @@
+ 
+ #include <drivers/timer/arm_generic.h>
+ 
+-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_PLAT_QEMU_ARM_VIRT) && defined(CONFIG_KERNEL_MCS)
++#if defined(CONFIG_ARCH_AARCH64) && (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ)) && defined(CONFIG_KERNEL_MCS)
+ word_t armKSGenericTimerFrequency = TIMER_CLOCK_HZ;
+ #endif
+ 
+ BOOT_CODE void initGenericTimer(void)
+ {
+-#if defined(CONFIG_ARCH_AARCH64) && defined(CONFIG_PLAT_QEMU_ARM_VIRT) && defined(CONFIG_KERNEL_MCS)
++#if defined(CONFIG_ARCH_AARCH64) && (defined(CONFIG_PLAT_QEMU_ARM_VIRT) || defined(CONFIG_PLAT_APPLE_VZ)) && defined(CONFIG_KERNEL_MCS)
+     word_t frequency;
+     SYSTEM_READ_WORD(CNTFRQ, frequency);
+     if (CURRENT_CPU_INDEX() == 0) {
+diff --git a/src/plat/apple-vz/apple-vz.dts b/src/plat/apple-vz/apple-vz.dts
+new file mode 100644
+index 0000000..9157f3a
+--- /dev/null
++++ b/src/plat/apple-vz/apple-vz.dts
+@@ -0,0 +1,41 @@
++/dts-v1/;
++
++/ {
++	#address-cells = <0x2>;
++	#size-cells = <0x2>;
++	interrupt-parent = <&gic>;
++
++	chosen {
++		seL4,elfloader-devices = &{/psci}, &{/timer};
++		seL4,kernel-devices = &{/intc@10000000}, &{/timer};
++	};
++
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x0 0x80000000 0x0 0x80000000>;
++	};
++
++	gic: intc@10000000 {
++		compatible = "arm,gic-v3";
++		#address-cells = <0x2>;
++		#size-cells = <0x2>;
++		#interrupt-cells = <0x3>;
++		interrupt-controller;
++		reg = <0x0 0x10000000 0x0 0x10000
++		       0x0 0x10010000 0x0 0x1e0000>;
++	};
++
++	psci {
++		compatible = "arm,psci-0.2";
++		method = "hvc";
++	};
++
++	timer {
++		compatible = "arm,armv8-timer";
++		always-on;
++		interrupts = <0x1 0xd 0x3f08
++		              0x1 0xe 0x3f08
++		              0x1 0xb 0x3f08
++		              0x1 0xa 0x3f08>;
++	};
++};
+diff --git a/src/plat/apple-vz/config.cmake b/src/plat/apple-vz/config.cmake
+new file mode 100644
+index 0000000..bc6e894
+--- /dev/null
++++ b/src/plat/apple-vz/config.cmake
+@@ -0,0 +1,18 @@
++# Copyright 2026, AFK AI, Inc.
++# SPDX-License-Identifier: GPL-2.0-only
++
++declare_platform(apple-vz KernelPlatformAppleVz PLAT_APPLE_VZ KernelArchARM)
++
++if(KernelPlatformAppleVz)
++  declare_seL4_arch(aarch64)
++  set(KernelArchArmV8a ON)
++  set(KernelArmCortexA57 ON)
++  config_set(KernelARMPlatform ARM_PLAT apple-vz)
++  set(KernelArmGicV3 ON)
++  list(APPEND KernelDTSList "${CMAKE_CURRENT_LIST_DIR}/apple-vz.dts")
++  declare_default_headers(
++    TIMER_FREQUENCY 24000000 MAX_IRQ 159 NUM_PPI 32 TIMER drivers/timer/arm_generic.h
++    INTERRUPT_CONTROLLER arch/machine/gic_v3.h CLK_MAGIC 4611686019llu CLK_SHIFT 58u KERNEL_WCET 10u)
++endif()
++
++add_sources(DEP "KernelPlatformAppleVz" CFILES src/arch/arm/machine/gic_v3.c src/arch/arm/machine/l2c_nop.c)
+diff --git a/tools/hardware.yml b/tools/hardware.yml
+index 23e0252..3db288a 100644
+--- a/tools/hardware.yml
++++ b/tools/hardware.yml
+@@ -46,7 +46,7 @@ devices:
+       - index: 1
+         kernel: GICR_PPTR
+         # Assume 8 cores max
+-        kernel_size: 0x100000
++        kernel_size: 0x1e0000
+     interrupts:
+       INTERRUPT_VGIC_MAINTENANCE: 0
+   # Broadcom second level IRQ controller (interrupt-controller/brcm,bcm2835-armctrl-ic.txt),
+-- 
+2.47.3
+

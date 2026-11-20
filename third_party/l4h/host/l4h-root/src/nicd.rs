@@ -317,9 +317,13 @@ fn windowed(d: &pci::Device, m: &Manifest) -> pci::Device {
 fn bars_for(d: &pci::Device, m: &Manifest) -> Result<u8, &'static str> {
     let w = windowed(d, m);
     let mem = |b: usize| !w.bars[b].is_io && w.bars[b].size != 0;
-    let msix = d.msix.ok_or("no MSI-X")?;
-    if (msix.table_size as u16) < m.msix_min {
-        return Err("too few MSI-X entries");
+    let allow_intx = sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) && m.flags & nicd::F_VIRTIO != 0 && is_modern_virtio(d);
+    if let Some(msix) = d.msix {
+        if (msix.table_size as u16) < m.msix_min {
+            return Err("too few MSI-X entries");
+        }
+    } else if !allow_intx {
+        return Err("no MSI-X");
     }
     let mut bars = 0u8;
     for b in 0..6 {
@@ -339,10 +343,12 @@ fn bars_for(d: &pci::Device, m: &Manifest) -> Result<u8, &'static str> {
             return Err("not a virtio device the driver takes");
         }
     }
-    bars |= 1 << msix.table_bar;
-    // The table, whole, inside what is mapped of its BAR.
-    if msix.table_offset as u64 + msix.table_size as u64 * 16 > w.bars[msix.table_bar as usize].size {
-        return Err("its MSI-X table is outside the mapped BAR");
+    if let Some(msix) = d.msix {
+        bars |= 1 << msix.table_bar;
+        // The table, whole, inside what is mapped of its BAR.
+        if msix.table_offset as u64 + msix.table_size as u64 * 16 > w.bars[msix.table_bar as usize].size {
+            return Err("its MSI-X table is outside the mapped BAR");
+        }
     }
     if !mappable(&w, bars) {
         return Err("a BAR is not mappable");
@@ -875,11 +881,12 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
                 None => {}
             }
         }
-        let msix = pdev.msix.unwrap();
-        cfg.msix_table = host::blk::PciRegion {
-            va: (bar_va(msix.table_bar) + msix.table_offset as usize) as u64,
-            len: msix.table_size as u64 * 16,
-        };
+        if let Some(msix) = pdev.msix.filter(|_| !sel4::sel4_cfg_bool!(PLAT_APPLE_VZ)) {
+            cfg.msix_table = host::blk::PciRegion {
+                va: (bar_va(msix.table_bar) + msix.table_offset as usize) as u64,
+                len: msix.table_size as u64 * 16,
+            };
+        }
         if m.flags & nicd::F_VIRTIO != 0 && is_modern_virtio(&pdev) {
             let r = virtio_regions(&pdev, bar_va);
             (cfg.common, cfg.notify, cfg.notify_off_multiplier, cfg.isr, cfg.device_cfg) = (r.common, r.notify, r.notify_mult, r.isr, r.device);
@@ -917,7 +924,7 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
         };
         // A BAR's frames were carved at the first bind, for that driver's
         // window: this one maps no more of them than its own.
-        let msix_bar = 1u8 << pdev.msix.unwrap().table_bar;
+        let msix_bar = pdev.msix.map_or(0u8, |m| 1u8 << m.table_bar);
         for b in (0..6).filter(|b| bars & 1 << b != 0) {
             let frames = crate::blkd::bar_frames(&nics()[i].bars, b);
             let attrs = if (m.bars_wc & !msix_bar) & 1 << b != 0 { crate::blkd::wc_attrs() } else { crate::blkd::DEVICE_ATTRS };
@@ -956,7 +963,7 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
         let n = &mut nics()[i];
         if n.irq.is_none() {
             let s = h.alloc.slots.global(|s| s.alloc());
-            pci::msi_irq(&pdev, vector, &abs_of(root_cap::<cap_type::Null>(s)));
+            pci::msi_irq_core(&pdev, vector, core, &abs_of(root_cap::<cap_type::Null>(s)));
             n.irq = Some(root_cap::<cap_type::IrqHandler>(s));
         }
         let irq = n.irq.unwrap();
@@ -1017,7 +1024,11 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
         h.pci.enable_io(&pdev);
     }
     h.pci.enable(&pdev);
-    h.pci.enable_msix(&pdev);
+    if pdev.msix.is_some() && !sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) {
+        h.pci.enable_msix(&pdev);
+    } else {
+        h.pci.enable_intx(&pdev);
+    }
     component::start(&inst.comp);
     let k = inst.mailbox.send(&Request::Start {}).expect("nicd mailbox room");
     inst.ops[k as usize % RING] = Some(Op::Start);

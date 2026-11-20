@@ -340,7 +340,7 @@ pub fn is_virtio_blk(d: &pci::Device) -> bool {
     d.vendor == VIRTIO_VENDOR
         && (d.device == 0x1042 || d.device == 0x1001)
         && (is_modern_virtio(d) || (d.device == 0x1001 && is_legacy_virtio(d)))
-        && d.msix.is_some()
+        && (d.msix.is_some() || (sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) && is_modern_virtio(d)))
 }
 
 /// A virtio 1.x device with the structures `virtio_regions` gives its
@@ -366,7 +366,7 @@ pub fn is_virtio_scsi(d: &pci::Device) -> bool {
     d.vendor == VIRTIO_VENDOR
         && (d.device == 0x1048 || d.device == 0x1004)
         && (is_modern_virtio(d) || (d.device == 0x1004 && is_legacy_virtio(d)))
-        && d.msix.is_some()
+        && (d.msix.is_some() || (sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) && is_modern_virtio(d)))
 }
 
 pub fn is_nvme(d: &pci::Device) -> bool {
@@ -476,7 +476,8 @@ pub fn start(
     let legacy_io = disk.legacy_io();
     let d = &disk.pci;
     let bar_va = |b: u8| host::MMIO_VA + b as usize * BAR_STRIDE;
-    let msix_table = if disk.kind == blk::BLKD_AHCI { blk::PciRegion::default() } else {
+    let use_msix = !sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) && d.msix.is_some();
+    let msix_table = if disk.kind == blk::BLKD_AHCI || !use_msix { blk::PciRegion::default() } else {
         let msix = d.msix.unwrap();
         blk::PciRegion { va: (bar_va(msix.table_bar) + msix.table_offset as usize) as u64, len: msix.table_size as u64 * 16 }
     };
@@ -573,7 +574,13 @@ pub fn start(
         pci.enable_io(d);
     }
     pci.enable(d);
-    if disk.kind == blk::BLKD_AHCI { pci.enable_msi(d, cfg.msi_address, cfg.msi_data); } else { pci.enable_msix(d); }
+    if disk.kind == blk::BLKD_AHCI {
+        pci.enable_msi(d, cfg.msi_address, cfg.msi_data);
+    } else if use_msix {
+        pci.enable_msix(d);
+    } else {
+        pci.enable_intx(d);
+    }
     let mailbox = Mailbox::new(&comp, mailbox::blkd_mailbox(ctrl), &wiring::ROOT_BLKD_CALL, &wiring::BLKD_DONE, alloc, &mut arena, &mut keep_slot);
     component::start(&comp);
 

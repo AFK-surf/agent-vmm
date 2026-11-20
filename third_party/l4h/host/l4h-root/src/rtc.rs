@@ -21,7 +21,10 @@ impl Rtc {
         #[cfg(target_arch = "x86_64")]
         { Self { port: crate::pci::io_ports(alloc, 0x70, 2), century: None } }
         #[cfg(target_arch = "aarch64")]
-        { Self { frame: _devmem.frames(&mut alloc.slots, 0x0901_0000, 4096).map(|f| crate::devmem::granule(f.start)) } }
+        {
+            let base = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x2005_0000 } else { 0x0901_0000 };
+            Self { frame: _devmem.frames(&mut alloc.slots, base, 4096).map(|f| crate::devmem::granule(f.start)) }
+        }
     }
 
     /// No RTC: a multikernel partition other than 0, whose clock comes
