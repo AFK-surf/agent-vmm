@@ -11,9 +11,15 @@ use serde_json::json;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use vmm_lifecycle::Deadline;
 
-/// A retryable failure is retried under the same request this long after its record.
-const RETRY_DELAY: Duration = Duration::from_secs(30);
+/// Retryable failures use bounded exponential backoff starting at 30 seconds and capped at 30 minutes.
+const BASE_RETRY_DELAY_SECS: u64 = 30;
+const MAX_RETRY_DELAY_SECS: u64 = 30 * 60;
 const STAGES: [&str; 7] = ["target_selection", "download", "preparation", "stop", "replace", "recovery", "complete"];
+
+fn retry_delay(attempt: i64) -> Duration {
+    let shift = u32::try_from(attempt.saturating_sub(1)).unwrap_or(0).min(6);
+    Duration::from_secs((BASE_RETRY_DELAY_SECS << shift).min(MAX_RETRY_DELAY_SECS))
+}
 
 fn transition_in_progress(envelope: &mut Envelope, operation: &Facts, code: &str, message: &str) {
     envelope.state = "transition_in_progress".into();
@@ -37,9 +43,9 @@ fn same_artifact(operation: &Facts, options: &Options) -> bool {
 
 /// Decides from the recorded operation whether this invocation must not start an update.
 /// Returns true when the envelope is the answer. Otherwise the envelope keeps only the attempt count.
-fn apply_recorded_operation(envelope: &mut Envelope, operation: &Facts, options: &Options, now: SystemTime) -> bool {
+fn apply_recorded_operation(envelope: &mut Envelope, operation: &Facts, options: &Options, now: SystemTime, already_completed: bool) -> bool {
     let mut answer = envelope.clone();
-    let decided = describe_recorded_operation(&mut answer, operation, options, now);
+    let decided = describe_recorded_operation(&mut answer, operation, options, now, already_completed);
     if decided {
         *envelope = answer;
     } else if let Some(attempt) = answer.facts.remove("attempt") {
@@ -49,7 +55,7 @@ fn apply_recorded_operation(envelope: &mut Envelope, operation: &Facts, options:
 }
 
 /// Describes the recorded operation of this request in the envelope. Returns false when the request can run again.
-fn describe_recorded_operation(envelope: &mut Envelope, operation: &Facts, options: &Options, now: SystemTime) -> bool {
+fn describe_recorded_operation(envelope: &mut Envelope, operation: &Facts, options: &Options, now: SystemTime, already_completed: bool) -> bool {
     if operation.is_empty() {
         return false;
     }
@@ -75,7 +81,9 @@ fn describe_recorded_operation(envelope: &mut Envelope, operation: &Facts, optio
             envelope.stage = "complete".into();
             envelope.disposition = CONTINUE_NORMAL_WORK.into();
             envelope.operation("lifecycle", facts::string(operation, "operationId"));
-            envelope.facts.insert("already_completed".into(), json!(true));
+            if already_completed {
+                envelope.facts.insert("already_completed".into(), json!(true));
+            }
             return true;
         }
         "pending" | "unknown" => {
@@ -87,7 +95,8 @@ fn describe_recorded_operation(envelope: &mut Envelope, operation: &Facts, optio
     }
     envelope.operation("lifecycle", facts::string(operation, "operationId"));
     envelope.stage = first(&[facts::string(operation, "failureStage"), facts::string(operation, "stage"), "preparation"]).into();
-    envelope.facts.insert("attempt".into(), json!(facts::number(operation, "attempt")));
+    let attempt = facts::number(operation, "attempt");
+    envelope.facts.insert("attempt".into(), json!(attempt));
     let code = first(&[facts::string(operation, "failureCode"), "update_failed"]);
     let message = bounded(facts::string(operation, "failureMessage"), 512);
     if !facts::boolean(operation, "retryable") && facts::string(operation, "failureCode") != "update_retry_limit_reached" {
@@ -98,7 +107,7 @@ fn describe_recorded_operation(envelope: &mut Envelope, operation: &Facts, optio
         return true;
     }
     let recorded = UNIX_EPOCH + Duration::from_millis(u64::try_from(facts::number(operation, "updatedAt")).unwrap_or(0));
-    let retry_at = recorded + RETRY_DELAY;
+    let retry_at = recorded + retry_delay(attempt);
     if now < retry_at {
         envelope.state = "retry_wait".into();
         envelope.disposition = RETRY_SAME_REQUEST_AT.into();
@@ -150,7 +159,7 @@ pub fn update(session: Session, options: &Options) -> Result<Envelope, String> {
         return Ok(envelope);
     }
     let recorded = facts::object(&status, "operation").cloned().unwrap_or_default();
-    if apply_recorded_operation(&mut envelope, &recorded, options, session.runtime.now()) {
+    if apply_recorded_operation(&mut envelope, &recorded, options, session.runtime.now(), true) {
         return Ok(envelope);
     }
     let prepared = match session.runtime.prepare_update(options, &status) {
@@ -168,7 +177,7 @@ pub fn update(session: Session, options: &Options) -> Result<Envelope, String> {
                 envelope.next_action = next("review_update_failure", "administrator");
                 return Ok(envelope);
             };
-            describe_recorded_operation(&mut envelope, &operation, options, session.runtime.now());
+            describe_recorded_operation(&mut envelope, &operation, options, session.runtime.now(), false);
             return Ok(envelope);
         }
     };
@@ -207,7 +216,7 @@ pub fn update(session: Session, options: &Options) -> Result<Envelope, String> {
     if facts::string(&operation, "outcome") == "succeeded" && session.runtime.remove_prepared(&prepared).is_err() {
         return Err("retired Host bundle could not be removed after successful update".into());
     }
-    if apply_recorded_operation(&mut envelope, &operation, options, session.runtime.now()) {
+    if apply_recorded_operation(&mut envelope, &operation, options, session.runtime.now(), false) {
         return Ok(envelope);
     }
     envelope.state = facts::string(&operation, "outcome").into();

@@ -52,6 +52,7 @@ The service user then retries the same lifecycle request.
 6. Confirm Guest health, registration connectivity, and an existing runtime session.
 
 Preparation verifies the selected artifact before it stops or replaces the installed Host.
+Artifact download resumes with HTTP Range requests across interrupted attempts.
 The lifecycle owner records `stop`, `replace`, `restore`, and `settled`.
 It stops the VM, confirms process exit and disk release, then exchanges the complete applications.
 The database, keys, registrations, workloads, volumes, and state disk stay in place.
@@ -59,7 +60,7 @@ After replacement, repair forward with the same request and artifact.
 The previous application remains recovery evidence until the owner verifies the replacement.
 It is not a runnable rollback target after state changes.
 
-A retryable stage has a 30-second cooldown. Continue the same request and selected artifact after a failure.
+A retryable stage uses exponential backoff starting at 30 seconds and capped at 30 minutes. Continue the same request and selected artifact after a failure.
 The native owner does not apply a lifetime retry count.
 A terminal refusal requires a new explicit decision.
 CLI observation lasts at most 30 seconds. It does not cancel accepted owner work.

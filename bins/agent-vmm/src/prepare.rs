@@ -5,13 +5,18 @@ use crate::envelope::bounded;
 use crate::facts::{self, Facts};
 use crate::options::Options;
 use crate::runtime::PreparationError;
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 const MAX_ARTIFACT_BYTES: u64 = 4 << 30;
 const DOWNLOAD_TIMEOUT: Duration = Duration::from_secs(600);
+const IDLE_TIMEOUT: Duration = Duration::from_secs(60);
+const PART_PREFIX: &str = ".agent-vmm-update-";
+const PART_SUFFIX: &str = ".archive.part";
+const META_SUFFIX: &str = ".archive.part.json";
 
 /// The name of the installed Host below its parent directory.
 #[cfg(target_os = "macos")]
@@ -40,6 +45,102 @@ fn artifact_url(text: &str) -> Option<url::Url> {
     (url.scheme() == "https" && url.host_str().is_some_and(|host| !host.is_empty()) && plain).then_some(url)
 }
 
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
+struct PartMetadata {
+    url: String,
+    artifact_sha256: String,
+    artifact_size: u64,
+    validator: Option<String>,
+}
+
+impl PartMetadata {
+    fn matches(&self, url: &url::Url, options: &Options) -> bool {
+        self.url == url.as_str() && self.artifact_sha256.eq_ignore_ascii_case(&options.artifact_sha256) && self.artifact_size == options.artifact_size
+    }
+}
+
+fn part_path(parent: &Path, request_id: &str) -> PathBuf {
+    parent.join(format!("{PART_PREFIX}{request_id}{PART_SUFFIX}"))
+}
+
+fn meta_path(parent: &Path, request_id: &str) -> PathBuf {
+    parent.join(format!("{PART_PREFIX}{request_id}{META_SUFFIX}"))
+}
+
+fn remove_part_files(part: &Path, meta: &Path) {
+    let _ = std::fs::remove_file(part);
+    let _ = std::fs::remove_file(meta);
+}
+
+fn cleanup_stale_parts(parent: &Path, request_id: &str) {
+    let keep_part = format!("{PART_PREFIX}{request_id}{PART_SUFFIX}");
+    let keep_meta = format!("{PART_PREFIX}{request_id}{META_SUFFIX}");
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        let Some(name) = name.to_str() else {
+            continue;
+        };
+        let is_part = name.starts_with(PART_PREFIX) && (name.ends_with(PART_SUFFIX) || name.ends_with(META_SUFFIX));
+        if is_part && name != keep_part && name != keep_meta {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
+}
+
+fn read_part_metadata(path: &Path) -> Option<PartMetadata> {
+    let bytes = std::fs::read(path).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
+fn write_part_metadata(path: &Path, metadata: &PartMetadata) -> Result<(), PreparationError> {
+    let bytes = serde_json::to_vec(metadata).map_err(download)?;
+    std::fs::write(path, bytes).map_err(download)
+}
+
+fn response_validator(headers: &ureq::http::HeaderMap) -> Option<String> {
+    headers
+        .get("etag")
+        .and_then(|value| value.to_str().ok())
+        .map(str::trim)
+        .filter(|etag| !etag.is_empty() && !etag.starts_with("W/") && !etag.starts_with("w/"))
+        .or_else(|| headers.get("last-modified").and_then(|value| value.to_str().ok()).map(str::trim).filter(|value| !value.is_empty()))
+        .map(str::to_string)
+}
+
+fn parse_content_range(value: &str) -> Option<(u64, u64, Option<u64>)> {
+    let rest = value.trim().strip_prefix("bytes ")?;
+    let (range, total) = rest.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    let start = start.parse::<u64>().ok()?;
+    let end = end.parse::<u64>().ok()?;
+    if end < start {
+        return None;
+    }
+    let total = if total == "*" { None } else { Some(total.parse::<u64>().ok()?) };
+    Some((start, end, total))
+}
+
+fn verify_part_sha256(path: &Path, expected_size: u64, expected_sha256: &str) -> Result<(), PreparationError> {
+    let mut file = std::fs::File::open(path).map_err(download)?;
+    let (mut hash, mut total, mut chunk) = (Sha256::new(), 0u64, vec![0u8; 1 << 16]);
+    loop {
+        let count = file.read(&mut chunk).map_err(download)?;
+        if count == 0 {
+            break;
+        }
+        hash.update(&chunk[..count]);
+        total += count as u64;
+    }
+    let digest: String = hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
+    if total != expected_size || !digest.eq_ignore_ascii_case(expected_sha256) {
+        return Err(download("Host artifact bytes do not match the selected size and SHA-256"));
+    }
+    Ok(())
+}
+
 pub fn prepare(options: &Options, status: &Facts) -> Result<String, PreparationError> {
     if options.artifact_size == 0 || options.artifact_size > MAX_ARTIFACT_BYTES {
         return Err(PreparationError::at("target_selection", "Host artifact size is outside the managed update bound"));
@@ -51,55 +152,158 @@ pub fn prepare(options: &Options, status: &Facts) -> Result<String, PreparationE
     };
     let staged = prepared_path(&target, &options.request_id);
     let staged_text = staged.display().to_string();
+    let part = part_path(parent, &options.request_id);
+    let meta = meta_path(parent, &options.request_id);
     let current = vmm_lifecycle::release_identity(&target).is_ok_and(|current| current == options.target_release);
     match std::fs::symlink_metadata(&staged) {
-        Ok(_) => return Ok(staged_text),
+        Ok(_) => {
+            remove_part_files(&part, &meta);
+            return Ok(staged_text);
+        }
         // The installed Host is the target: there is nothing to prepare.
-        Err(_) if current => return Ok(String::new()),
+        Err(_) if current => {
+            remove_part_files(&part, &meta);
+            return Ok(String::new());
+        }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
         Err(_) => return Err(preparation("prepared update path is not readable")),
     }
-    let mut archive = tempfile::Builder::new().prefix(".agent-vmm-update-").suffix(".archive").tempfile_in(parent).map_err(download)?;
-    fetch(&url, options, archive.as_file_mut())?;
-    extract(archive.path(), &staged, &options.target_release)?;
+    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
+    let agent = ureq::Agent::config_builder()
+        .timeout_global(Some(DOWNLOAD_TIMEOUT))
+        .timeout_recv_response(Some(IDLE_TIMEOUT))
+        .timeout_per_read(Some(IDLE_TIMEOUT))
+        .http_status_as_error(false)
+        .proxy(ureq::Proxy::try_from_env())
+        .tls_config(tls)
+        .build()
+        .new_agent();
+    fetch_with_agent(&url, options, parent, &agent)?;
+    extract(&part, &staged, &options.target_release)?;
+    remove_part_files(&part, &meta);
     Ok(staged_text)
 }
 
-/// Writes the artifact to `archive` and checks its size and digest.
-fn fetch(url: &url::Url, options: &Options, archive: &mut std::fs::File) -> Result<(), PreparationError> {
-    let tls = ureq::tls::TlsConfig::builder().root_certs(ureq::tls::RootCerts::PlatformVerifier).build();
-    let agent = ureq::Agent::config_builder().timeout_global(Some(DOWNLOAD_TIMEOUT)).http_status_as_error(false).proxy(ureq::Proxy::try_from_env()).tls_config(tls).build().new_agent();
-    let mut response = agent.get(url.as_str()).header("User-Agent", "agent-vmm-managed-updater/1").call().map_err(|error| {
+/// Writes the artifact to a deterministic `.part` file in `parent`, resuming with HTTP Range when possible, and verifies its size and SHA-256.
+fn fetch_with_agent(url: &url::Url, options: &Options, parent: &Path, agent: &ureq::Agent) -> Result<PathBuf, PreparationError> {
+    cleanup_stale_parts(parent, &options.request_id);
+    let part = part_path(parent, &options.request_id);
+    let meta = meta_path(parent, &options.request_id);
+    let (offset, saved_validator) = match (std::fs::metadata(&part), read_part_metadata(&meta)) {
+        (Ok(file_meta), Some(saved)) if file_meta.is_file() && saved.matches(url, options) && file_meta.len() > 0 => (file_meta.len(), saved.validator),
+        _ => {
+            remove_part_files(&part, &meta);
+            (0, None)
+        }
+    };
+    let mut request = agent.get(url.as_str()).header("User-Agent", "agent-vmm-managed-updater/1");
+    if offset > 0 {
+        request = request.header("Range", format!("bytes={offset}-"));
+        if let Some(validator) = saved_validator.as_deref() {
+            request = request.header("If-Range", validator);
+        }
+    }
+    let mut response = request.call().map_err(|error| {
         let cancelled = matches!(error, ureq::Error::Timeout(_));
         PreparationError { cancelled, ..PreparationError::download_unavailable(error.to_string()) }
     })?;
     let status = response.status().as_u16();
-    if status != 200 {
-        let message = format!("Host artifact download returned HTTP {status}");
-        return Err(if (500..=599).contains(&status) { PreparationError::download_unavailable(message) } else { download(message) });
-    }
-    let declared = response.headers().get("content-length").and_then(|value| value.to_str().ok()).and_then(|value| value.parse::<u64>().ok());
-    if declared.is_some_and(|length| length != options.artifact_size) {
-        return Err(download("Host artifact Content-Length does not match the selected target"));
-    }
-    let incomplete = |_| PreparationError::download_unavailable("Host artifact download did not complete");
-    let mut body = response.body_mut().with_config().limit(options.artifact_size + 2).reader().take(options.artifact_size + 1);
-    let (mut hash, mut written, mut chunk) = (Sha256::new(), 0u64, vec![0u8; 1 << 16]);
-    loop {
-        let count = body.read(&mut chunk).map_err(incomplete)?;
-        if count == 0 {
-            break;
+    let (mut file, start_offset) = match status {
+        206 => {
+            let valid_range = offset > 0
+                && offset < options.artifact_size
+                && response
+                    .headers()
+                    .get("content-range")
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(parse_content_range)
+                    .is_some_and(|(start, end, total)| start == offset && total.is_none_or(|size| size == options.artifact_size) && end < options.artifact_size);
+            if !valid_range {
+                remove_part_files(&part, &meta);
+                return Err(PreparationError::download_unavailable("Host artifact Content-Range does not match the resumed offset"));
+            }
+            let metadata = PartMetadata {
+                url: url.as_str().to_string(),
+                artifact_sha256: options.artifact_sha256.to_lowercase(),
+                artifact_size: options.artifact_size,
+                validator: response_validator(response.headers()).or(saved_validator),
+            };
+            write_part_metadata(&meta, &metadata)?;
+            let mut file = std::fs::OpenOptions::new().write(true).open(&part).map_err(download)?;
+            file.seek(SeekFrom::Start(offset)).map_err(download)?;
+            (file, offset)
         }
-        archive.write_all(&chunk[..count]).map_err(incomplete)?;
-        hash.update(&chunk[..count]);
-        written += count as u64;
+        200 => {
+            let declared = response.headers().get("content-length").and_then(|value| value.to_str().ok()).and_then(|value| value.parse::<u64>().ok());
+            if declared.is_some_and(|length| length != options.artifact_size) {
+                remove_part_files(&part, &meta);
+                return Err(download("Host artifact Content-Length does not match the selected target"));
+            }
+            let file = std::fs::OpenOptions::new().create(true).write(true).truncate(true).open(&part).map_err(download)?;
+            let metadata = PartMetadata {
+                url: url.as_str().to_string(),
+                artifact_sha256: options.artifact_sha256.to_lowercase(),
+                artifact_size: options.artifact_size,
+                validator: response_validator(response.headers()),
+            };
+            write_part_metadata(&meta, &metadata)?;
+            (file, 0)
+        }
+        416 => {
+            if offset == options.artifact_size {
+                if let Err(error) = verify_part_sha256(&part, options.artifact_size, &options.artifact_sha256) {
+                    remove_part_files(&part, &meta);
+                    return Err(error);
+                }
+                return Ok(part);
+            }
+            remove_part_files(&part, &meta);
+            return Err(PreparationError::download_unavailable("Host artifact download returned HTTP 416"));
+        }
+        500..=599 => {
+            return Err(PreparationError::download_unavailable(format!("Host artifact download returned HTTP {status}")));
+        }
+        _ => {
+            return Err(download(format!("Host artifact download returned HTTP {status}")));
+        }
+    };
+    let remaining = options.artifact_size - start_offset;
+    let incomplete = |error: std::io::Error| PreparationError {
+        cancelled: error.kind() == std::io::ErrorKind::TimedOut,
+        ..PreparationError::download_unavailable("Host artifact download did not complete")
+    };
+    let mut body = response.body_mut().with_config().limit(remaining + 2).reader().take(remaining + 1);
+    let (mut received, mut chunk) = (0u64, vec![0u8; 1 << 16]);
+    loop {
+        let count = match body.read(&mut chunk) {
+            Ok(0) => break,
+            Ok(count) => count,
+            Err(error) => {
+                let _ = file.flush();
+                return Err(incomplete(error));
+            }
+        };
+        file.write_all(&chunk[..count]).map_err(|error| {
+            let _ = file.flush();
+            incomplete(error)
+        })?;
+        received += count as u64;
     }
-    archive.flush().map_err(incomplete)?;
-    let digest: String = hash.finalize().iter().map(|byte| format!("{byte:02x}")).collect();
-    if written != options.artifact_size || !digest.eq_ignore_ascii_case(&options.artifact_sha256) {
+    file.flush().map_err(incomplete)?;
+    drop(file);
+    let total = start_offset + received;
+    if total < options.artifact_size {
+        return Err(PreparationError::download_unavailable("Host artifact download did not complete"));
+    }
+    if total > options.artifact_size {
+        remove_part_files(&part, &meta);
         return Err(download("Host artifact bytes do not match the selected size and SHA-256"));
     }
-    Ok(())
+    if let Err(error) = verify_part_sha256(&part, options.artifact_size, &options.artifact_sha256) {
+        remove_part_files(&part, &meta);
+        return Err(error);
+    }
+    Ok(part)
 }
 
 #[cfg(target_os = "macos")]
@@ -216,12 +420,208 @@ mod tests {
     fn a_release_that_one_request_prepared_is_used_again() {
         let directory = tempfile::tempdir().unwrap();
         let app = directory.path().canonicalize().unwrap().join(SERVICE_APP_NAME);
+        let parent = app.parent().unwrap();
         let staged = prepared_path(&app, "update-1");
         assert_eq!(staged.parent(), app.parent());
         assert!(staged.file_name().unwrap().to_string_lossy().starts_with('.'), "the prepared release is hidden");
         std::fs::create_dir(&staged).unwrap();
+        let part = part_path(parent, "update-1");
+        let meta = meta_path(parent, "update-1");
+        std::fs::write(&part, b"partial").unwrap();
+        std::fs::write(&meta, b"{}").unwrap();
         // The unroutable URL shows that nothing is downloaded.
         assert_eq!(prepare(&options("https://releases.invalid/host.zip", 42), &status(&app)), Ok(staged.display().to_string()));
+        assert!(!part.exists() && !meta.exists(), "stale part files are removed when staged already exists");
+    }
+
+    fn sha256_hex(bytes: &[u8]) -> String {
+        Sha256::digest(bytes).iter().map(|byte| format!("{byte:02x}")).collect()
+    }
+
+    fn test_agent() -> ureq::Agent {
+        ureq::Agent::config_builder()
+            .timeout_global(Some(Duration::from_secs(10)))
+            .timeout_recv_response(Some(Duration::from_secs(5)))
+            .timeout_per_read(Some(Duration::from_secs(5)))
+            .http_status_as_error(false)
+            .proxy(None)
+            .build()
+            .new_agent()
+    }
+
+    fn spawn_http_server<F>(responses: usize, handler: F) -> (url::Url, std::thread::JoinHandle<Vec<String>>)
+    where
+        F: Fn(usize, &str, &mut std::net::TcpStream) + Send + 'static,
+    {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        let handle = std::thread::spawn(move || {
+            let mut requests = Vec::new();
+            for index in 0..responses {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                let mut buf = Vec::new();
+                let mut byte = [0u8; 1];
+                while !buf.ends_with(b"\r\n\r\n") {
+                    if stream.read(&mut byte).unwrap_or(0) == 0 {
+                        break;
+                    }
+                    buf.push(byte[0]);
+                }
+                let req = String::from_utf8_lossy(&buf).into_owned();
+                handler(index, &req, &mut stream);
+                requests.push(req);
+            }
+            requests
+        });
+        (url::Url::parse(&format!("http://{addr}/host.zip")).unwrap(), handle)
+    }
+
+    #[test]
+    fn interrupted_download_resumes_with_range_and_if_range() {
+        let payload = b"0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ".to_vec();
+        let split = 20usize;
+        let payload_copy = payload.clone();
+        let (url, server) = spawn_http_server(2, move |index, _req, stream| {
+            if index == 0 {
+                let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n", payload_copy.len());
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(&payload_copy[..split]).unwrap();
+                let _ = stream.shutdown(std::net::Shutdown::Both);
+            } else {
+                let rest = &payload_copy[split..];
+                let header = format!(
+                    "HTTP/1.1 206 Partial Content\r\nContent-Range: bytes {}-{}/{}\r\nContent-Length: {}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n",
+                    split,
+                    payload_copy.len() - 1,
+                    payload_copy.len(),
+                    rest.len()
+                );
+                stream.write_all(header.as_bytes()).unwrap();
+                stream.write_all(rest).unwrap();
+            }
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut opts = options(url.as_str(), payload.len() as u64);
+        opts.artifact_sha256 = sha256_hex(&payload);
+        let agent = test_agent();
+
+        let err = fetch_with_agent(&url, &opts, dir.path(), &agent).unwrap_err();
+        assert!(err.retryable && err.code == "update_download_unavailable");
+        let part = part_path(dir.path(), &opts.request_id);
+        let meta = meta_path(dir.path(), &opts.request_id);
+        assert_eq!(std::fs::read(&part).unwrap(), &payload[..split]);
+        assert_eq!(read_part_metadata(&meta).unwrap().validator.as_deref(), Some("\"v1\""));
+
+        let fetched = fetch_with_agent(&url, &opts, dir.path(), &agent).unwrap();
+        assert_eq!(fetched, part);
+        assert_eq!(std::fs::read(&fetched).unwrap(), payload);
+        remove_part_files(&part, &meta);
+        assert!(!part.exists() && !meta.exists());
+
+        let requests = server.join().unwrap();
+        assert!(!requests[0].to_ascii_lowercase().contains("range:"));
+        assert!(requests[1].to_ascii_lowercase().contains(&format!("range: bytes={split}-")));
+        assert!(requests[1].to_ascii_lowercase().contains("if-range: \"v1\""));
+    }
+
+    #[test]
+    fn server_returning_200_to_range_rewrites_from_zero() {
+        let payload = b"fresh-full-artifact-payload".to_vec();
+        let payload_copy = payload.clone();
+        let (url, server) = spawn_http_server(1, move |_index, _req, stream| {
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nETag: \"v2\"\r\nConnection: close\r\n\r\n", payload_copy.len());
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&payload_copy).unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut opts = options(url.as_str(), payload.len() as u64);
+        opts.artifact_sha256 = sha256_hex(&payload);
+        let part = part_path(dir.path(), &opts.request_id);
+        let meta = meta_path(dir.path(), &opts.request_id);
+        std::fs::write(&part, b"stale-prefix").unwrap();
+        write_part_metadata(&meta, &PartMetadata { url: url.as_str().into(), artifact_sha256: opts.artifact_sha256.clone(), artifact_size: opts.artifact_size, validator: Some("\"v1\"".into()) }).unwrap();
+
+        fetch_with_agent(&url, &opts, dir.path(), &test_agent()).unwrap();
+        assert_eq!(std::fs::read(&part).unwrap(), payload);
+        assert_eq!(read_part_metadata(&meta).unwrap().validator.as_deref(), Some("\"v2\""));
+        let requests = server.join().unwrap();
+        assert!(requests[0].to_ascii_lowercase().contains("range: bytes=12-"));
+    }
+
+    #[test]
+    fn http_416_verifies_complete_part_and_cleans_oversized_part() {
+        let payload = b"already-complete-artifact".to_vec();
+        let (url, server) = spawn_http_server(2, |_index, _req, stream| {
+            stream.write_all(b"HTTP/1.1 416 Range Not Satisfiable\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let mut opts = options(url.as_str(), payload.len() as u64);
+        opts.artifact_sha256 = sha256_hex(&payload);
+        let part = part_path(dir.path(), &opts.request_id);
+        let meta = meta_path(dir.path(), &opts.request_id);
+        let metadata = PartMetadata { url: url.as_str().into(), artifact_sha256: opts.artifact_sha256.clone(), artifact_size: opts.artifact_size, validator: None };
+
+        // Complete .part passes verification on 416.
+        std::fs::write(&part, &payload).unwrap();
+        write_part_metadata(&meta, &metadata).unwrap();
+        assert_eq!(fetch_with_agent(&url, &opts, dir.path(), &test_agent()).unwrap(), part);
+
+        // Oversized .part is removed and returns retryable download_unavailable on 416.
+        let mut oversized = payload.clone();
+        oversized.extend_from_slice(b"extra");
+        std::fs::write(&part, &oversized).unwrap();
+        write_part_metadata(&meta, &metadata).unwrap();
+        let err = fetch_with_agent(&url, &opts, dir.path(), &test_agent()).unwrap_err();
+        assert!(err.retryable && err.code == "update_download_unavailable");
+        assert!(!part.exists() && !meta.exists());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn sha256_mismatch_deletes_part_and_sidecar() {
+        let payload = b"corrupted-bytes".to_vec();
+        let payload_copy = payload.clone();
+        let (url, server) = spawn_http_server(1, move |_index, _req, stream| {
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", payload_copy.len());
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&payload_copy).unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let opts = options(url.as_str(), payload.len() as u64);
+        let part = part_path(dir.path(), &opts.request_id);
+        let meta = meta_path(dir.path(), &opts.request_id);
+
+        let err = fetch_with_agent(&url, &opts, dir.path(), &test_agent()).unwrap_err();
+        assert!(!err.retryable && err.code == "update_download_failed");
+        assert!(!part.exists() && !meta.exists());
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn stale_part_files_of_other_requests_are_cleaned_before_download() {
+        let payload = b"ok-payload".to_vec();
+        let payload_copy = payload.clone();
+        let (url, server) = spawn_http_server(1, move |_index, _req, stream| {
+            let header = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", payload_copy.len());
+            stream.write_all(header.as_bytes()).unwrap();
+            stream.write_all(&payload_copy).unwrap();
+        });
+        let dir = tempfile::tempdir().unwrap();
+        let old_part = part_path(dir.path(), "old-request");
+        let old_meta = meta_path(dir.path(), "old-request");
+        let unrelated = dir.path().join("keep-me.txt");
+        std::fs::write(&old_part, b"old").unwrap();
+        std::fs::write(&old_meta, b"{}").unwrap();
+        std::fs::write(&unrelated, b"keep").unwrap();
+
+        let mut opts = options(url.as_str(), payload.len() as u64);
+        opts.artifact_sha256 = sha256_hex(&payload);
+        fetch_with_agent(&url, &opts, dir.path(), &test_agent()).unwrap();
+
+        assert!(!old_part.exists() && !old_meta.exists());
+        assert!(unrelated.exists());
+        server.join().unwrap();
     }
 
     #[test]

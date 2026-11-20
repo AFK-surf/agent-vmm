@@ -39,6 +39,7 @@ fn a_prepared_release_is_given_to_the_lifecycle_owner_once() {
     let fake = machine(vec![healthy(), printed(operation(json!({"outcome": "succeeded", "stage": "complete"})))], Some(Ok(PREPARED.into())));
     let report = answer(&fake);
     assert_eq!((report["state"].as_str(), report["stage"].as_str(), report["disposition"].as_str(), &report["operation_ref"]), (Some("succeeded"), Some("complete"), Some("continue_normal_work"), &json!({"owner": "lifecycle", "id": "lifecycle-1"})));
+    assert!(report["facts"].get("already_completed").is_none(), "a freshly completed update is not marked already_completed");
     assert_eq!((report["facts"]["target_release_id"].as_str(), report["facts"]["artifact_sha256"].as_str(), report["facts"]["artifact_size"].as_u64(), &report["source"]), (Some("agent-vmm-2"), Some(DIGEST), Some(42), &json!(["release_target", "lifecycle"])));
     assert_eq!(fake.helper_calls.borrow()[1].0, ["host-update", "--source-app", PREPARED, "--target-release-id", "agent-vmm-2", "--request-id", "update-1", "--artifact-sha256", DIGEST, "--artifact-size", "42"]);
     assert_eq!(*fake.removed.borrow(), [PREPARED], "the retired release is removed after the owner finished");
@@ -71,19 +72,26 @@ fn an_update_never_starts_where_it_cannot_finish() {
 
 #[test]
 fn a_recorded_failure_is_retried_only_after_its_delay() {
-    let failure = |age: Duration, code: &str, retryable: bool| operation(json!({"outcome": "failed", "failureStage": "download", "failureCode": code, "failureMessage": "HTTP 503", "retryable": retryable, "attempt": 2, "updatedAt": millis(now() - age)}));
-    let waiting = answer_of(machine(vec![status(json!({"operation": failure(Duration::from_secs(10), "update_download_unavailable", true)}))], None));
-    assert_eq!((waiting["state"].as_str(), waiting["stage"].as_str(), waiting["disposition"].as_str(), waiting["facts"]["retry_at"].as_str(), waiting["facts"]["attempt"].as_u64()), (Some("retry_wait"), Some("download"), Some("retry_same_request_at"), Some("2026-11-18T11:07:00Z"), Some(2)));
+    let failure = |attempt: u64, age: Duration, code: &str, retryable: bool| operation(json!({"outcome": "failed", "failureStage": "download", "failureCode": code, "failureMessage": "HTTP 503", "retryable": retryable, "attempt": attempt, "updatedAt": millis(now() - age)}));
+    let waiting = answer_of(machine(vec![status(json!({"operation": failure(2, Duration::from_secs(10), "update_download_unavailable", true)}))], None));
+    assert_eq!((waiting["state"].as_str(), waiting["stage"].as_str(), waiting["disposition"].as_str(), waiting["facts"]["retry_at"].as_str(), waiting["facts"]["attempt"].as_u64()), (Some("retry_wait"), Some("download"), Some("retry_same_request_at"), Some("2026-11-18T11:07:30Z"), Some(2)));
     assert_eq!(waiting["next_action"], json!([{"action": "retry_same_request_id", "permission": "service_user"}]));
 
-    let terminal = answer_of(machine(vec![status(json!({"operation": failure(Duration::from_secs(300), "update_download_failed", false)}))], None));
+    // Exponential backoff: 30s, 60s, 120s, ..., capped at 1800s from attempt 7 onward.
+    for (attempt, expected_retry_at) in [(1, "2026-11-18T11:07:10Z"), (2, "2026-11-18T11:07:40Z"), (3, "2026-11-18T11:08:40Z"), (7, "2026-11-18T11:36:40Z"), (12, "2026-11-18T11:36:40Z")] {
+        let backoff = answer_of(machine(vec![status(json!({"operation": failure(attempt, Duration::ZERO, "update_download_unavailable", true)}))], None));
+        assert_eq!((backoff["state"].as_str(), backoff["facts"]["retry_at"].as_str()), (Some("retry_wait"), Some(expected_retry_at)), "attempt {attempt}");
+    }
+
+    let terminal = answer_of(machine(vec![status(json!({"operation": failure(2, Duration::from_secs(300), "update_download_failed", false)}))], None));
     assert_eq!((terminal["state"].as_str(), terminal["issue"]["code"].as_str(), &terminal["next_action"]), (Some("action_required"), Some("update_download_failed"), &json!([{"action": "review_update_failure", "permission": "administrator"}])));
 
     // After the delay the same request runs again; so does a request that reached the retry limit of an older owner.
     for (code, retryable) in [("update_download_unavailable", true), ("update_retry_limit_reached", false)] {
-        let fake = machine(vec![status(json!({"operation": failure(Duration::from_secs(31), code, retryable)})), printed(operation(json!({"outcome": "succeeded"})))], Some(Ok(PREPARED.into())));
+        let fake = machine(vec![status(json!({"operation": failure(2, Duration::from_secs(61), code, retryable)})), printed(operation(json!({"outcome": "succeeded"})))], Some(Ok(PREPARED.into())));
         let again = answer(&fake);
         assert_eq!((again["state"].as_str(), again["facts"]["attempt"].as_u64(), fake.helper_commands()), (Some("succeeded"), Some(2), vec!["status".to_string(), "host-update".to_string()]));
+        assert!(again["facts"].get("already_completed").is_none());
     }
 }
 
