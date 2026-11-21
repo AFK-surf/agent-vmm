@@ -560,3 +560,110 @@ async fn carrier_image_upload_releases_unpublished_stage_when_the_host_disconnec
     assert!(matches!(refused, Err(Error::Fenced)));
     Ok(())
 }
+
+#[tokio::test]
+async fn stage_erofs_promotes_idempotently_and_recovers_orphaned_stage_on_restart() -> Result<()> {
+    use crate::remote::{Connect, RemoteImageStage, serve_host_connection};
+    use sha2::{Digest as _, Sha256};
+    use std::io::Seek;
+    use tokio::net::{UnixListener, UnixStream};
+    struct Dial(std::path::PathBuf);
+    #[async_trait::async_trait]
+    impl Connect for Dial {
+        async fn connect(&self) -> std::io::Result<UnixStream> {
+            UnixStream::connect(&self.0).await
+        }
+    }
+
+    let (dir, pool, ctl) = setup()?;
+    let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+    let (bytes, digest) = crate::image::tests::fixture(false);
+    let archive = dir.path().join("verified.tar");
+    std::fs::write(&archive, bytes)?;
+    let mut built = crate::image::build_plain(&archive, digest, dir.path())?;
+    let physical_bytes = built.file.as_file().metadata()?.len();
+    built.file.as_file_mut().rewind()?;
+    let mut sha = Sha256::new();
+    std::io::copy(built.file.as_file_mut(), &mut sha)?;
+    let erofs_sha256: Digest = sha.finalize().into();
+
+    let sockets = tempfile::tempdir_in("/tmp")?;
+    let dial = Dial(sockets.path().join("dom0.sock"));
+    let listener = UnixListener::bind(&dial.0)?;
+
+    // 1. StageErofs allocates `stage/<token>` directly in the bare pool and promotes atomically.
+    let accept = async {
+        let (socket, _) = listener.accept().await?;
+        serve_host_connection(socket, &b).await
+    };
+    let upload = async {
+        let stage = RemoteImageStage::upload_erofs(
+            &dial,
+            built.file.path(),
+            digest,
+            physical_bytes,
+            erofs_sha256,
+            built.defaults.clone(),
+        )
+        .await?;
+        assert!(!stage.source.staged_extent.is_empty());
+        assert_eq!(b.disk_accounting()?.2, 0); // zero bytes on staging filesystem
+        assert!(b.pool.has_object(&format!("stage/{}", stage.source.staged_extent))?);
+        let artifact = b.install_image_artifact(&stage.source).await?;
+        assert_eq!(artifact.physical_bytes, physical_bytes);
+        assert!(!b.pool.has_object(&format!("stage/{}", stage.source.staged_extent))?);
+        assert!(b.image_installed(digest)?);
+        drop(stage);
+        Ok::<_, Error>(())
+    };
+    tokio::try_join!(accept, upload)?;
+
+    // 2. Second StageErofs for the same manifest short-circuits with 0-byte transfer.
+    let accept = async {
+        let (socket, _) = listener.accept().await?;
+        serve_host_connection(socket, &b).await
+    };
+    let short_circuit = async {
+        let stage = RemoteImageStage::upload_erofs(
+            &dial,
+            built.file.path(),
+            digest,
+            physical_bytes,
+            erofs_sha256,
+            built.defaults.clone(),
+        )
+        .await?;
+        assert!(stage.source.staged_extent.is_empty());
+        let artifact = b.install_image_artifact(&stage.source).await?;
+        assert_eq!(artifact.physical_bytes, physical_bytes);
+        Ok::<_, Error>(())
+    };
+    tokio::try_join!(accept, short_circuit)?;
+
+    // 3. Idempotent promotion when a duplicate `stage/<token>` exists alongside an installed image.
+    let dup_token = "a".repeat(32);
+    let dup_obj = format!("stage/{dup_token}");
+    b.pool.allocate(&dup_obj, physical_bytes)?;
+    b.catalog()
+        .put(&dup_obj, &(digest, built.defaults.clone(), physical_bytes))?;
+    let artifact = b
+        .install_image_artifact(&ImageSource {
+            manifest_digest: digest,
+            staged_extent: dup_token.clone(),
+            physical_bytes,
+        })
+        .await?;
+    assert_eq!(artifact.physical_bytes, physical_bytes);
+    assert!(!b.pool.has_object(&dup_obj)?);
+
+    // 4. Crash recovery: orphaned `stage/*` object is discarded by `recover_transients` on reopen.
+    let orphan_token = "b".repeat(32);
+    let orphan_obj = format!("stage/{orphan_token}");
+    b.pool.allocate(&orphan_obj, physical_bytes)?;
+    drop(b);
+    let reopened = open(&pool, &ctl, options(dir.path()))?;
+    assert!(reopened.pool.has_object(&orphan_obj)?);
+    reopened.recover_transients().await?;
+    assert!(!reopened.pool.has_object(&orphan_obj)?);
+    Ok(())
+}

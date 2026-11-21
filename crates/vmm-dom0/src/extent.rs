@@ -27,6 +27,14 @@ impl Headroom for FilesystemHeadroom {
     }
 }
 
+/// Used when the pool lives on a dedicated block device whose host enforces physical headroom.
+pub struct UnlimitedHeadroom;
+impl Headroom for UnlimitedHeadroom {
+    fn available_bytes(&self) -> Result<u64> {
+        Ok(u64::MAX)
+    }
+}
+
 pub struct Pool {
     pub(crate) db: Mutex<Connection>,
     ctl: Control,
@@ -210,6 +218,65 @@ impl Pool {
             return Err(Error::Missing("pool object"));
         }
         Ok(ext)
+    }
+
+    pub(crate) fn has_object(&self, name: &str) -> Result<bool> {
+        let db = self.db.lock().map_err(|_| Error::Interrupted)?;
+        Ok(db.query_row(
+            "SELECT EXISTS(SELECT 1 FROM objects WHERE name=?)",
+            [name],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Atomically promote a pool-allocated `stage/<token>` object into `image/<hex>`
+    /// in a single `Immediate` transaction (since `extents` has no `ON UPDATE CASCADE`).
+    /// Returns `Ok(true)` if promoted, or `Ok(false)` if `image/<hex>` was already
+    /// installed (caller should then `discard(stage_obj)`).
+    pub(crate) fn promote_staged_image(
+        &self,
+        stage_obj: &str,
+        image_obj: &str,
+        defaults: &crate::image::Defaults,
+        expected_bytes: u64,
+    ) -> Result<bool> {
+        let mut db = self.db.lock().map_err(|_| Error::Interrupted)?;
+        let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let already_installed: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM images i JOIN objects o ON o.name=i.object WHERE i.object=?1)",
+            [image_obj],
+            |r| r.get(0),
+        )?;
+        if already_installed {
+            tx.execute("DELETE FROM properties WHERE id=?1", [stage_obj])?;
+            tx.commit()?;
+            return Ok(false);
+        }
+        let bytes: u64 = tx
+            .query_row("SELECT bytes FROM objects WHERE name=?1", [stage_obj], |r| {
+                read_unsigned(r, 0)
+            })
+            .optional()?
+            .ok_or(Error::Missing("staged image"))?;
+        if bytes != expected_bytes || bytes == 0 || !bytes.is_multiple_of(BLOCK_BYTES) {
+            return Err(Error::Invalid("staged image length"));
+        }
+        tx.execute(
+            "INSERT INTO objects(name,bytes) VALUES(?1,?2)",
+            params![image_obj, sql_integer(bytes)?],
+        )?;
+        tx.execute(
+            "UPDATE extents SET object=?1 WHERE object=?2",
+            params![image_obj, stage_obj],
+        )?;
+        tx.execute("DELETE FROM objects WHERE name=?1", [stage_obj])?;
+        tx.execute(
+            "INSERT INTO images(object,defaults) VALUES(?1,?2)",
+            params![image_obj, serde_json::to_string(defaults)?],
+        )?;
+        tx.execute("DELETE FROM properties WHERE id=?1", [stage_obj])?;
+        tx.commit()?;
+        Ok(true)
     }
 
     pub fn allocate(&self, name: &str, bytes: u64) -> Result<Vec<DiskExtent>> {

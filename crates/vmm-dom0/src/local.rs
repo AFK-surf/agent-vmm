@@ -3,7 +3,7 @@ use crate::{
     backend::{LocalDom0Backend, Options},
     boot_server::BootServer,
     dns::DnsServer,
-    extent::{DEFAULT_EMERGENCY_BYTES, FilesystemHeadroom, Pool},
+    extent::{DEFAULT_EMERGENCY_BYTES, FilesystemHeadroom, Headroom, Pool, UnlimitedHeadroom},
     keys::MasterKey,
     network::NftablesDriver,
 };
@@ -28,7 +28,8 @@ pub type Result<T> = std::result::Result<T, Box<dyn std::error::Error + Send + S
 #[serde(deny_unknown_fields)]
 pub struct Dom0Config {
     state_dir: PathBuf,
-    backing_filesystem: PathBuf,
+    #[serde(default)]
+    backing_filesystem: Option<PathBuf>,
     disk: u64,
     first_sector: u64,
     sectors: u64,
@@ -137,6 +138,10 @@ impl Dom0Config {
                 "missing pool allocation database; --init-pool provisions an empty disk".into(),
             );
         }
+        let headroom: Arc<dyn Headroom> = match self.backing_filesystem {
+            Some(path) => Arc::new(FilesystemHeadroom(path)),
+            None => Arc::new(UnlimitedHeadroom),
+        };
         let pool = Arc::new(Pool::open(
             &db,
             ctl.clone(),
@@ -145,7 +150,7 @@ impl Dom0Config {
                 sector: self.first_sector,
                 sectors,
             },
-            Arc::new(FilesystemHeadroom(self.backing_filesystem)),
+            headroom,
             self.emergency_bytes.unwrap_or(DEFAULT_EMERGENCY_BYTES),
         )?);
         let mut options = Options::new(

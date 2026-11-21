@@ -60,6 +60,11 @@ pub struct ServiceStatus {
     pub data_schema: u32,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub data_schema_issue: String,
+    pub data_epoch: u64,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub device_id: String,
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub device_identity_state: String,
 }
 
 fn is_zero(value: &u32) -> bool {
@@ -84,6 +89,7 @@ pub fn read(context: &Context, paths: &Paths, registration_id: Option<&str>, dea
         startup: startup::read(paths, operation.as_ref()),
         operation,
         host_start_failure: cutover::read_start_failure(context, paths),
+        data_epoch: journal::read_data_epoch(context, paths),
         ..ServiceStatus::default()
     };
     if registration_id.is_some() {
@@ -116,6 +122,8 @@ pub fn read(context: &Context, paths: &Paths, registration_id: Option<&str>, dea
         result.registration_reason = facts.registration_reason;
         result.remote_protocol = facts.remote_protocol;
         result.connector_loaded = facts.connector_connected;
+        result.device_id = facts.device_id;
+        result.device_identity_state = facts.device_identity_state;
         if let Some(snapshot) = &facts.snapshot {
             result.host_health = go_json("HealthStatus", snapshot.health.as_ref());
             result.host_resources = go_json("LayerResources", snapshot.host_resources.as_ref());

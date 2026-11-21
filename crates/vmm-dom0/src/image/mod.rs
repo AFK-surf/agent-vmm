@@ -6,7 +6,7 @@ use sha2::{Digest as _, Sha256};
 use std::{
     collections::BTreeMap,
     fs::File,
-    io::{BufRead, BufReader, Read, Seek},
+    io::{BufRead, BufReader, Read, Seek, SeekFrom},
     path::{Path, PathBuf},
     process::{Command, Stdio},
 };
@@ -53,12 +53,66 @@ struct RootFs {
     diff_ids: Vec<String>,
 }
 
+enum BlobReader {
+    File(File),
+    Slice {
+        file: File,
+        offset: u64,
+        len: u64,
+        remaining: u64,
+    },
+}
+
+impl BlobReader {
+    fn len(&self) -> std::io::Result<u64> {
+        match self {
+            Self::File(file) => Ok(file.metadata()?.len()),
+            Self::Slice { len, .. } => Ok(*len),
+        }
+    }
+    fn rewind(&mut self) -> std::io::Result<()> {
+        match self {
+            Self::File(file) => file.rewind(),
+            Self::Slice {
+                file,
+                offset,
+                len,
+                remaining,
+            } => {
+                file.seek(SeekFrom::Start(*offset))?;
+                *remaining = *len;
+                Ok(())
+            }
+        }
+    }
+}
+
+impl Read for BlobReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        match self {
+            Self::File(file) => file.read(buf),
+            Self::Slice {
+                file, remaining, ..
+            } => {
+                if *remaining == 0 {
+                    return Ok(0);
+                }
+                let max = (*remaining).min(buf.len() as u64) as usize;
+                let n = file.read(&mut buf[..max])?;
+                *remaining -= n as u64;
+                Ok(n)
+            }
+        }
+    }
+}
+
 enum Content<'a> {
     Layout(&'a Path),
     Tar(BTreeMap<PathBuf, NamedTempFile>),
+    IndexedTar(&'a Path, BTreeMap<PathBuf, (u64, u64)>),
 }
 impl Content<'_> {
-    fn open(&self, path: &Path) -> Result<File> {
+    fn open(&self, path: &Path) -> Result<BlobReader> {
         let key = layers::relative(path)?;
         match self {
             Self::Layout(root) => {
@@ -78,15 +132,30 @@ impl Content<'_> {
                 if !dir.metadata()?.is_file() {
                     return Err(Error::Invalid("OCI blob file"));
                 }
-                Ok(dir)
+                Ok(BlobReader::File(dir))
             }
-            Self::Tar(files) => Ok(files
-                .get(&key)
-                .ok_or(Error::Missing("archive member"))?
-                .reopen()?),
+            Self::Tar(files) => Ok(BlobReader::File(
+                files
+                    .get(&key)
+                    .ok_or(Error::Missing("archive member"))?
+                    .reopen()?,
+            )),
+            Self::IndexedTar(archive, entries) => {
+                let &(offset, len) = entries
+                    .get(&key)
+                    .ok_or(Error::Missing("archive member"))?;
+                let mut file = File::open(archive)?;
+                file.seek(SeekFrom::Start(offset))?;
+                Ok(BlobReader::Slice {
+                    file,
+                    offset,
+                    len,
+                    remaining: len,
+                })
+            }
         }
     }
-    fn blob(&self, d: &Descriptor) -> Result<File> {
+    fn blob(&self, d: &Descriptor) -> Result<BlobReader> {
         let hash = d
             .digest
             .strip_prefix("sha256:")
@@ -109,11 +178,38 @@ pub struct BuiltImage {
 
 const MAX_METADATA_BYTES: u64 = 16 << 20;
 
-fn json<T: serde::de::DeserializeOwned>(file: File) -> Result<T> {
-    if file.metadata()?.len() > MAX_METADATA_BYTES {
+fn json<T: serde::de::DeserializeOwned>(file: BlobReader) -> Result<T> {
+    if file.len()? > MAX_METADATA_BYTES {
         return Err(Error::Invalid("image metadata size"));
     }
     Ok(serde_json::from_reader(file)?)
+}
+
+fn open_outer<'a>(source: &'a Path, tmp: &Path) -> Result<Content<'a>> {
+    let mut file = File::open(source)?;
+    let mut sig = [0u8; 4];
+    let n = file.read(&mut sig)?;
+    file.rewind()?;
+    if (n >= 2 && sig[..2] == [0x1f, 0x8b]) || (n >= 4 && sig == [0x28, 0xb5, 0x2f, 0xfd]) {
+        return Ok(Content::Tar(unpack_outer(file, tmp)?));
+    }
+    let mut entries = BTreeMap::new();
+    for member in tar::Archive::new(file).entries_with_seek()? {
+        let member = member?;
+        if member.header().entry_type().is_dir() {
+            continue;
+        }
+        if !member.header().entry_type().is_file() {
+            return Err(Error::Invalid("outer archive member"));
+        }
+        let key = layers::relative(&member.path()?)?;
+        let offset = member.raw_file_position();
+        let size = member.size();
+        if entries.insert(key, (offset, size)).is_some() {
+            return Err(Error::Invalid("duplicate archive member"));
+        }
+    }
+    Ok(Content::IndexedTar(source, entries))
 }
 
 fn unpack_outer(file: File, tmp: &Path) -> Result<BTreeMap<PathBuf, NamedTempFile>> {
@@ -136,7 +232,7 @@ fn unpack_outer(file: File, tmp: &Path) -> Result<BTreeMap<PathBuf, NamedTempFil
     Ok(files)
 }
 
-fn decompressed(file: File) -> Result<Box<dyn Read>> {
+fn decompressed<R: Read + 'static>(file: R) -> Result<Box<dyn Read>> {
     let mut reader = BufReader::new(file);
     let sig = reader.fill_buf()?;
     if sig.starts_with(&[0x1f, 0x8b]) {
@@ -152,7 +248,7 @@ fn layers_and_config(
     src: &Content<'_>,
     expected: Digest,
     trusted_builder: bool,
-) -> Result<(Config, Vec<File>)> {
+) -> Result<(Config, Vec<BlobReader>)> {
     if trusted_builder {
         let layout: serde_json::Value = json(src.open(Path::new("oci-layout"))?)?;
         if layout["imageLayoutVersion"] != "1.0.0" {
@@ -227,9 +323,22 @@ pub fn build(source: &Path, expected: Digest, staging: &Path) -> Result<BuiltIma
         source,
         Some(expected),
         staging,
-        Path::new("mkfs.erofs"),
+        Some(Path::new("mkfs.erofs")),
         false,
     )
+}
+
+/// Build an uncompressed EROFS image directly with the built-in writer (no `mkfs.erofs`).
+pub fn build_plain(source: &Path, expected: Digest, staging: &Path) -> Result<BuiltImage> {
+    build_with(source, Some(expected), staging, None, false)
+}
+
+/// Compute the SHA-256 digest of a seekable file from byte 0.
+pub fn file_sha256(file: &mut File) -> Result<Digest> {
+    file.rewind()?;
+    let mut sha = Sha256::new();
+    std::io::copy(file, &mut sha)?;
+    Ok(sha.finalize().into())
 }
 
 pub(crate) fn build_trusted_builder(
@@ -241,7 +350,7 @@ pub(crate) fn build_trusted_builder(
         source,
         Some(expected),
         staging,
-        Path::new("mkfs.erofs"),
+        Some(Path::new("mkfs.erofs")),
         true,
     )
 }
@@ -250,21 +359,19 @@ pub(crate) fn build_directory(dir: &Path, staging: &Path) -> Result<BuiltImage> 
     if !dir.is_dir() {
         return Err(Error::Invalid("trusted image directory"));
     }
-    build_with(dir, None, staging, Path::new("mkfs.erofs"), false)
+    build_with(dir, None, staging, Some(Path::new("mkfs.erofs")), false)
 }
 
 fn build_with(
     source: &Path,
     expected: Option<Digest>,
     staging: &Path,
-    formatter: &Path,
+    formatter: Option<&Path>,
     trusted_builder: bool,
 ) -> Result<BuiltImage> {
     let temp = TempDir::new_in(staging)?;
     let mut output = NamedTempFile::new_in(staging)?;
     let mut defaults = Defaults::default();
-    let mut cmd = Command::new(formatter);
-    cmd.arg("-T0");
     let mut layered_tree = None;
     if let Some(expected) = expected {
         let src = if source.is_dir() {
@@ -273,7 +380,7 @@ fn build_with(
             }
             Content::Layout(source)
         } else {
-            Content::Tar(unpack_outer(File::open(source)?, temp.path())?)
+            open_outer(source, temp.path())?
         };
         let (config, layers) = layers_and_config(&src, expected, trusted_builder)?;
         if layers.len() != config.rootfs.diff_ids.len() {
@@ -292,32 +399,62 @@ fn build_with(
             }
         }
         defaults = config.config.unwrap_or_default();
-        let mut tar = tempfile::tempfile_in(temp.path())?;
-        tree.write_tar(&mut tar)?;
-        tar.rewind()?;
         layered_tree = Some(tree);
-        cmd.arg("--tar=f")
-            .arg(output.path())
-            .stdin(Stdio::from(tar));
-    } else {
-        cmd.arg(output.path()).arg(source);
     }
-    match cmd.output() {
-        Ok(result) if !result.status.success() => {
-            return Err(std::io::Error::other(
-                String::from_utf8_lossy(&result.stderr).into_owned(),
-            )
-            .into());
+    let formatted = if let Some(formatter) = formatter {
+        let mut cmd = Command::new(formatter);
+        cmd.arg("-T0");
+        if let Some(tree) = layered_tree.as_mut() {
+            cmd.arg("--tar=f")
+                .arg(output.path())
+                .stdin(Stdio::piped())
+                .stdout(Stdio::null())
+                .stderr(Stdio::piped());
+            match cmd.spawn() {
+                Ok(mut child) => {
+                    let write_res = {
+                        let mut stdin = child
+                            .stdin
+                            .take()
+                            .ok_or_else(|| std::io::Error::other("mkfs.erofs stdin missing"))?;
+                        tree.write_tar(&mut stdin)
+                    };
+                    let result = child.wait_with_output()?;
+                    if !result.status.success() {
+                        return Err(std::io::Error::other(
+                            String::from_utf8_lossy(&result.stderr).into_owned(),
+                        )
+                        .into());
+                    }
+                    write_res?;
+                    true
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                Err(e) => return Err(e.into()),
+            }
+        } else {
+            cmd.arg(output.path()).arg(source);
+            match cmd.output() {
+                Ok(result) if !result.status.success() => {
+                    return Err(std::io::Error::other(
+                        String::from_utf8_lossy(&result.stderr).into_owned(),
+                    )
+                    .into());
+                }
+                Ok(_) => true,
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => false,
+                Err(e) => return Err(e.into()),
+            }
         }
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            let mut tree = match layered_tree {
-                Some(tree) => tree,
-                None => layers::Tree::from_directory(source, temp.path())?,
-            };
-            plain::write(&mut tree, output.as_file_mut())?;
-        }
-        Err(e) => return Err(e.into()),
+    } else {
+        false
+    };
+    if !formatted {
+        let mut tree = match layered_tree {
+            Some(tree) => tree,
+            None => layers::Tree::from_directory(source, temp.path())?,
+        };
+        plain::write(&mut tree, output.as_file_mut())?;
     }
     let len = output.as_file().metadata()?.len();
     if len == 0 {

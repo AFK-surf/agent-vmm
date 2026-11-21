@@ -69,6 +69,27 @@ fn status_projects_a_registration_and_its_protocol_window() {
 }
 
 #[test]
+fn status_reports_the_data_epoch_and_the_device_identity() {
+    use crate::error::RpcCode;
+    use crate::journal::{Journal, MaintenanceState};
+    let root = tempfile::tempdir().unwrap();
+    let paths = installed(&root.path().canonicalize().unwrap());
+    let fake = Fake::new();
+    let read = |fake: &std::sync::Arc<Fake>| serde_json::to_value(status::read(&fake.context(), &paths, None, Deadline::after(STATUS_BUDGET))).unwrap();
+    let facts = |observed: &Value| (observed["dataEpoch"].as_u64(), observed["deviceId"].as_str().map(str::to_string), observed["deviceIdentityState"].as_str().map(str::to_string));
+    assert_eq!(facts(&read(&fake)), (Some(0), Some("device-a".into()), Some("ready".into())), "a Host without an owner journal has epoch 0");
+
+    Journal::open_or_create(&fake.context(), &paths).unwrap().write_state(&MaintenanceState { version: 1, data_epoch: 3, ..MaintenanceState::default() }).unwrap();
+    fake.host.lock().unwrap().identity_ready = false;
+    assert_eq!(facts(&read(&fake)), (Some(3), Some("device-a".into()), Some("needs_repair".into())));
+
+    fake.host.lock().unwrap().failures.insert("device_identity", [crate::testing::rpc(RpcCode::Unavailable, None)].into());
+    let observed = read(&fake);
+    assert_eq!((observed["hostReadable"].as_bool(), facts(&observed)), (Some(true), (Some(3), None, None)), "an unreadable identity is omitted and the Host stays readable");
+    assert_eq!(facts(&read(&Fake::with(crate::testing::service_manager(false)))), (Some(3), None, None), "a stopped Host has no identity to read");
+}
+
+#[test]
 fn operation_reads_null_a_receipt_or_the_owner_fence() {
     let root = tempfile::tempdir().unwrap();
     let paths = installed(&root.path().canonicalize().unwrap());

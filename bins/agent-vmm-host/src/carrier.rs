@@ -128,28 +128,33 @@ impl vmm_compat::guest::GuestDriver for CarrierClientAdapter {
 
 pub struct CarrierClientAdapter(pub CarrierClient);
 
-/// Each published staging token owns the connection keeping its remote file alive.
+/// Each published staging token owns the connection keeping its remote extent alive.
 pub struct CarrierImageStaging {
     pub(crate) client: CarrierClient,
+    staging_dir: std::path::PathBuf,
     leases: std::sync::Mutex<std::collections::HashMap<String, vmm_dom0::remote::RemoteImageStage>>,
 }
 impl CarrierImageStaging {
-    pub fn new(client: CarrierClient) -> Self {
+    pub fn new(client: CarrierClient, staging_dir: std::path::PathBuf) -> Self {
         Self {
             client,
+            staging_dir,
             leases: Default::default(),
         }
     }
-    pub fn reserved_bytes(&self) -> vmm_core::Result<u64> {
-        self.leases
-            .lock()
-            .map_err(|_| vmm_core::Error::Interrupted)?
-            .values()
-            .try_fold(0_u64, |total, lease| {
-                total
-                    .checked_add(lease.source.physical_bytes)
-                    .ok_or(vmm_core::Error::Invalid("staging byte count"))
-            })
+
+    fn check_host_headroom(&self, required: u64) -> vmm_core::Result<()> {
+        let stat = rustix::fs::statvfs(&self.staging_dir).map_err(std::io::Error::from)?;
+        let available = stat
+            .f_frsize
+            .checked_mul(stat.f_bavail)
+            .ok_or(vmm_core::Error::Invalid("free space"))?;
+        if available.saturating_sub(vmm_compat::error::IMPORT_HEADROOM_MIN_FREE_BYTES) < required {
+            return Err(vmm_core::Error::Capacity(
+                vmm_core::CapacityDimension::StorageHeadroom,
+            ));
+        }
+        Ok(())
     }
 
     pub(crate) fn disk_sample(&self) -> vmm_core::Result<vmm_compat::operator::DiskSample> {
@@ -165,10 +170,11 @@ impl CarrierImageStaging {
         if status.state != State::Running {
             return Err(std::io::Error::other("carrier VM is not running").into());
         }
+        // Pool-allocated `stage/*` extents are already included in `pool_allocated_bytes`.
         Ok(vmm_compat::operator::DiskSample {
             used: status.pool_allocated_bytes,
             capacity: status.pool_logical_bytes,
-            import_reservations: self.reserved_bytes()?,
+            import_reservations: 0,
         })
     }
 }
@@ -178,21 +184,40 @@ impl vmm_compat::image::ImageStaging for CarrierImageStaging {
         archive: &std::path::Path,
         digest: vmm_core::Digest,
     ) -> vmm_core::Result<vmm_core::ImageSource> {
+        let archive_len = std::fs::metadata(archive)?.len();
+        self.check_host_headroom(archive_len)?;
+        let mut built = vmm_dom0::image::build_plain(archive, digest, &self.staging_dir)?;
+        let physical_bytes = built.file.as_file().metadata()?.len();
+        self.check_host_headroom(physical_bytes)?;
+        let erofs_sha256 = vmm_dom0::image::file_sha256(built.file.as_file_mut())?;
+
         let lease = tokio::runtime::Handle::current().block_on(
-            vmm_dom0::remote::RemoteImageStage::upload(&self.client, archive, digest),
+            vmm_dom0::remote::RemoteImageStage::upload_erofs(
+                &self.client,
+                built.file.path(),
+                digest,
+                physical_bytes,
+                erofs_sha256,
+                built.defaults,
+            ),
         )?;
+        drop(built.file);
         let source = lease.source.clone();
-        self.leases
-            .lock()
-            .map_err(|_| vmm_core::Error::Interrupted)?
-            .insert(source.staged_extent.clone(), lease);
+        if !source.staged_extent.is_empty() {
+            self.leases
+                .lock()
+                .map_err(|_| vmm_core::Error::Interrupted)?
+                .insert(source.staged_extent.clone(), lease);
+        }
         Ok(source)
     }
     fn discard_staged_image(&self, token: &str) -> vmm_core::Result<()> {
-        self.leases
-            .lock()
-            .map_err(|_| vmm_core::Error::Interrupted)?
-            .remove(token);
+        if !token.is_empty() {
+            self.leases
+                .lock()
+                .map_err(|_| vmm_core::Error::Interrupted)?
+                .remove(token);
+        }
         Ok(())
     }
 }

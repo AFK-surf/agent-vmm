@@ -138,6 +138,9 @@ impl FakeDom0Backend {
 
 #[async_trait]
 impl Dom0Backend for FakeDom0Backend {
+    async fn image_installed(&self, digest: Digest) -> Result<bool> {
+        Ok(self.state()?.images.contains_key(&digest))
+    }
     async fn install_image_artifact(&self, source: &ImageSource) -> Result<ImageArtifact> {
         let mut state = self.state()?;
         if let Some(image) = state.images.get(&source.manifest_digest) {

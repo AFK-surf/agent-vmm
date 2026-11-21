@@ -28,6 +28,7 @@ pub enum WorkspaceRequest {
 /// A completed stop fences a delayed start of that same boot.
 #[async_trait]
 pub trait Dom0Backend: Send + Sync {
+    async fn image_installed(&self, digest: Digest) -> Result<bool>;
     async fn install_image_artifact(&self, source: &ImageSource) -> Result<ImageArtifact>;
     async fn discard_image_artifact(&self, digest: Digest) -> Result<u64>;
     async fn allocate_volume(&self, volume: &Volume) -> Result<()>;

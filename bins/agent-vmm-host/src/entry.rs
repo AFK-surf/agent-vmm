@@ -118,7 +118,10 @@ async fn run(options: Options) -> Result<(), Box<dyn Error>> {
     #[cfg(target_os = "macos")]
     if let Some(socket) = options.carrier_socket {
         let client = vmm_carrier_macos::client::CarrierClient::new(socket);
-        let staging = std::sync::Arc::new(crate::carrier::CarrierImageStaging::new(client));
+        let staging = std::sync::Arc::new(crate::carrier::CarrierImageStaging::new(
+            client,
+            host.staging_dir().to_path_buf(),
+        ));
         return run_carrier(host, instance, &path, options.mcp_port, staging, shutdown).await;
     }
     let api = host.local_operator(instance, None)?;

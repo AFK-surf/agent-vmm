@@ -39,6 +39,9 @@ impl CarrierDom0Backend {
 
 #[async_trait::async_trait]
 impl Dom0Backend for CarrierDom0Backend {
+    async fn image_installed(&self, digest: Digest) -> Result<bool> {
+        self.remote.image_installed(digest).await
+    }
     async fn install_image_artifact(&self, source: &ImageSource) -> Result<ImageArtifact> {
         self.admit_storage(source.physical_bytes).await?;
         self.remote.install_image_artifact(source).await

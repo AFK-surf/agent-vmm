@@ -275,6 +275,10 @@ impl LocalDom0Backend {
 
 #[async_trait]
 impl Dom0Backend for LocalDom0Backend {
+    async fn image_installed(&self, digest: Digest) -> Result<bool> {
+        let _lock = self.effects.lock().await;
+        LocalDom0Backend::image_installed(self, digest)
+    }
     async fn install_image_artifact(&self, s: &ImageSource) -> Result<ImageArtifact> {
         let _lock = self.effects.lock().await;
         self.install(s)

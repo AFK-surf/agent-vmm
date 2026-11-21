@@ -86,10 +86,7 @@ async fn session_drives_workload_and_workspace_over_rpc() {
     operator.guest = Some(driver.clone());
     let containers = Containers::open(dir.path().join("protocol"), driver.clone()).unwrap();
     operator.containers = Some(containers.clone());
-    let imports = vmm_compat::image::ImageImports {
-        directory: dir.path().into(),
-        staging: Arc::new(ArchiveStage),
-    };
+    let imports = vmm_compat::image::ImageImports::new(dir.path().into(), Arc::new(ArchiveStage));
     let (builder, build_server) = build::builder().await;
     let images =
         vmm_compat::image::build::Builds::new(builder.clone(), containers.clone(), imports.clone())

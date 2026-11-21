@@ -187,6 +187,20 @@ pub fn stop(context: &Context, paths: &Paths, scope: Scope, deadline: Deadline) 
     deadline.check()
 }
 
+/// True when launchd has neither job in either domain.
+pub fn jobs_unloaded(context: &Context, paths: &Paths, deadline: Deadline) -> Result<bool> {
+    for job in [Job::Host, Job::Carrier] {
+        for domain in [domain(paths), alternate_domain(paths)] {
+            match observe(context, &format!("{domain}/{}", job.label()), deadline) {
+                Ok(_) => return Ok(false),
+                Err(error) if error.kind == Kind::ServiceNotFound => {}
+                Err(error) => return Err(error.context("host service status could not be read after removal")),
+            }
+        }
+    }
+    Ok(true)
+}
+
 pub fn drain_service(context: &Context, paths: &Paths, deadline: Deadline) -> Result<()> {
     stop(context, paths, Scope::Runtime, deadline)
 }

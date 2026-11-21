@@ -9,17 +9,22 @@ use quinn::{
 };
 use std::{
     fmt,
+    future::Future,
     io::{self, IoSliceMut},
     net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4},
     os::fd::{AsRawFd, OwnedFd},
     pin::Pin,
     sync::{
-        Arc, RwLock,
+        Arc, Mutex, RwLock,
         atomic::{AtomicU16, Ordering},
     },
     task::{Context, Poll},
+    time::Duration,
 };
-use tokio::net::UnixDatagram;
+use tokio::{
+    net::UnixDatagram,
+    time::{Instant, Sleep},
+};
 
 pub const HOST_MAC: [u8; 6] = [0x02, 0x56, 0x4d, 0x4d, 0x00, 0x01];
 pub const GUEST_MAC: [u8; 6] = [0x02, 0x56, 0x4d, 0x4d, 0x00, 0x02];
@@ -161,10 +166,13 @@ fn build_arp_reply(target_mac: [u8; 6], target_ip: [u8; 4]) -> [u8; 42] {
     pkt
 }
 
+const ENOBUFS_BACKOFF: Duration = Duration::from_millis(1);
+
 pub(super) struct NetlinkSocket {
     dgram: UnixDatagram,
     guest_mac: RwLock<[u8; 6]>,
     ip_id: AtomicU16,
+    backoff_until: Mutex<Option<Instant>>,
 }
 
 impl NetlinkSocket {
@@ -174,7 +182,18 @@ impl NetlinkSocket {
             dgram,
             guest_mac: RwLock::new(GUEST_MAC),
             ip_id: AtomicU16::new(1),
+            backoff_until: Mutex::new(None),
         }))
+    }
+
+    fn note_enobufs(&self) {
+        if let Ok(mut until) = self.backoff_until.lock() {
+            *until = Some(Instant::now() + ENOBUFS_BACKOFF);
+        }
+    }
+
+    fn take_backoff_deadline(&self) -> Option<Instant> {
+        self.backoff_until.lock().ok().and_then(|mut g| g.take())
     }
 }
 
@@ -184,7 +203,10 @@ impl fmt::Debug for NetlinkSocket {
     }
 }
 
-struct NetlinkPoller(Arc<NetlinkSocket>);
+struct NetlinkPoller {
+    socket: Arc<NetlinkSocket>,
+    backoff: Option<Pin<Box<Sleep>>>,
+}
 
 impl fmt::Debug for NetlinkPoller {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -193,14 +215,32 @@ impl fmt::Debug for NetlinkPoller {
 }
 
 impl UdpPoller for NetlinkPoller {
-    fn poll_writable(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.0.dgram.poll_send_ready(cx)
+    fn poll_writable(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(sleep) = self.backoff.as_mut() {
+            match sleep.as_mut().poll(cx) {
+                Poll::Pending => return Poll::Pending,
+                Poll::Ready(()) => self.backoff = None,
+            }
+        }
+        if let Some(deadline) = self.socket.take_backoff_deadline()
+            && deadline > Instant::now()
+        {
+            let mut sleep = Box::pin(tokio::time::sleep_until(deadline));
+            if sleep.as_mut().poll(cx).is_pending() {
+                self.backoff = Some(sleep);
+                return Poll::Pending;
+            }
+        }
+        self.socket.dgram.poll_send_ready(cx)
     }
 }
 
 impl AsyncUdpSocket for NetlinkSocket {
     fn create_io_poller(self: Arc<Self>) -> Pin<Box<dyn UdpPoller>> {
-        Box::pin(NetlinkPoller(self))
+        Box::pin(NetlinkPoller {
+            socket: self,
+            backoff: None,
+        })
     }
 
     fn try_send(&self, transmit: &Transmit) -> io::Result<()> {
@@ -223,9 +263,13 @@ impl AsyncUdpSocket for NetlinkSocket {
         match self.dgram.try_send(&frame) {
             Ok(_) => Ok(()),
             // On macOS XNU, AF_UNIX SOCK_DGRAM returns ENOBUFS when the peer
-            // socket buffer is transiently full; treat it as a dropped UDP
-            // datagram so QUIC congestion control / retransmission handles it.
-            Err(e) if e.raw_os_error() == Some(libc::ENOBUFS) => Ok(()),
+            // socket buffer is transiently full; surface WouldBlock with a
+            // short timer backoff so QUIC pauses sends cleanly instead of
+            // dropping packets or busy-looping on kqueue writability.
+            Err(e) if e.raw_os_error() == Some(libc::ENOBUFS) => {
+                self.note_enobufs();
+                Err(io::Error::from(io::ErrorKind::WouldBlock))
+            }
             Err(e) => Err(e),
         }
     }
@@ -347,5 +391,22 @@ mod tests {
         assert_eq!(u16::from_be_bytes([arp[20], arp[21]]), 2);
         assert_eq!(&arp[22..28], &HOST_MAC);
         assert_eq!(&arp[28..32], &HOST_IP.octets());
+    }
+
+    #[tokio::test]
+    async fn enobufs_backoff_pends_and_wakes_poller() {
+        use std::future::poll_fn;
+        let (host, _guest) = socket_pair().unwrap();
+        let sock = NetlinkSocket::new(host).unwrap();
+        sock.note_enobufs();
+        let mut poller = sock.clone().create_io_poller();
+        let started = Instant::now();
+        poll_fn(|cx| poller.as_mut().poll_writable(cx))
+            .await
+            .unwrap();
+        assert!(
+            started.elapsed() >= Duration::from_micros(500),
+            "poller returned before ENOBUFS backoff elapsed"
+        );
     }
 }

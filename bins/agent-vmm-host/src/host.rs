@@ -50,12 +50,17 @@ impl HostState {
         let store = Arc::new(open_database(database)?);
         let staging = directory.join("image-staging");
         private_directory(&staging)?;
+        cleanup_staging_leftovers(&staging);
         Ok(Self {
             store,
             compat_path,
             staging,
             state_size: 64 << 30,
         })
+    }
+
+    pub fn staging_dir(&self) -> &Path {
+        &self.staging
     }
 
     pub fn local_operator(
@@ -154,10 +159,8 @@ impl HostState {
         T: GuestDriver + WorkspaceDriver + vmm_compat::image::build::BuildBackend + 'static,
     {
         let containers = api.containers.clone().ok_or("missing container runtime")?;
-        let imports = ImageImports {
-            directory: self.staging.clone(),
-            staging,
-        };
+        let imports = ImageImports::new(self.staging.clone(), staging)
+            .with_min_free_bytes(vmm_compat::error::IMPORT_HEADROOM_MIN_FREE_BYTES);
         let builds = vmm_compat::image::build::Builds::new(
             backend.clone(),
             containers.clone(),
@@ -204,14 +207,32 @@ impl HostState {
             core,
             containers: Containers::open(&self.compat_path, drivers.runtime)?,
             workspace: WorkspaceService::new(drivers.workspace),
-            imports: ImageImports {
-                directory: self.staging,
-                staging: drivers.staging,
-            },
+            imports: ImageImports::new(self.staging, drivers.staging)
+                .with_min_free_bytes(vmm_compat::error::IMPORT_HEADROOM_MIN_FREE_BYTES),
             images: drivers.images,
             mesh: drivers.mesh,
             guest: drivers.guest,
         };
         Ok((runtime, report))
+    }
+}
+
+/// Remove unreferenced temporary files/directories left directly under `image-staging/`
+/// after a crash, preserving the retained `oci/` cache and resumable `parts/` directory.
+fn cleanup_staging_leftovers(staging: &Path) {
+    let Ok(entries) = std::fs::read_dir(staging) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let name = entry.file_name();
+        if name == "oci" || name == "parts" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = std::fs::remove_dir_all(&path);
+        } else {
+            let _ = std::fs::remove_file(&path);
+        }
     }
 }

@@ -4,13 +4,14 @@
 use super::carrier;
 use super::launchd::Job;
 use super::maintenance::{Actions, MaintenanceRequest};
+use super::paths::maintenance_stage;
 use super::service::{self, Scope};
 use crate::error::{Deadline, Result, err};
 use crate::schema::{self, DataSchema};
 use crate::update::UpdateActions;
 use crate::{Context, HOST_STOP_TIMEOUT, Paths, cutover, status};
 use rustix::fs::{CWD, RenameFlags};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 const COPY_TIMEOUT: Duration = Duration::from_secs(600);
@@ -55,10 +56,11 @@ fn exchange_bundle(stage: &Path, target: &Path) -> Result<()> {
 
 /// Copies the source release beside the installed Host, verifies the copy, and publishes it in one rename.
 pub fn replace_bundle(context: &Context, paths: &Paths, source: &Path, release_id: &str, request_id: &str) -> Result<()> {
-    let parent = paths.app.parent().ok_or_else(|| err("shared Host location is invalid"))?;
-    let stage: PathBuf = parent.join(format!(".Agent VMM Host.maintenance-{request_id}.app"));
+    let stage = maintenance_stage(paths, request_id)?;
     service::remove_tree(&stage)?;
-    std::fs::create_dir_all(parent)?;
+    if let Some(parent) = stage.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
     copy_bundle(context, source, &stage)?;
     if !host_release_id(&stage).is_ok_and(|id| id == release_id) {
         return Err(err("prepared replacement does not match selected release"));
@@ -129,6 +131,9 @@ impl Actions for Production<'_> {
             let definitions = [Job::Host, Job::Carrier].into_iter().flat_map(|job| [job.plist(paths), job.alternate_plist(paths)]);
             if !absent(&paths.app) || !definitions.into_iter().all(|definition| absent(&definition)) {
                 return Err(err("Host software removal is not confirmed"));
+            }
+            if !service::jobs_unloaded(self.context, paths, Deadline::after(Duration::from_secs(4)))? {
+                return Err(err("Host service removal is not confirmed"));
             }
             if request.reset() && !absent(&paths.logs) {
                 return Err(err("Host data deletion is not confirmed"));

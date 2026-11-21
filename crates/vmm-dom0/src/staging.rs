@@ -57,6 +57,7 @@ impl LocalDom0Backend {
             Err(e) if e.kind() == ErrorKind::NotFound => {}
             result => result?,
         }
+        self.pool.discard(&format!("stage/{token}"))?;
         self.catalog().delete(&format!("stage/{token}"))
     }
     pub fn image_installed(&self, digest: Digest) -> Result<bool> {
@@ -88,7 +89,7 @@ impl LocalDom0Backend {
         built.file.as_file().sync_all()?;
 
         self.catalog()
-            .put(&format!("stage/{token}"), &(digest, built.defaults))?;
+            .put(&format!("stage/{token}"), &(digest, built.defaults, size))?;
         if let Err(e) = built.file.persist_noclobber(&path) {
             self.catalog().delete(&format!("stage/{token}"))?;
             return Err(e.error.into());
@@ -102,23 +103,50 @@ impl LocalDom0Backend {
     pub(crate) fn install(&self, source: &ImageSource) -> Result<ImageArtifact> {
         let id = image_id(source.manifest_digest);
         let token = &source.staged_extent;
+        if token.is_empty() && self.catalog().defaults(&id)?.is_some() {
+            let physical_bytes = self.pool.lookup(&id)?.iter().map(|e| e.sectors * 512).sum();
+            return Ok(ImageArtifact {
+                manifest_digest: source.manifest_digest,
+                extent_id: id,
+                physical_bytes,
+            });
+        }
+        let stage_obj = format!("stage/{token}");
         let staged = if valid_token(token) {
             self.catalog()
-                .get::<(Digest, crate::image::Defaults)>(&format!("stage/{token}"))?
+                .get::<(Digest, crate::image::Defaults, u64)>(&stage_obj)?
         } else {
             None
         };
         if staged
             .as_ref()
-            .is_some_and(|(digest, _)| *digest != source.manifest_digest)
+            .is_some_and(|(digest, _, _)| *digest != source.manifest_digest)
         {
             return Err(Error::Fenced);
+        }
+        if valid_token(token) && self.pool.has_object(&stage_obj)? {
+            let (_, defaults, _) = staged.ok_or(Error::Missing("staged image"))?;
+            let promoted = self.pool.promote_staged_image(
+                &stage_obj,
+                &id,
+                &defaults,
+                source.physical_bytes,
+            )?;
+            if !promoted {
+                self.pool.discard(&stage_obj)?;
+            }
+            let physical_bytes = self.pool.lookup(&id)?.iter().map(|e| e.sectors * 512).sum();
+            return Ok(ImageArtifact {
+                manifest_digest: source.manifest_digest,
+                extent_id: id,
+                physical_bytes,
+            });
         }
         if self.catalog().defaults(&id)?.is_none() {
             if !valid_token(token) {
                 return Err(Error::Invalid("staged image ID"));
             }
-            let (_, defaults) = staged.ok_or(Error::Missing("staged image"))?;
+            let (_, defaults, _) = staged.ok_or(Error::Missing("staged image"))?;
             let mut image = std::fs::File::open(self.cfg.staging.join(token))?;
             let size = image.metadata()?.len();
             if size != source.physical_bytes

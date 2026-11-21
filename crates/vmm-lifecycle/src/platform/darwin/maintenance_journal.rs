@@ -40,17 +40,30 @@ pub fn refuse(journal: &Journal, paths: &Paths, request: &MaintenanceRequest, me
     }
 }
 
-/// The caller holds the owner lock, so the executor of the replaced request is gone.
+/// The caller holds the owner lock, so the executor of the replaced request is gone
+/// and a pending receipt is as replaceable as a failed one.
 pub fn validate_supersession(journal: &Journal, paths: &Paths, request: &MaintenanceRequest, state: &MaintenanceState) -> Result<()> {
     let previous_id = &request.supersedes_request_id;
     if state.active_request != *previous_id || state.latest_request != *previous_id || state.completed(previous_id) || !state.superseded_by(previous_id).is_empty() {
         return Err(err("only the exact active maintenance request can be replaced"));
     }
     let previous: MaintenanceReceipt = journal.read(&receipt_name(previous_id))?;
-    let retryable_failure = previous.outcome == "failed" && previous.retryable;
+    if previous.request.version == 0 && previous.request.action.is_empty() {
+        // The receipt of an exclusive service request. Only the removal of the Host and its data ends it.
+        let operation = journal.receipt(previous_id)?;
+        if !operation.exclusive() || !journal::unfinished(&operation.outcome, operation.retryable) || !request.uninstall() || !request.reset() {
+            return Err(err("only an uninstall that resets the data can replace an unfinished service request"));
+        }
+        return Ok(());
+    }
     let same_host = previous.request.target_app == request.target_app && previous.service_mode == mode_name(paths.service.mode) && previous.service_user == paths.service.user;
-    if previous.request.version != 1 || previous.request.request_id != *previous_id || !retryable_failure || !same_host {
-        return Err(err("replacement requires a retryable failed receipt for the same Host and service"));
+    if previous.request.version != 1 || previous.request.request_id != *previous_id || !journal::unfinished(&previous.outcome, previous.retryable) || !same_host {
+        return Err(err("replacement requires an unfinished receipt for the same Host and service"));
+    }
+    // After the stop stage, a reset can have removed a part of the data.
+    let deleting = previous.request.reset() && !matches!(previous.stage.as_str(), "" | "accepted" | "stop");
+    if deleting && !request.reset() {
+        return Err(err("the replaced request started to delete the Host data; the replacement must also reset the data"));
     }
     Ok(())
 }

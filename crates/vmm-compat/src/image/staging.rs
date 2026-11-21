@@ -45,7 +45,8 @@ impl VerifiedArchive {
         scope: &str,
         driver: Arc<dyn ImageStaging>,
     ) -> Result<ImageArtifact> {
-        self.install_with_build(core, scope, driver, None).await
+        self.install_with_options(core, scope, driver, None, None)
+            .await
     }
 
     pub(super) async fn install_with_build(
@@ -54,6 +55,18 @@ impl VerifiedArchive {
         scope: &str,
         driver: Arc<dyn ImageStaging>,
         build: Option<BuildPublication<'_>>,
+    ) -> Result<ImageArtifact> {
+        self.install_with_options(core, scope, driver, build, None)
+            .await
+    }
+
+    pub(super) async fn install_with_options(
+        self,
+        core: &Core,
+        scope: &str,
+        driver: Arc<dyn ImageStaging>,
+        build: Option<BuildPublication<'_>>,
+        verified_url: Option<(Digest, u64)>,
     ) -> Result<ImageArtifact> {
         let reference = self.header().image_reference.clone();
         let digest = self.manifest_digest();
@@ -70,8 +83,8 @@ impl VerifiedArchive {
         .await
         .map_err(|_| Error::Interrupted)??;
         let result = if staged.source.manifest_digest == digest {
-            match build {
-                Some(build) => {
+            match (build, verified_url) {
+                (Some(build), _) => {
                     let ctx = build.context;
                     core.publish_build(
                         &ctx.session,
@@ -90,7 +103,17 @@ impl VerifiedArchive {
                     )
                     .await
                 }
-                None => core.import_image(scope, &reference, &staged.source).await,
+                (None, Some((archive_sha256, archive_size))) => {
+                    core.import_verified_url_image(
+                        scope,
+                        &reference,
+                        &staged.source,
+                        archive_sha256,
+                        archive_size,
+                    )
+                    .await
+                }
+                (None, None) => core.import_image(scope, &reference, &staged.source).await,
             }
         } else {
             Err(Error::Fenced)

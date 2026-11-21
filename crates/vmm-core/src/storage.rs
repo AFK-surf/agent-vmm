@@ -5,6 +5,15 @@ use crate::{
 };
 use rusqlite::{Connection, OptionalExtension, params};
 
+pub(crate) const VERIFIED_URL_IMPORTS_SCHEMA: &str = "
+CREATE TABLE IF NOT EXISTS verified_url_imports (
+    manifest_digest BLOB NOT NULL,
+    archive_sha256 BLOB NOT NULL,
+    archive_size INTEGER NOT NULL CHECK (archive_size > 0),
+    PRIMARY KEY (manifest_digest, archive_sha256, archive_size)
+) WITHOUT ROWID;
+";
+
 pub(crate) fn active(db: &Connection, id: &str) -> Result<Scope> {
     let scope = load_scope(db, id)?;
     if scope.state != ScopeState::Active {
@@ -84,6 +93,99 @@ impl Core {
     ) -> Result<ImageArtifact> {
         self.publish_image(scope, reference, source, |_| Ok(()))
             .await
+    }
+
+    pub async fn import_verified_url_image(
+        &self,
+        scope: &str,
+        reference: &str,
+        source: &ImageSource,
+        archive_sha256: Digest,
+        archive_size: u64,
+    ) -> Result<ImageArtifact> {
+        let size = i64::try_from(archive_size)
+            .ok()
+            .filter(|&n| n > 0)
+            .ok_or(Error::Invalid("archive size"))?;
+        let digest = source.manifest_digest;
+        self.publish_image(scope, reference, source, move |db| {
+            db.execute(
+                "INSERT OR IGNORE INTO verified_url_imports(manifest_digest,archive_sha256,archive_size) VALUES(?,?,?)",
+                params![digest, archive_sha256, size],
+            )?;
+            Ok(())
+        })
+        .await
+    }
+
+    /// Grant an already-verified public HTTPS URL import to another scope only
+    /// when `(manifest_digest, archive_sha256, archive_size)` matches a recorded
+    /// public URL import and both the store and dom0 confirm the artifact is ready.
+    pub async fn try_grant_verified_url_import(
+        &self,
+        scope: &str,
+        reference: &str,
+        manifest_digest: Digest,
+        archive_sha256: Digest,
+        archive_size: u64,
+    ) -> Result<Option<ImageArtifact>> {
+        if reference.is_empty() || archive_size == 0 {
+            return Err(Error::Invalid("image source"));
+        }
+        let size = i64::try_from(archive_size).map_err(|_| Error::Invalid("archive size"))?;
+        let _guard = self.store.effects.lock().await;
+        let candidate = self.store.read(|db| {
+            let verified: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM verified_url_imports WHERE manifest_digest=?1 AND archive_sha256=?2 AND archive_size=?3)",
+                params![manifest_digest, archive_sha256, size],
+                |r| r.get(0),
+            )?;
+            if !verified {
+                return Ok(None);
+            }
+            match artifact(db, manifest_digest) {
+                Ok(img) => Ok(Some(img)),
+                Err(Error::Missing(_)) => Ok(None),
+                Err(err) => Err(err),
+            }
+        })?;
+        if candidate.is_none() {
+            return Ok(None);
+        }
+        if !self.backend.image_installed(manifest_digest).await? {
+            return Ok(None);
+        }
+        self.store.write(|db| {
+            active(db, scope)?;
+            let previous: Option<Digest> = db
+                .query_row(
+                    "SELECT digest FROM image_refs WHERE scope=? AND reference=?",
+                    [scope, reference],
+                    |r| r.get(0),
+                )
+                .optional()?;
+            if previous.is_some_and(|old| old != manifest_digest) {
+                return Err(Error::Conflict("image reference already bound"));
+            }
+            let verified: bool = db.query_row(
+                "SELECT EXISTS(SELECT 1 FROM verified_url_imports WHERE manifest_digest=?1 AND archive_sha256=?2 AND archive_size=?3)",
+                params![manifest_digest, archive_sha256, size],
+                |r| r.get(0),
+            )?;
+            if !verified {
+                return Ok(None);
+            }
+            let ready = match artifact(db, manifest_digest) {
+                Ok(img) => img,
+                Err(Error::Missing(_)) => return Ok(None),
+                Err(err) => return Err(err),
+            };
+            db.execute(
+                "INSERT INTO image_refs VALUES(?,?,?) ON CONFLICT DO NOTHING",
+                params![scope, reference, manifest_digest],
+            )?;
+            Ok(Some(ready))
+        })
     }
 
     pub(crate) async fn publish_image(
@@ -181,6 +283,10 @@ impl Core {
         }
         let reclaimed = self.backend.discard_image_artifact(digest).await?;
         self.store.write(|db| {
+            db.execute(
+                "DELETE FROM verified_url_imports WHERE manifest_digest=?",
+                [digest],
+            )?;
             db.execute(
                 "DELETE FROM images WHERE digest=? AND phase='discarding'",
                 [digest],

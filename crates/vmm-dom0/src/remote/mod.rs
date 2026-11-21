@@ -96,6 +96,15 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
     if let Request::StageImage(digest, size) = r {
         return image::serve(stream, host, digest, size).await;
     }
+    if let Request::StageErofs {
+        manifest,
+        physical_bytes,
+        sha256,
+        defaults,
+    } = r
+    {
+        return image::serve_erofs(stream, host, manifest, physical_bytes, sha256, defaults).await;
+    }
     if let Request::AcquireWorkspace(scope, volume, access) = r {
         return workspace::serve(stream, host, scope, volume, access).await;
     }
@@ -179,6 +188,9 @@ async fn exchange<S: AsyncRead + AsyncWrite + Unpin, T: DeserializeOwned>(
 
 #[async_trait]
 impl Dom0Backend for RemoteDom0Client {
+    async fn image_installed(&self, digest: Digest) -> Result<bool> {
+        self.rpc(Request::ImageInstalled(digest)).await
+    }
     async fn install_image_artifact(&self, s: &ImageSource) -> Result<ImageArtifact> {
         self.rpc(Request::Install(
             s.manifest_digest,

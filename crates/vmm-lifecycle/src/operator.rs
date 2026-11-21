@@ -3,7 +3,7 @@
 use crate::error::{Deadline, Error, Kind, Result, RpcCode, err};
 use crate::{Context, Paths};
 use agent_vmm_proto::host::v1 as hostv1;
-use hostv1::{HealthState, RemoteConnectionState, RemoteRegistrationState, VmState};
+use hostv1::{DeviceIdentityState, HealthState, RemoteConnectionState, RemoteRegistrationState, VmState};
 use std::time::{Duration, Instant};
 
 pub trait Operator {
@@ -43,6 +43,8 @@ pub struct OperatorFacts {
     pub registration_reason: String,
     pub remote_protocol: Option<RemoteProtocol>,
     pub snapshot: Option<hostv1::GetSystemHealthSummaryResponse>,
+    pub device_id: String,
+    pub device_identity_state: String,
 }
 
 fn healthy(snapshot: &hostv1::GetSystemHealthSummaryResponse) -> bool {
@@ -60,33 +62,44 @@ pub fn read_facts(context: &Context, paths: &Paths, registration_id: Option<&str
     let Ok(mut operator) = context.operator(paths) else { return unreadable() };
     let Ok(snapshot) = operator.health(deadline) else { return unreadable() };
     let mut facts = OperatorFacts { host_readable: true, host_healthy: healthy(&snapshot), snapshot: Some(snapshot), ..OperatorFacts::default() };
-    let Some(id) = registration_id else { return facts };
-    match operator.registration(id, deadline) {
-        Ok(remote) => {
-            facts.registration_read = "present".into();
-            facts.registration_state = match remote.state() {
-                RemoteRegistrationState::Enabled => "enabled",
-                RemoteRegistrationState::Draining => "draining",
-                RemoteRegistrationState::Revoked => "revoked",
-                RemoteRegistrationState::Unspecified => "",
+    if let Some(id) = registration_id {
+        match operator.registration(id, deadline) {
+            Ok(remote) => {
+                facts.registration_read = "present".into();
+                facts.registration_state = match remote.state() {
+                    RemoteRegistrationState::Enabled => "enabled",
+                    RemoteRegistrationState::Draining => "draining",
+                    RemoteRegistrationState::Revoked => "revoked",
+                    RemoteRegistrationState::Unspecified => "",
+                }
+                .into();
+                facts.remote_protocol = remote.connector_status.as_ref().and_then(|status| status.remote_protocol.as_ref()).map(|protocol| RemoteProtocol {
+                    host_protocol: protocol.host_protocol.clone(),
+                    min_protocol: protocol.min_protocol,
+                    max_protocol: protocol.max_protocol,
+                    host_side: protocol.host_side.clone(),
+                });
+                facts.connector_connected = remote.connection_state() == RemoteConnectionState::Connected;
             }
-            .into();
-            facts.remote_protocol = remote.connector_status.as_ref().and_then(|status| status.remote_protocol.as_ref()).map(|protocol| RemoteProtocol {
-                host_protocol: protocol.host_protocol.clone(),
-                min_protocol: protocol.min_protocol,
-                max_protocol: protocol.max_protocol,
-                host_side: protocol.host_side.clone(),
-            });
-            facts.connector_connected = remote.connection_state() == RemoteConnectionState::Connected;
+            Err(error) if error.rpc_code() == Some(RpcCode::NotFound) => {
+                facts.registration_read = "absent".into();
+                facts.registration_reason = "registration_not_found".into();
+            }
+            Err(_) => {
+                facts.registration_read = "unreadable".into();
+                facts.registration_reason = "registration_unreadable".into();
+            }
         }
-        Err(error) if error.rpc_code() == Some(RpcCode::NotFound) => {
-            facts.registration_read = "absent".into();
-            facts.registration_reason = "registration_not_found".into();
+    }
+    // The identity is read last, so a slow read cannot hide the registration.
+    if let Ok(response) = operator.device_identity(deadline) {
+        facts.device_identity_state = match response.state() {
+            DeviceIdentityState::Ready => "ready",
+            DeviceIdentityState::NeedsRepair => "needs_repair",
+            DeviceIdentityState::Unspecified => "",
         }
-        Err(_) => {
-            facts.registration_read = "unreadable".into();
-            facts.registration_reason = "registration_unreadable".into();
-        }
+        .into();
+        facts.device_id = response.identity.map(|identity| identity.device_id).unwrap_or_default();
     }
     facts
 }

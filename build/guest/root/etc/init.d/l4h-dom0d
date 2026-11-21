@@ -65,7 +65,6 @@ write_runtime_config() {
 	cat > "$runtime_config" <<EOF
 {
   "state_dir": "/var/lib/agent-vmm/state",
-  "backing_filesystem": "/var/lib/agent-vmm",
   "disk": 0,
   "first_sector": 8388608,
   "sectors": 0,

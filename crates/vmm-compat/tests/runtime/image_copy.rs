@@ -85,10 +85,7 @@ async fn remote_client_copies_retained_build_and_recovers_both_receipts() {
         containers: Containers::open(dir.path().join("compat"), guest.clone()).unwrap(),
         guest,
         workspace: WorkspaceService::new(Arc::new(workspace::TestDriver::default())),
-        imports: vmm_compat::image::ImageImports {
-            directory: dir.path().into(),
-            staging: Arc::new(ArchiveStage),
-        },
+        imports: vmm_compat::image::ImageImports::new(dir.path().into(), Arc::new(ArchiveStage)),
         images: Arc::new(unused::Unused),
         mesh: Arc::new(unused::Unused),
     };

@@ -1,10 +1,14 @@
+use super::super::actions::Production;
 use super::super::maintenance_journal::status;
+use super::super::service::remove_software;
 use super::*;
 use crate::journal::LifecycleOperation;
 use crate::operation;
-use crate::testing::{Fake, installed};
-use std::cell::RefCell;
+use crate::testing::{Fake, installed, service_manager};
+use std::cell::{Cell, RefCell};
 use std::collections::VecDeque;
+use std::panic::{AssertUnwindSafe, catch_unwind};
+use std::path::PathBuf;
 
 struct Recorded {
     log: RefCell<Vec<&'static str>>,
@@ -12,15 +16,18 @@ struct Recorded {
     data: DataSchema,
     /// The result of each journal commit, in order. A commit without an entry succeeds.
     commits: RefCell<VecDeque<bool>>,
+    /// The effect in which the executor dies.
+    kill: Cell<Option<&'static str>>,
 }
 
 impl Recorded {
     fn new() -> Self {
-        Self { log: RefCell::default(), restore: RefCell::default(), data: DataSchema::Fresh, commits: RefCell::default() }
+        Self { log: RefCell::default(), restore: RefCell::default(), data: DataSchema::Fresh, commits: RefCell::default(), kill: Cell::default() }
     }
 
     fn effect(&self, name: &'static str) -> Result<()> {
         self.log.borrow_mut().push(name);
+        assert!(self.kill.get() != Some(name), "the executor is killed in {name}");
         Ok(())
     }
 
@@ -99,6 +106,27 @@ impl Fixture {
     fn run(&mut self, request: &MaintenanceRequest) -> (MaintenanceReceipt, Result<()>) {
         let (receipt, result) = run(&self.context, &self.paths, request, &mut self.actions);
         (receipt.expect("the request was admitted"), result)
+    }
+
+    /// Runs `request` until its executor dies in `effect`. The receipt stays pending.
+    fn kill_in(&mut self, request: &MaintenanceRequest, effect: &'static str) {
+        self.actions.kill.set(Some(effect));
+        assert!(catch_unwind(AssertUnwindSafe(|| run(&self.context, &self.paths, request, &mut self.actions))).is_err());
+        self.actions.kill.set(None);
+        self.actions.take_log();
+        let killed = self.status(&request.request_id).unwrap();
+        assert_eq!((killed.stage.as_str(), killed.outcome.as_str()), (effect, "pending"));
+    }
+
+    /// Leaves the staged release of request `id` beside the installed Host.
+    fn stage(&self, id: &str) -> PathBuf {
+        let stage = self.paths.app.parent().unwrap().join(format!(".Agent VMM Host.maintenance-{id}.app"));
+        std::fs::create_dir_all(stage.join("Contents")).unwrap();
+        stage
+    }
+
+    fn replacement(&self, previous: &str, id: &str, action: &str, policy: &str) -> MaintenanceRequest {
+        MaintenanceRequest { supersedes_request_id: previous.into(), ..self.request(id, action, policy) }
     }
 
     fn state(&self) -> MaintenanceState {
@@ -209,6 +237,10 @@ fn only_the_exact_failed_request_can_be_replaced() {
     assert_eq!(result.unwrap_err().message, "continue the existing maintenance request before starting another");
     let wrong = MaintenanceRequest { supersedes_request_id: "update-0".into(), ..second.clone() };
     assert_eq!(run(&fixture.context, &fixture.paths, &wrong, &mut fixture.actions).1.unwrap_err().message, "only the exact active maintenance request can be replaced");
+    let other_host = MaintenanceRequest { supersedes_request_id: "update-1".into(), ..second.clone() };
+    let mut other_user = fixture.paths.clone();
+    other_user.service.user = "other".into();
+    assert_eq!(run(&fixture.context, &other_user, &other_host, &mut fixture.actions).1.unwrap_err().message, "replacement requires an unfinished receipt for the same Host and service");
 
     let replacement = MaintenanceRequest { supersedes_request_id: "update-1".into(), ..second };
     fixture.actions.take_log();
@@ -220,6 +252,106 @@ fn only_the_exact_failed_request_can_be_replaced() {
     assert_eq!((superseded.outcome.as_str(), superseded.superseded_by_request_id.as_str(), superseded.retryable), ("superseded", "update-2", false));
     let (old, result) = fixture.run(&first);
     assert!(result.is_ok() && old.outcome == "superseded" && fixture.actions.take_log().is_empty());
+}
+
+#[test]
+fn a_killed_request_is_replaced_and_its_staged_release_is_removed() {
+    for (effect, action) in [("stop", "uninstall"), ("replace", "reinstall")] {
+        let mut fixture = fixture();
+        let first = fixture.request("reinstall-1", "reinstall", "preserve");
+        fixture.kill_in(&first, effect);
+        let stage = fixture.stage("reinstall-1");
+
+        let (receipt, result) = fixture.run(&fixture.replacement("reinstall-1", "next-1", action, "preserve"));
+        result.unwrap();
+        assert_eq!(receipt.outcome, "succeeded", "{action} replaces a request that died in {effect}");
+        assert!(!stage.exists(), "the staged release of the replaced request is removed");
+        let superseded = fixture.status("reinstall-1").unwrap();
+        assert_eq!((superseded.outcome.as_str(), superseded.superseded_by_request_id.as_str()), ("superseded", "next-1"));
+    }
+}
+
+#[test]
+fn a_reset_that_started_to_delete_data_is_replaced_only_by_a_reset() {
+    let mut fixture = fixture();
+    let first = fixture.request("reinstall-1", "reinstall", "reset");
+    fixture.kill_in(&first, "reset");
+    let preserve = fixture.replacement("reinstall-1", "uninstall-1", "uninstall", "preserve");
+    let (receipt, result) = run(&fixture.context, &fixture.paths, &preserve, &mut fixture.actions);
+    assert!(receipt.is_none());
+    assert_eq!(result.unwrap_err().message, "the replaced request started to delete the Host data; the replacement must also reset the data");
+    assert!(fixture.actions.take_log().is_empty() && fixture.state().active_request == "reinstall-1");
+
+    let (receipt, result) = fixture.run(&fixture.replacement("reinstall-1", "uninstall-2", "uninstall", "reset"));
+    result.unwrap();
+    assert_eq!(fixture.actions.take_log(), ["stop", "reset", "remove", "verify"]);
+    assert!(receipt.progress.data_cleared && fixture.state().uninstalled);
+
+    // The stop stage removes no data, so the owner can still keep it.
+    let mut fixture = self::fixture();
+    fixture.kill_in(&fixture.request("reinstall-1", "reinstall", "reset"), "stop");
+    fixture.run(&fixture.replacement("reinstall-1", "uninstall-1", "uninstall", "preserve")).1.unwrap();
+    assert_eq!(fixture.actions.take_log(), ["stop", "remove", "verify"]);
+}
+
+#[test]
+fn each_accepted_reset_advances_the_data_epoch_once() {
+    let mut fixture = fixture();
+    let update = fixture.request("update-1", "update", "preserve");
+    fixture.run(&update).1.unwrap();
+    assert_eq!(fixture.state().data_epoch, 0, "a request that preserves the data keeps the epoch");
+
+    let reset = fixture.request("reinstall-1", "reinstall", "reset");
+    fixture.actions.commits.borrow_mut().push_back(false);
+    assert!(run(&fixture.context, &fixture.paths, &reset, &mut fixture.actions).1.is_err());
+    assert_eq!(fixture.state().data_epoch, 0, "a failed admission commit accepts nothing");
+
+    fixture.kill_in(&reset, "reset");
+    assert_eq!(fixture.state().data_epoch, 1, "the epoch changes before the data is removed");
+    fixture.actions.restore.borrow_mut().push_back(err("Host did not start"));
+    assert!(fixture.run(&reset).1.is_err());
+    fixture.run(&reset).1.unwrap();
+    fixture.run(&reset).1.unwrap();
+    assert_eq!(fixture.state().data_epoch, 1, "a continued and a replayed request keep the epoch");
+
+    let uninstall = fixture.request("uninstall-1", "uninstall", "reset");
+    fixture.run(&uninstall).1.unwrap();
+    assert_eq!(fixture.state().data_epoch, 2);
+}
+
+#[test]
+fn an_uninstall_with_reset_replaces_an_unfinished_service_request() {
+    let mut fixture = fixture();
+    let update = LifecycleOperation { operation_id: "op-1".into(), outcome: "pending".into(), stage: "replace".into(), ..LifecycleOperation::unknown("update-1", "update") };
+    journal::persist(&fixture.context, &fixture.paths, &update).unwrap();
+    assert_eq!(fixture.state().active_request, "update-1");
+    let stage = fixture.stage("update-1");
+
+    for (id, action, policy) in [("reinstall-1", "reinstall", "reset"), ("uninstall-1", "uninstall", "preserve")] {
+        let refused = fixture.replacement("update-1", id, action, policy);
+        let (receipt, result) = run(&fixture.context, &fixture.paths, &refused, &mut fixture.actions);
+        assert!(receipt.is_none());
+        assert_eq!(result.unwrap_err().message, "only an uninstall that resets the data can replace an unfinished service request");
+    }
+    assert!(fixture.actions.take_log().is_empty() && fixture.state().active_request == "update-1");
+
+    fixture.run(&fixture.replacement("update-1", "uninstall-2", "uninstall", "reset")).1.unwrap();
+    assert_eq!(fixture.actions.take_log(), ["stop", "reset", "remove", "verify"]);
+    let state = fixture.state();
+    assert!(state.uninstalled && state.active_request.is_empty() && !stage.exists());
+    assert_eq!((state.superseded_by("update-1"), state.data_epoch), ("uninstall-2", 1));
+    let (old, result) = operation::run(&fixture.context, &fixture.paths, operation::Request::new("update", "update-1"), &mut || Ok(()));
+    assert_eq!((old.outcome.as_str(), result.unwrap_err().message.as_str()), ("superseded", "request was superseded by uninstall-2"));
+}
+
+#[test]
+fn an_uninstall_is_verified_only_after_launchd_drops_both_jobs() {
+    let fixture = fixture();
+    let request = fixture.request("uninstall-1", "uninstall", "preserve");
+    remove_software(&fixture.paths).unwrap();
+    let verify = |running| Production { context: &Fake::with(service_manager(running)).context() }.verify(&fixture.paths, &request);
+    assert_eq!(verify(true).unwrap_err().message, "Host service removal is not confirmed");
+    verify(false).unwrap();
 }
 
 #[test]

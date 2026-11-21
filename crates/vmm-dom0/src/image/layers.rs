@@ -64,6 +64,14 @@ impl Tree {
                 removed.insert(path.with_file_name(std::ffi::OsStr::from_bytes(victim)));
                 continue;
             }
+            if let Some(exts) = entry.pax_extensions()? {
+                for ext in exts {
+                    let ext = ext?;
+                    if ext.key_bytes().starts_with(b"SCHILY.xattr.security.") {
+                        return Err(Error::Invalid("unsupported security xattr"));
+                    }
+                }
+            }
             let mut header = entry.header().clone();
             let kind = header.entry_type();
             if !(kind.is_dir() || kind.is_file() || kind.is_symlink() || kind.is_hard_link()) {

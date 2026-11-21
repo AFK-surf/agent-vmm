@@ -151,7 +151,26 @@ pub fn core_status(error: Error) -> Status {
             "stale container instance",
         ),
         Error::Interrupted => Status::unavailable("backend operation interrupted"),
-        Error::Database(_) | Error::Io(_) | Error::Codec(_) => {
+        Error::Database(err) => {
+            eprintln!(
+                "agent-vmm: host_store_failure kind=database code={:?}",
+                err.sqlite_error_code()
+            );
+            Status::internal("host store failure")
+        }
+        Error::Io(err) => {
+            eprintln!(
+                "agent-vmm: host_store_failure kind=io error_kind={:?} os={:?}",
+                err.kind(),
+                err.raw_os_error()
+            );
+            Status::internal("host store failure")
+        }
+        Error::Codec(err) => {
+            eprintln!(
+                "agent-vmm: host_store_failure kind=codec classify={:?}",
+                err.classify()
+            );
             Status::internal("host store failure")
         }
     }

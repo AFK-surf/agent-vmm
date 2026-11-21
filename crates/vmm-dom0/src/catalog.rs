@@ -228,7 +228,7 @@ impl Catalog<'_> {
     pub fn transient_objects(&self) -> Result<Vec<String>> {
         let db = self.db()?;
         Ok(db
-            .prepare("SELECT name FROM objects WHERE name LIKE 'build/%'")?
+            .prepare("SELECT name FROM objects WHERE name LIKE 'build/%' OR name LIKE 'stage/%'")?
             .query_map([], |r| r.get(0))?
             .collect::<rusqlite::Result<_>>()?)
     }

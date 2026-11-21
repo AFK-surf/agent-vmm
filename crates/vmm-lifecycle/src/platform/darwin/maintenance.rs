@@ -2,7 +2,8 @@
 //! request that the owner journal makes recoverable at every step.
 
 use super::maintenance_journal::{collect_install_ids, refuse, validate_supersession};
-use super::paths::{shared_host_app, validate_maintenance_path};
+use super::paths::{maintenance_stage, shared_host_app, validate_maintenance_path};
+use super::service::remove_tree;
 use crate::cutover::{self, CutoverProgress, HOST_START_FAILED, Steps, TARGET_OLDER_THAN_DATA};
 use crate::error::{Error, Kind, Result, err};
 use crate::journal::{self, Journal, MaintenanceState, receipt_name};
@@ -299,8 +300,11 @@ fn settle(journal: &Journal, mut state: MaintenanceState, mut receipt: Maintenan
 fn execute(paths: &Paths, journal: &Journal, mut state: MaintenanceState, receipt: MaintenanceReceipt, actions: &mut dyn Actions) -> Outcome {
     let mut progress = receipt.progress;
     let (reset, remove) = (receipt.request.reset(), receipt.request.uninstall());
+    // A replaced request can leave its staged release. Every run of its successor removes it.
+    let previous = receipt.request.supersedes_request_id.clone();
+    let cleaned = if previous.is_empty() { Ok(()) } else { maintenance_stage(paths, &previous).and_then(|stage| remove_tree(&stage)) };
     let mut execution = Execution { paths, journal, receipt, actions };
-    let result = cutover::cutover(&mut progress, reset, remove, &mut execution);
+    let result = cleaned.and_then(|()| cutover::cutover(&mut progress, reset, remove, &mut execution));
     let Execution { mut receipt, actions, .. } = execution;
     let Err(error) = result else { return settle(journal, state, receipt, actions) };
     let (code, retryable) = match &error.kind {
@@ -398,10 +402,16 @@ fn admit(context: &Context, paths: &Paths, request: &MaintenanceRequest, actions
         }
     }
     let mut receipt = saved.unwrap_or_else(|| MaintenanceReceipt { admission_previous_request_id: state.latest_request.clone(), retryable: true, ..MaintenanceReceipt::new(paths, request, "pending") });
+    // A request that the state already names as active continues its own admission.
+    let admitted = state.active_request == *id;
     state.active_request = id.clone();
     state.latest_request = id.clone();
     if request.reset() {
         collect_install_ids(context, paths, &journal, &mut state)?;
+        if !admitted {
+            // The epoch changes in the admission commit, before any data is removed.
+            state.data_epoch = state.data_epoch.saturating_add(1);
+        }
     }
     // A new receipt is staged before the owner pointer. Until the state commit it authorizes no effect.
     if new || superseding {

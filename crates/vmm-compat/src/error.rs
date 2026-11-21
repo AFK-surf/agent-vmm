@@ -99,6 +99,8 @@ pub fn invalid_field(field: &str, description: &str) -> Status {
     )
 }
 
+pub const IMPORT_HEADROOM_MIN_FREE_BYTES: u64 = 10 << 30;
+
 /// The gateway interprets the byte counts as unsigned decimal strings.
 pub fn import_headroom(available: u64, required: u64) -> Status {
     with_metadata(
@@ -112,6 +114,65 @@ pub fn import_headroom(available: u64, required: u64) -> Status {
             ("required_bytes".into(), required.to_string()),
         ]),
     )
+}
+
+pub fn operation_in_progress(stage: &str) -> Status {
+    detailed_status(
+        Code::Unavailable,
+        "OPERATION_IN_PROGRESS",
+        "operation is already in progress",
+        HashMap::from([("stage".into(), stage.into())]),
+    )
+}
+
+pub(crate) fn is_enospc(err: &std::io::Error) -> bool {
+    err.kind() == std::io::ErrorKind::StorageFull
+        || err.raw_os_error() == Some(rustix::io::Errno::NOSPC.raw_os_error())
+}
+
+pub(crate) fn available_bytes(dir: &std::path::Path) -> u64 {
+    rustix::fs::statvfs(dir)
+        .ok()
+        .and_then(|s| s.f_frsize.checked_mul(s.f_bavail))
+        .unwrap_or(0)
+}
+
+pub fn check_import_headroom(
+    dir: &std::path::Path,
+    required: u64,
+    min_free_bytes: u64,
+) -> Result<(), Status> {
+    if min_free_bytes == 0 && required == 0 {
+        return Ok(());
+    }
+    let available = match rustix::fs::statvfs(dir) {
+        Ok(stat) => stat
+            .f_frsize
+            .checked_mul(stat.f_bavail)
+            .ok_or_else(|| Status::internal("invalid filesystem headroom"))?,
+        Err(_) => return Ok(()),
+    };
+    let needed = required.saturating_add(min_free_bytes);
+    if available < needed {
+        return Err(import_headroom(available, needed));
+    }
+    Ok(())
+}
+
+pub(crate) fn import_core_status(
+    dir: &std::path::Path,
+    required: u64,
+    error: vmm_core::Error,
+) -> Status {
+    match &error {
+        vmm_core::Error::Capacity(vmm_core::CapacityDimension::StorageHeadroom) => {
+            import_headroom(available_bytes(dir), required)
+        }
+        vmm_core::Error::Io(io_err) if is_enospc(io_err) => {
+            import_headroom(available_bytes(dir), required)
+        }
+        _ => core_status(error),
+    }
 }
 
 pub use crate::context::core_status;

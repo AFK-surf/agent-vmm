@@ -75,6 +75,7 @@ impl Store {
         tx.execute_batch(crate::mesh::SCHEMA)?;
         tx.execute_batch(crate::host_socket::SCHEMA)?;
         tx.execute_batch(crate::host_vm::SCHEMA)?;
+        tx.execute_batch(crate::storage::VERIFIED_URL_IMPORTS_SCHEMA)?;
         tx.execute(
             "INSERT OR IGNORE INTO local_vm_admission VALUES(1,'running',?)",
             [uuid::Uuid::new_v4().to_string()],

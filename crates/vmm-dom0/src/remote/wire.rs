@@ -15,6 +15,13 @@ pub(super) enum Request {
     AcquireBuild(Box<Scope>, EgressMode, u64, String),
     SettleBuild(String),
     StageImage(Digest, u64),
+    StageErofs {
+        manifest: Digest,
+        physical_bytes: u64,
+        sha256: Digest,
+        defaults: crate::image::Defaults,
+    },
+    ImageInstalled(Digest),
     Install(Digest, String, u64),
     DiscardImage(Digest),
     Volume(Volume),
@@ -95,11 +102,13 @@ pub(super) async fn dispatch(backend: &dyn Dom0Backend, r: Request) -> Result<se
         Request::AcquireBuild(..)
         | Request::SettleBuild(_)
         | Request::StageImage(..)
+        | Request::StageErofs { .. }
         | Request::AcquireWorkspace(..)
         | Request::OpenGuestRuntime(_)
         | Request::GuestAddress(_) => {
             return Err(Error::Fenced);
         }
+        Request::ImageInstalled(d) => to_value(backend.image_installed(d).await?),
         Request::Install(manifest_digest, staged_extent, physical_bytes) => to_value(
             backend
                 .install_image_artifact(&ImageSource {

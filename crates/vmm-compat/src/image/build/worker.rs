@@ -261,15 +261,15 @@ pub(super) fn run(
     }
     let digest = base::output_digest(file.path())?;
     let logical_bytes = oci::validate_built(file.path(), digest)?;
-    Ok(VerifiedArchive {
+    Ok(VerifiedArchive::from_temp(
         file,
         logical_bytes,
-        digest,
-        header: h::ImportImageHeader {
+        h::ImportImageHeader {
             image_reference: header.image,
             manifest_digest: format!("sha256:{}", hex::encode(digest)),
             platform: "linux/arm64".into(),
             ..Default::default()
         },
-    })
+        digest,
+    ))
 }

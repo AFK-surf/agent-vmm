@@ -55,6 +55,12 @@ pub fn shared_host_app(home: &Path) -> PathBuf {
     home.join("Library/Application Support/Agent VMM Host/current").join(HOST_APP_NAME)
 }
 
+/// The staged copy of the release that maintenance request `request_id` installs, beside the installed Host.
+pub fn maintenance_stage(paths: &Paths, request_id: &str) -> Result<PathBuf> {
+    let parent = paths.app.parent().ok_or_else(|| err("shared Host location is invalid"))?;
+    Ok(parent.join(format!(".Agent VMM Host.maintenance-{request_id}.app")))
+}
+
 pub fn preflight_data_directory() -> Result<PathBuf> {
     Ok(application_data(&lookup_account(None).map_err(|_| err("preflight cannot resolve the home directory"))?.home))
 }

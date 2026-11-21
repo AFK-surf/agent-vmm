@@ -228,12 +228,12 @@ async fn export_inner(
                 s
             }
         })?;
-        Ok(VerifiedArchive {
+        Ok(VerifiedArchive::from_temp(
             file,
             logical_bytes,
             header,
             digest,
-        })
+        ))
     })
     .await
     .map_err(|_| interrupted())?

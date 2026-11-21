@@ -103,6 +103,9 @@ pub struct MaintenanceState {
     #[serde(skip_serializing_if = "String::is_empty")]
     pub latest_request: String,
     pub uninstalled: bool,
+    /// The count of accepted data resets. A change means that the Host data of an earlier epoch is gone.
+    #[serde(skip_serializing_if = "is_zero")]
+    pub data_epoch: u64,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub completed_requests: BTreeMap<String, bool>,
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]
@@ -314,6 +317,11 @@ pub fn read_latest(context: &Context, paths: &Paths) -> Option<LifecycleOperatio
     let journal = Journal::open(context, paths).ok()?;
     let state = journal.state().ok()?;
     (!state.latest_request.is_empty()).then(|| journal.receipt(&state.latest_request).ok()).flatten()
+}
+
+/// The data epoch of the owner state. A journal that does not exist has epoch 0.
+pub fn read_data_epoch(context: &Context, paths: &Paths) -> u64 {
+    Journal::open(context, paths).and_then(|journal| journal.state()).map_or(0, |state| state.data_epoch)
 }
 
 pub fn read_plan_state(context: &Context, paths: &Paths, id: &str) -> Result<Vec<u8>> {

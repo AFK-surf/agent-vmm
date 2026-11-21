@@ -4,7 +4,7 @@ use crate::{
     context::core_status,
     error::{host_status, invalid_field},
     guest::Output,
-    mutation::mutate,
+    mutation::{ReentrantFailure, is_terminal_core_error, mutate_reentrant},
 };
 use agent_vmm_proto::host::v1 as h;
 use oci_spec::distribution::Reference;
@@ -49,10 +49,11 @@ impl ImageImports {
                 return;
             }
             let notify = tx.clone();
-            let terminal = mutate(
+            let terminal = mutate_reentrant(
                 ctx.core.store.clone(),
                 ctx.scope.id.clone(),
                 "runtime-pull-image",
+                "image_import",
                 req.request_id.clone(),
                 req.encode_to_vec(),
                 async move {
@@ -60,16 +61,26 @@ impl ImageImports {
                     let cached = {
                         let _guard = containers.definitions.lock().await;
                         match super::grant::resolve(&ctx, &req.reference) {
-                            Ok((name, image)) => Some(containers.image_grant(
-                                &ctx.core.store,
-                                &ctx.scope.id,
-                                &name,
-                                &image,
-                                None,
-                                false,
-                            )?),
+                            Ok((name, image)) => Some(
+                                containers
+                                    .image_grant(
+                                        &ctx.core.store,
+                                        &ctx.scope.id,
+                                        &name,
+                                        &image,
+                                        None,
+                                        false,
+                                    )
+                                    .map_err(ReentrantFailure::retryable)?,
+                            ),
                             Err(vmm_core::Error::Missing(_)) => None,
-                            Err(e) => return Err(core_status(e)),
+                            Err(e) => {
+                                let terminal = is_terminal_core_error(&e);
+                                return Err(ReentrantFailure {
+                                    status: core_status(e),
+                                    terminal,
+                                });
+                            }
                         }
                     };
                     let image = if let Some(image) = cached {
@@ -78,9 +89,22 @@ impl ImageImports {
                         let _ = notify.try_send(Ok(progress("downloading from registry")));
                         let archive = registry::export(&imports.directory, &reference)
                             .await
-                            .map_err(|s| registry::with_image(s, &canonical))?;
-                        let grant =
-                            Self::publish(ctx, containers, archive, imports.staging).await?;
+                            .map_err(|s| {
+                                let terminal = s.code() == Code::InvalidArgument;
+                                ReentrantFailure {
+                                    status: registry::with_image(s, &canonical),
+                                    terminal,
+                                }
+                            })?;
+                        let grant = Self::publish(ctx, containers, archive, imports.staging)
+                            .await
+                            .map_err(|s| {
+                                let terminal = s.code() == Code::InvalidArgument;
+                                ReentrantFailure {
+                                    status: s,
+                                    terminal,
+                                }
+                            })?;
                         let _ = notify.try_send(Ok(progress("resolving")));
                         grant
                     };
