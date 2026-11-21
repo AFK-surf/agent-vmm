@@ -100,18 +100,15 @@ impl Pool {
         } else {
             Connection::open(path)?
         };
+        let disk_i = sql_integer(disk)?;
+        let first_i = sql_integer(region.sector)?;
+        let end_i = sql_integer(end)?;
         if existing {
             let saved: (i64, i64, i64) =
                 db.query_row("SELECT disk,first,end FROM pool WHERE id=1", [], |r| {
                     Ok((r.get(0)?, r.get(1)?, r.get(2)?))
                 })?;
-            if saved
-                != (
-                    sql_integer(disk)?,
-                    sql_integer(region.sector)?,
-                    sql_integer(end)?,
-                )
-            {
+            if saved.0 != disk_i || saved.1 != first_i || end_i < saved.2 {
                 return Err(Error::Conflict("pool geometry changed"));
             }
             for table in ["objects", "extents"] {
@@ -133,19 +130,15 @@ impl Pool {
         let tx = db.transaction_with_behavior(TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT OR IGNORE INTO pool VALUES(1,?1,?2,?3)",
-            params![
-                sql_integer(disk)?,
-                sql_integer(region.sector)?,
-                sql_integer(end)?
-            ],
+            params![disk_i, first_i, end_i],
+        )?;
+        tx.execute(
+            "UPDATE pool SET end=?3 WHERE id=1 AND disk=?1 AND first=?2 AND end<?3",
+            params![disk_i, first_i, end_i],
         )?;
         let matches: bool = tx.query_row(
             "SELECT disk=?1 AND first=?2 AND end=?3 FROM pool WHERE id=1",
-            params![
-                sql_integer(disk)?,
-                sql_integer(region.sector)?,
-                sql_integer(end)?
-            ],
+            params![disk_i, first_i, end_i],
             |r| r.get(0),
         )?;
         if !matches {

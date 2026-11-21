@@ -72,6 +72,7 @@ impl Guest {
             ],
             default_workdir: dir.path().to_str().unwrap().into(),
             default_user: None,
+            grant_subid_caps: false,
         };
         let processes = ProcessManager::new(context, log_limit_bytes);
         if let Some(argv) = main {

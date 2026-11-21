@@ -205,13 +205,14 @@ impl Builds {
                 ctx.scope.egress_mode.clone()
             };
             acquiring = true;
+            const MAX_BUILD_DISK_BYTES: u64 = 4 << 30;
             let guest = self
                 .backend
                 .acquire(
                     &r.lease,
                     &ctx.scope,
                     network,
-                    ctx.scope.limits.disk_quota_bytes,
+                    ctx.scope.limits.disk_quota_bytes.min(MAX_BUILD_DISK_BYTES),
                 )
                 .await?;
             r.receipt.runtime_instance_id = guest.instance_id;

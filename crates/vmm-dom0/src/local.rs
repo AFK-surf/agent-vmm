@@ -158,9 +158,9 @@ impl Dom0Config {
             self.state_dir.join("images"),
         );
         options.dns_port = 53;
-        options.upstream_dns = Some(crate::dns::public_resolver(
-            &std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default(),
-        ));
+        let resolv = std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default();
+        options.upstream_dns = Some(crate::dns::public_resolver(&resolv));
+        options.fallback_dns = crate::dns::fallback_resolvers(&resolv);
         let dns_address = std::net::SocketAddrV4::new(options.gateway, options.dns_port);
         options.switch = Some(self.switch);
         let digest: [u8; 32] = hex::decode(&self.helper_digest)?

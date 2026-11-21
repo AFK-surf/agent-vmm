@@ -101,3 +101,65 @@ fn discard_precedes_lowest_lba_reuse_across_restart() -> Result<()> {
     );
     Ok(())
 }
+
+#[test]
+fn pool_grows_monotonically_and_rejects_shrink() -> Result<()> {
+    let temp = tempdir()?;
+    let db = temp.path().join("state");
+    let ctl = Arc::new(Mutex::new(MockHypervisorCtl::with_disks(vec![DiskInfo {
+        id: 2,
+        sectors: 40 * BLOCK_SECTORS,
+        owned: false,
+        failed: false,
+    }])));
+    let free = Arc::new(Free(AtomicU64::new(u64::MAX)));
+    let pool = Pool::open(
+        &db,
+        ctl.clone(),
+        2,
+        DiskExtent {
+            sector: BLOCK_SECTORS,
+            sectors: 16 * BLOCK_SECTORS,
+        },
+        free.clone(),
+        BLOCK_BYTES,
+    )?;
+    pool.allocate("existing", 16 * BLOCK_BYTES)?;
+    assert!(matches!(
+        pool.allocate("overflow", BLOCK_BYTES),
+        Err(Error::Capacity(CapacityDimension::StorageHeadroom))
+    ));
+    drop(pool);
+
+    // Monotonic grow succeeds and unlocks newly added sectors.
+    let grown = Pool::open(
+        &db,
+        ctl.clone(),
+        2,
+        DiskExtent {
+            sector: BLOCK_SECTORS,
+            sectors: 32 * BLOCK_SECTORS,
+        },
+        free.clone(),
+        BLOCK_BYTES,
+    )?;
+    let ext = grown.allocate("after-grow", 16 * BLOCK_BYTES)?;
+    assert_eq!(ext.len(), 1);
+    assert_eq!(ext[0].sector, 17 * BLOCK_SECTORS);
+    drop(grown);
+
+    // Shrinking back must be rejected as a geometry conflict.
+    let shrunk = Pool::open(
+        &db,
+        ctl,
+        2,
+        DiskExtent {
+            sector: BLOCK_SECTORS,
+            sectors: 16 * BLOCK_SECTORS,
+        },
+        free,
+        BLOCK_BYTES,
+    );
+    assert!(matches!(shrunk, Err(Error::Conflict(_))));
+    Ok(())
+}

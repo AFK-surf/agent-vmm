@@ -57,7 +57,7 @@ impl HostState {
             store,
             compat_path,
             staging,
-            state_size: 64 << 30,
+            state_size: 128 << 30,
         })
     }
 

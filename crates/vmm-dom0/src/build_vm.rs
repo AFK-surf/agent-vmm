@@ -127,18 +127,20 @@ impl LocalDom0Backend {
         if network == EgressMode::DenyAll {
             isolated.egress_mode = network;
         }
+        const MAX_BUILD_DISK_BYTES: u64 = 4 << 30;
+        let disk_bytes = quota_bytes.min(MAX_BUILD_DISK_BYTES);
         let volume = Volume {
             scope_id: scope.id.clone(),
             volume_id: "workspace".into(),
-            quota_bytes,
+            quota_bytes: disk_bytes,
             used_bytes: 0,
             owner_uid: 1000,
             owner_gid: 1000,
             mode: 0o700,
             key_id: None,
         };
-        self.ensure_disk(&object, quota_bytes)?;
-        self.ensure_disk(&format!("{object}/root"), quota_bytes)?;
+        self.ensure_disk(&object, disk_bytes)?;
+        self.ensure_disk(&format!("{object}/root"), disk_bytes)?;
         let (boot, guest) = self
             .launch_helper(
                 HelperSpec {

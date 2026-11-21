@@ -127,6 +127,7 @@ pub async fn guests(ctl: Control, port: u16, root: PathBuf, observed: Arc<Mutex<
             base_env: vec![],
             default_workdir: root.display().to_string(),
             default_user: None,
+            grant_subid_caps: false,
         };
         let paths = BTreeMap::from([(volume.name.clone(), volume_path)]);
         let sampler = Sampler {

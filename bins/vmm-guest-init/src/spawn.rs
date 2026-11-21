@@ -22,6 +22,9 @@ pub struct SpawnContext {
     pub base_env: Vec<String>,
     pub default_workdir: String,
     pub default_user: Option<String>,
+    /// Retains `CAP_SETGID`, `CAP_SETUID`, and `CAP_SETPCAP` as ambient
+    /// capabilities across non-root UID drops (build helper VMs only).
+    pub grant_subid_caps: bool,
 }
 
 fn invalid(message: impl Into<String>) -> RpcError {
@@ -79,6 +82,8 @@ pub fn command(
     let current = unsafe { (libc::geteuid(), libc::getegid()) };
     let switch = credentials.filter(|credentials| (credentials.uid, credentials.gid) != current);
     let cgroup_procs = context.cgroup_procs.clone();
+    #[cfg(target_os = "linux")]
+    let grant_subid_caps = context.grant_subid_caps;
 
     // SAFETY: the closure runs between `fork` and `exec` and makes only
     // async-signal-safe calls on values that were allocated before the fork.
@@ -98,15 +103,71 @@ pub fn command(
                 }
             }
             if let Some(credentials) = &switch {
+                #[cfg(target_os = "linux")]
+                if grant_subid_caps {
+                    sys::cvt(libc::prctl(libc::PR_SET_KEEPCAPS, 1, 0, 0, 0))?;
+                }
                 sys::cvt(libc::setgroups(
                     credentials.groups.len(),
                     credentials.groups.as_ptr(),
                 ))?;
                 sys::cvt(libc::setgid(credentials.gid))?;
                 sys::cvt(libc::setuid(credentials.uid))?;
+                #[cfg(target_os = "linux")]
+                if grant_subid_caps {
+                    retain_subid_caps()?;
+                }
             }
             Ok(())
         });
     }
     Ok(command)
+}
+
+#[cfg(target_os = "linux")]
+unsafe fn retain_subid_caps() -> std::io::Result<()> {
+    #[repr(C)]
+    struct CapUserHeader {
+        version: u32,
+        pid: i32,
+    }
+    #[repr(C)]
+    struct CapUserData {
+        effective: u32,
+        permitted: u32,
+        inheritable: u32,
+    }
+    const LINUX_CAPABILITY_VERSION_3: u32 = 0x2008_0522;
+    const SUBID_CAPS: [u32; 3] = [6, 7, 8]; // CAP_SETGID, CAP_SETUID, CAP_SETPCAP
+    let mask = (1u32 << 6) | (1u32 << 7) | (1u32 << 8);
+    let hdr = CapUserHeader {
+        version: LINUX_CAPABILITY_VERSION_3,
+        pid: 0,
+    };
+    let data = [
+        CapUserData {
+            effective: mask,
+            permitted: mask,
+            inheritable: mask,
+        },
+        CapUserData {
+            effective: 0,
+            permitted: 0,
+            inheritable: 0,
+        },
+    ];
+    unsafe {
+        sys::cvt(libc::syscall(libc::SYS_capset, &hdr, data.as_ptr()) as libc::c_int)?;
+        for cap in SUBID_CAPS {
+            sys::cvt(libc::prctl(
+                libc::PR_CAP_AMBIENT,
+                libc::PR_CAP_AMBIENT_RAISE,
+                cap as libc::c_ulong,
+                0,
+                0,
+            ))?;
+        }
+        sys::cvt(libc::prctl(libc::PR_SET_KEEPCAPS, 0, 0, 0, 0))?;
+    }
+    Ok(())
 }

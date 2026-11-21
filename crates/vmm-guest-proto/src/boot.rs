@@ -160,6 +160,12 @@ pub struct WorkloadSpec {
     /// main process and stays up for RPC callers.
     #[serde(default)]
     pub keep_alive_idle: bool,
+    /// Retains `CAP_SETGID`, `CAP_SETUID`, and `CAP_SETPCAP` as ambient
+    /// capabilities across non-root UID drops so rootless BuildKit's
+    /// `newuidmap`/`newgidmap` can establish sub-ID mappings without setuid
+    /// bits or file capabilities. Set only for disposable build VMs.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub subid_caps: bool,
 }
 
 impl WorkloadSpec {
@@ -436,6 +442,7 @@ mod tests {
                 pids_max: Some(4096),
                 log_limit_bytes: 1 << 20,
                 keep_alive_idle: true,
+                subid_caps: false,
             },
         }
     }
@@ -443,7 +450,12 @@ mod tests {
     #[test]
     fn json_round_trip_keeps_secrets_out_of_debug_output() {
         let config = sample();
-        let parsed = BootConfig::from_json(&config.to_json()).unwrap();
+        let json = config.to_json();
+        assert!(
+            !std::str::from_utf8(&json).unwrap().contains("subid_caps"),
+            "default subid_caps=false must be omitted from boot JSON"
+        );
+        let parsed = BootConfig::from_json(&json).unwrap();
         assert_eq!(parsed, config);
         let debug = format!("{parsed:?}");
         assert!(

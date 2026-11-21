@@ -9,6 +9,9 @@ Workload processes have an empty capability set.
 A root entrypoint cannot initialize a mode-0700 volume owned by another numeric UID.
 Start the workload with the UID and GID that own the volume.
 
+Disposable build VMs (`BuildVm`) set `subid_caps` so `vmm-guest-init` retains only ambient `CAP_SETGID`, `CAP_SETUID`, and `CAP_SETPCAP` across the UID 1000 drop, and align `BUILDKIT_HOST` to `unix:///workspace/runtime/buildkit/buildkitd.sock`.
+OCI layer import strips `security.*` xattrs and root mounts carry `MS_NOSUID`, so `newuidmap` and `newgidmap` cannot rely on setuid bits or file capabilities.
+
 ## Apple VZ boot
 
 On `PLAT_APPLE_VZ`, `clear_boot_memory` scans only the loader boot window and the user-image neighborhood so untouched host pages stay zero-backed.
@@ -82,6 +85,9 @@ The default receive buffer overflowed with seven public namespaces.
 Keep the explicit per-reconcile receive buffer and five-second deadline.
 Run the kernel regression in its private network namespace.
 Its sixteen-namespace fixture is not a product capacity limit.
+
+When the host runs a TUN Fake-IP proxy (`198.18.0.0/15`), upstream DNS returns RFC 2544 addresses.
+`dom0` records only DNS-resolved, non-gateway Fake-IPs (excluding `198.18.0.0..=2` and `198.19.255.255`) for `PublicInternet` sandboxes into `@resolved_fake_ips` with their DNS TTL, and matches that set before the bogon drop rule.
 
 ## Filesystems and quota
 

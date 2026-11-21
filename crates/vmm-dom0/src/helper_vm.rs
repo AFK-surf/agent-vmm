@@ -368,7 +368,7 @@ impl LocalDom0Backend {
                     boot: &boot,
                     boot_token: token.as_ref(),
                 },
-                Some(object),
+                Some((object, build)),
             )
             .await;
         if let Err(e) = launched {

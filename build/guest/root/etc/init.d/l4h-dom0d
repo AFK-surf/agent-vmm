@@ -33,6 +33,7 @@ configure_carrier_network() {
 	fi
 	if [ -n "$nat_if" ]; then
 		ip link set "$nat_if" up || true
+		udhcpc -n -q -t 5 -T 1 -i "$nat_if" >/dev/null 2>&1 || true
 		udhcpc -b -i "$nat_if" -p "/run/udhcpc.$nat_if.pid" >/dev/null 2>&1 || true
 	fi
 	if [ -n "$internal_if" ]; then

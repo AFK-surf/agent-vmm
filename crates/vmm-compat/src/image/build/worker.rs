@@ -50,7 +50,8 @@ fn guest_command(argv: Vec<String>) -> g::ExecRequest {
         "USER=user",
         "XDG_RUNTIME_DIR=/workspace/runtime",
         "TMPDIR=/workspace/tmp",
-        "BUILDKIT_HOST=unix:///workspace/runtime/buildkitd.sock",
+        "BUILDKIT_HOST=unix:///workspace/runtime/buildkit/buildkitd.sock",
+        "BUILDCTL_CONNECT_RETRIES_MAX=50",
         "ROOTLESSKIT=/usr/bin/rootlesskit --net=host",
         "BUILDKITD_FLAGS=--root=/workspace/state --oci-worker-snapshotter=overlayfs --oci-worker-binary=/usr/bin/buildkit-runc --oci-worker-no-process-sandbox",
     ];

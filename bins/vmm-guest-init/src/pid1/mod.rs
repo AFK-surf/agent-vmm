@@ -127,6 +127,7 @@ fn boot() -> Result<Infallible, String> {
             .clone()
             .unwrap_or_else(|| "/".into()),
         default_user: config.workload.user.clone(),
+        grant_subid_caps: config.workload.subid_caps,
     };
     let volumes: BTreeMap<String, PathBuf> = config
         .volumes

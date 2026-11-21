@@ -75,8 +75,10 @@ impl WorkspaceService {
                 "workspace read range exceeds limits",
             ));
         }
-        let target = target(&req.volume_id, req.path)?;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadOnly).await?;
+        let mut target = target(&req.volume_id, req.path)?;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadOnly)
+            .await?;
         Ok(download(
             req.offset,
             max,
@@ -114,8 +116,10 @@ impl WorkspaceService {
         ctx: &RuntimeContext,
         req: h::ArchiveWorkspaceRequest,
     ) -> Result<WorkspaceStream<h::ArchiveWorkspaceResponse>, Status> {
-        let target = target("", req.path)?;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadOnly).await?;
+        let mut target = target("", req.path)?;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadOnly)
+            .await?;
         Ok(download(
             0,
             MAX_BYTES,

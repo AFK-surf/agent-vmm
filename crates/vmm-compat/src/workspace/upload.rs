@@ -130,7 +130,7 @@ impl WorkspaceService {
                 "workspace write header must be first",
             ));
         };
-        let target = target(&header.volume_id, header.path)?;
+        let mut target = target(&header.volume_id, header.path)?;
         check_id(&header.request_id)?;
         if target.path == "." || header.mode & !0o777 != 0 {
             return Err(Status::invalid_argument("invalid workspace file or mode"));
@@ -142,19 +142,21 @@ impl WorkspaceService {
                     .map_err(|_| Status::invalid_argument("expected a 32-byte prefix digest"))?,
             ),
         };
+        let lock = self.writer(&ctx.scope.id)?.lock_owned().await;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadWrite)
+            .await?;
         let id = target
             .volume
             .clone()
             .unwrap_or_else(|| DEFAULT_VOLUME.into());
         let req = g::WorkspaceWriteRequest {
             request_id: header.request_id,
-            target: target.clone(),
+            target,
             offset: header.offset,
             expected_prefix_sha256: prefix,
             mode: header.mode,
         };
-        let lock = self.writer(&ctx.scope.id)?.lock_owned().await;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadWrite).await?;
         let owner = ctx.clone();
         let (tx, rx) = mpsc::channel(2);
         let task = tokio::task::spawn_blocking(move || {
@@ -234,14 +236,20 @@ impl WorkspaceService {
             ));
         };
         check_id(&header.request_id)?;
-        let target = target("", header.path)?;
+        let mut target = target("", header.path)?;
         if target.path == "." {
             return Err(Status::invalid_argument(
                 "destination must be a new directory",
             ));
         }
         let lock = self.writer(&ctx.scope.id)?.lock_owned().await;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadWrite).await?;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadWrite)
+            .await?;
+        let id = target
+            .volume
+            .clone()
+            .unwrap_or_else(|| DEFAULT_VOLUME.into());
         let tmp = tempfile::tempfile().map_err(host_io)?;
         let mut tmp = tokio::fs::File::from_std(tmp);
         let mut total = 0;
@@ -270,7 +278,7 @@ impl WorkspaceService {
             tmp.rewind().map_err(host_io)?;
             let required = archive_size(&mut tmp)?;
             tmp.rewind().map_err(host_io)?;
-            sample(&owner, DEFAULT_VOLUME, lease.as_ref())?;
+            sample(&owner, &id, lease.as_ref())?;
             admit(&owner, required)?;
             let result = lease.import_archive(
                 g::WorkspaceImportRequest {
@@ -281,7 +289,7 @@ impl WorkspaceService {
             );
             settle(
                 &owner,
-                DEFAULT_VOLUME,
+                &id,
                 lease.as_ref(),
                 result.as_ref().ok().and_then(|reply| reply.root_used_bytes),
             )?;

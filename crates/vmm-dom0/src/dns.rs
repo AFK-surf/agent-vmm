@@ -65,8 +65,16 @@ impl DnsServer {
 
 enum Resolution {
     Local(Option<Ipv4Addr>),
-    Forward(SocketAddrV4),
+    Forward(Vec<SocketAddrV4>),
     Refused,
+}
+
+pub fn is_allowed_fake_ip(ip: Ipv4Addr) -> bool {
+    matches!(ip.octets(), [198, 18 | 19, ..])
+        && !matches!(
+            ip.octets(),
+            [198, 18, 0, 0..=2] | [198, 19, 255, 255]
+        )
 }
 
 impl LocalDom0Backend {
@@ -104,10 +112,30 @@ impl LocalDom0Backend {
         if !name.contains('.') || name.ends_with(".agent") {
             return Ok(Resolution::Local(None));
         }
-        if b.scope.egress_mode == EgressMode::PublicInternet
-            && let Some(upstream) = self.cfg.upstream_dns
-        {
-            return Ok(Resolution::Forward(upstream));
+        if b.scope.egress_mode == EgressMode::PublicInternet {
+            let mut upstreams = Vec::new();
+            if let Some(upstream) = self.cfg.upstream_dns {
+                upstreams.push(upstream);
+            }
+            for addr in &self.cfg.fallback_dns {
+                if !upstreams.contains(addr) {
+                    upstreams.push(*addr);
+                }
+            }
+            #[cfg(target_os = "linux")]
+            if self.cfg.fallback_dns.is_empty()
+                && self.cfg.upstream_dns == Some(SocketAddrV4::new(Ipv4Addr::new(1, 1, 1, 1), 53))
+                && let Ok(resolv) = std::fs::read_to_string("/etc/resolv.conf")
+            {
+                for addr in fallback_resolvers(&resolv) {
+                    if !upstreams.contains(&addr) {
+                        upstreams.push(addr);
+                    }
+                }
+            }
+            if !upstreams.is_empty() {
+                return Ok(Resolution::Forward(upstreams));
+            }
         }
         Ok(Resolution::Refused)
     }
@@ -161,15 +189,50 @@ impl LocalDom0Backend {
                 }
             }
             Ok(Resolution::Refused) => *reply.rcode_mut() = RCODE::Refused,
-            Ok(Resolution::Forward(addr)) => {
-                match timeout(Duration::from_secs(4), forward(addr, wire, &query, tcp)).await {
-                    Ok(Ok(answer)) => return Ok(answer),
-                    _ => *reply.rcode_mut() = RCODE::ServerFailure,
+            Ok(Resolution::Forward(addrs)) => {
+                let per_try = if addrs.len() > 1 {
+                    Duration::from_secs(2)
+                } else {
+                    Duration::from_secs(4)
+                };
+                let mut forwarded = None;
+                for addr in addrs {
+                    if let Ok(Ok(answer)) = timeout(per_try, forward(addr, wire, &query, tcp)).await
+                    {
+                        forwarded = Some(answer);
+                        break;
+                    }
+                }
+                match forwarded {
+                    Some(answer) => {
+                        if self.register_fake_ips(&answer).is_err() {
+                            *reply.rcode_mut() = RCODE::ServerFailure;
+                        } else {
+                            return Ok(answer);
+                        }
+                    }
+                    None => *reply.rcode_mut() = RCODE::ServerFailure,
                 }
             }
             Err(_) => *reply.rcode_mut() = RCODE::ServerFailure,
         }
         encode(&reply)
+    }
+
+    fn register_fake_ips(&self, wire: &[u8]) -> Result<()> {
+        let Ok(packet) = Packet::parse(wire) else {
+            return Ok(());
+        };
+        for record in &packet.answers {
+            if let RData::A(a) = &record.rdata {
+                let ip = Ipv4Addr::from(a.address);
+                if is_allowed_fake_ip(ip) {
+                    let ttl = Duration::from_secs(u64::from(record.ttl).clamp(60, 600));
+                    self.firewall.allow_fake_ip(ip, ttl)?;
+                }
+            }
+        }
+        Ok(())
     }
 }
 
@@ -247,4 +310,26 @@ pub fn public_resolver(config: &str) -> SocketAddrV4 {
         })
         .unwrap_or(Ipv4Addr::new(1, 1, 1, 1));
     SocketAddrV4::new(ip, 53)
+}
+
+/// Extract IPv4 resolvers (including DHCP gateway nameservers) as fallbacks for dom0 itself.
+pub fn fallback_resolvers(config: &str) -> Vec<SocketAddrV4> {
+    let mut out = Vec::new();
+    for line in config.lines() {
+        let mut words = line.split_whitespace();
+        if words.next() != Some("nameserver") {
+            continue;
+        }
+        let Some(Ok(ip)) = words.next().map(str::parse::<Ipv4Addr>) else {
+            continue;
+        };
+        if ip.is_loopback() || ip.is_unspecified() || ip.is_multicast() {
+            continue;
+        }
+        let addr = SocketAddrV4::new(ip, 53);
+        if !out.contains(&addr) {
+            out.push(addr);
+        }
+    }
+    out
 }

@@ -397,6 +397,115 @@ async fn gateway_dns_scopes_aliases_and_upstream_by_live_source_over_udp_and_tcp
         *public_resolver("nameserver 10.0.0.1").ip(),
         Ipv4Addr::new(1, 1, 1, 1)
     );
+    assert_eq!(
+        crate::dns::fallback_resolvers(
+            "nameserver 127.0.0.53\nnameserver 192.168.64.1\nnameserver 192.168.64.1"
+        ),
+        vec![SocketAddrV4::new(Ipv4Addr::new(192, 168, 64, 1), 53)]
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn dns_registers_resolved_fake_ips_and_blocks_reserved_fake_ips() -> Result<()> {
+    let (dir, pool, ctl) = setup()?;
+    let upstream_udp = tokio::net::UdpSocket::bind((Ipv4Addr::LOCALHOST, 0)).await?;
+    let mut cfg = options(dir.path());
+    cfg.upstream_dns = Some(match upstream_udp.local_addr()? {
+        std::net::SocketAddr::V4(a) => a,
+        _ => unreachable!(),
+    });
+    let fw = Arc::new(MockFirewallDriver::default());
+    cfg.slot_address = |slot| (slot == 0).then_some(Ipv4Addr::LOCALHOST);
+    let b = Arc::new(LocalDom0Backend::open(
+        pool,
+        ctl.clone(),
+        cfg,
+        Arc::new(crate::keys::MasterKey(zeroize::Zeroizing::new([7; 32]))),
+        fw.clone(),
+        BootServer::default(),
+    )?);
+    let def = support::definition("scope", "box", AccessMode::ReadWrite);
+    let mut scope = support::scope("scope");
+    scope.egress_mode = EgressMode::PublicInternet;
+    let mut boot = SavedBoot {
+        identity: BootIdentity {
+            sandbox: def.key.clone(),
+            instance_id: "instance-fakeip".into(),
+            boot_token_hash: [2; 32],
+        },
+        name: "vm-fakeip".into(),
+        slot: 0,
+        vm: None,
+        scope,
+        definition: def,
+        encrypted_token: vec![],
+        disks: vec![],
+        writers: vec![],
+        retiring: false,
+        retired: false,
+        helper: false,
+        share_ports: Default::default(),
+    };
+    ctl.lock()
+        .unwrap()
+        .create_vm(&VmSpec {
+            name: "vm-fakeip",
+            memory_bytes: 128 << 20,
+            vcpus: 1,
+            initrd: &[],
+            cmdline: "",
+            volumes: &[],
+        })
+        .unwrap();
+    b.catalog().save(&boot)?;
+    b.prepare_network(&mut boot).await?;
+    let server = DnsServer::bind(SocketAddrV4::new(Ipv4Addr::LOCALHOST, 0)).await?;
+    let dns = SocketAddrV4::new(Ipv4Addr::LOCALHOST, server.port()?);
+    let task = tokio::spawn(server.serve(b.clone()));
+
+    let upstream_task = tokio::spawn(async move {
+        let mut buf = [0u8; 512];
+        for (ip, ttl) in [
+            (Ipv4Addr::new(198, 18, 14, 184), 30),
+            (Ipv4Addr::new(198, 18, 0, 1), 300),
+        ] {
+            let (n, peer) = upstream_udp.recv_from(&mut buf).await.unwrap();
+            let q = Packet::parse(&buf[..n]).unwrap();
+            let qname = q.questions[0].qname.clone();
+            let mut reply = q.into_reply();
+            reply.answers.push(simple_dns::ResourceRecord::new(
+                qname,
+                simple_dns::CLASS::IN,
+                ttl,
+                simple_dns::rdata::RData::A(ip.into()),
+            ));
+            let wire = reply.build_bytes_vec().unwrap();
+            upstream_udp.send_to(&wire, peer).await.unwrap();
+        }
+    });
+
+    assert_eq!(
+        query(dns, "proxy.example.com", TYPE::A.into(), false)
+            .await
+            .rcode(),
+        RCODE::NoError
+    );
+    assert_eq!(
+        query(dns, "reserved.example.com", TYPE::A.into(), false)
+            .await
+            .rcode(),
+        RCODE::NoError
+    );
+    upstream_task.await.unwrap();
+    task.abort();
+
+    let registered = fw.1.lock().unwrap();
+    assert_eq!(
+        registered.get(&Ipv4Addr::new(198, 18, 14, 184)),
+        Some(&Duration::from_secs(60))
+    );
+    assert!(!registered.contains_key(&Ipv4Addr::new(198, 18, 0, 1)));
     Ok(())
 }
 

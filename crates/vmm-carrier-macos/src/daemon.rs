@@ -22,7 +22,7 @@ use tokio::{
 
 #[derive(Parser)]
 struct Args {
-    #[arg(long,default_value_t=64<<30)]
+    #[arg(long, default_value_t = 128 << 30)]
     state_size: u64,
     #[arg(long)]
     bundle: PathBuf,

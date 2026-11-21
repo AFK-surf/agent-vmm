@@ -11,7 +11,7 @@ use agent_vmm_proto::host::v1 as h;
 use async_trait::async_trait;
 pub use download::WorkspaceStream;
 use std::{
-    collections::HashMap,
+    collections::{BTreeSet, HashMap},
     io::{Read, Write},
     sync::{Arc, Mutex, Weak},
 };
@@ -89,10 +89,35 @@ impl WorkspaceService {
         Ok(lock)
     }
 
+    fn mounted_workspace_volume(&self, ctx: &RuntimeContext) -> Result<Option<String>, Status> {
+        let mut mounted = BTreeSet::new();
+        for sandbox in ctx
+            .core
+            .store
+            .list_sandboxes(&ctx.scope.id, None, usize::MAX)
+            .map_err(core_status)?
+        {
+            for mount in &sandbox.definition.mounts {
+                if mount.guest_path == "/workspace" {
+                    mounted.insert(mount.volume_id.clone());
+                }
+            }
+        }
+        if mounted.len() != 1 {
+            return Ok(None);
+        }
+        let vol_id = mounted.into_iter().next().unwrap();
+        match ctx.core.store.volume(&ctx.scope.id, &vol_id) {
+            Ok(_) => Ok(Some(vol_id)),
+            Err(Error::Missing(_)) => Ok(None),
+            Err(e) => Err(core_status(e)),
+        }
+    }
+
     async fn resolve(
         &self,
         ctx: &RuntimeContext,
-        target: &g::WorkspaceTarget,
+        target: &mut g::WorkspaceTarget,
         access: AccessMode,
     ) -> Result<Arc<dyn WorkspaceLease>, Status> {
         if let Some(id) = &target.volume {
@@ -106,6 +131,8 @@ impl WorkspaceService {
                     }
                     e => core_status(e),
                 })?;
+        } else if let Some(vol_id) = self.mounted_workspace_volume(ctx)? {
+            target.volume = Some(vol_id);
         } else {
             match ctx.core.store.volume(&ctx.scope.id, DEFAULT_VOLUME) {
                 Ok(_) => {}
@@ -136,8 +163,10 @@ impl WorkspaceService {
         ctx: &RuntimeContext,
         request: h::StatWorkspaceRequest,
     ) -> Result<h::StatWorkspaceResponse, Status> {
-        let target = target("", request.path)?;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadOnly).await?;
+        let mut target = target("", request.path)?;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadOnly)
+            .await?;
         let entry = blocking(move || lease.stat(target)).await?;
         Ok(h::StatWorkspaceResponse {
             entry: Some(project(entry)),
@@ -149,8 +178,10 @@ impl WorkspaceService {
         ctx: &RuntimeContext,
         request: h::ListWorkspaceRequest,
     ) -> Result<h::ListWorkspaceResponse, Status> {
-        let target = target(&request.volume_id, request.path)?;
-        let lease = self.resolve(ctx, &target, AccessMode::ReadOnly).await?;
+        let mut target = target(&request.volume_id, request.path)?;
+        let lease = self
+            .resolve(ctx, &mut target, AccessMode::ReadOnly)
+            .await?;
         let limit = match request.limit {
             0 => g::MAX_LIST_ENTRIES,
             n => n.min(g::MAX_LIST_ENTRIES),

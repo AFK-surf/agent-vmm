@@ -34,7 +34,7 @@ fn device(n: usize) -> Result<String> {
     };
     Ok(format!("vd{name}"))
 }
-fn workload(l: &Launch<'_>, d: Defaults) -> WorkloadSpec {
+fn workload(l: &Launch<'_>, d: Defaults, subid_caps: bool) -> WorkloadSpec {
     let def = l.definition;
     let mut env: BTreeMap<String, String> = d
         .env
@@ -60,13 +60,14 @@ fn workload(l: &Launch<'_>, d: Defaults) -> WorkloadSpec {
         ),
         log_limit_bytes: def.log_limit_bytes,
         keep_alive_idle: true,
+        subid_caps,
     }
 }
 impl LocalDom0Backend {
     pub(crate) async fn launch(
         &self,
         l: Launch<'_>,
-        helper: Option<&str>,
+        helper: Option<(&str, bool)>,
     ) -> Result<VMIncarnation> {
         if l.boot.sandbox != l.definition.key
             || l.scope.id != l.boot.sandbox.scope_id
@@ -151,7 +152,7 @@ impl LocalDom0Backend {
         };
         let overlay = match &l.definition.root_overlay {
             Some(o) => Some(encrypted(
-                if let Some(object) = helper {
+                if let Some((object, _)) = helper {
                     format!("{object}/root")
                 } else {
                     overlay_id(&l.definition.key, &o.extent_id)?
@@ -172,7 +173,7 @@ impl LocalDom0Backend {
                 name: m.volume_id.clone(),
                 disk: encrypted(
                     helper
-                        .map(str::to_owned)
+                        .map(|(object, _)| object.to_owned())
                         .unwrap_or(volume_id(&v.scope_id, &v.volume_id)?),
                     ro,
                 )?,
@@ -231,7 +232,7 @@ impl LocalDom0Backend {
             volumes,
             host_shares: shares,
             workspace_path: Some("/workspace".into()),
-            workload: workload(&l, defaults),
+            workload: workload(&l, defaults, helper.is_some_and(|(_, build)| build)),
         };
         let pool = self.pool.clone();
         let disks_to_format = b.writers.clone();
