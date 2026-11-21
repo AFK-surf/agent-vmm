@@ -14,7 +14,7 @@ const STATE_DISKS: [&str; 2] = ["Library/Application Support/AgentVMM/instance/p
 const USAGE: &str = "usage: agent-vmm-service-executor configure --service-user USER | install|start|stop|remove|status [carrier]";
 const STOP_POLLS: u32 = 600;
 /// The virtualization service of the system closes the disks soon after the carrier exits.
-const RELEASE_POLLS: u32 = 100;
+const RELEASE_POLLS: u32 = 600;
 
 type Outcome = Result<(), String>;
 

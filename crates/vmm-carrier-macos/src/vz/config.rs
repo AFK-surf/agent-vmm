@@ -78,6 +78,9 @@ pub(super) fn configuration(
         cfg.setEntropyDevices(&NSArray::from_retained_slice(&[
             VZVirtioEntropyDeviceConfiguration::new().into_super(),
         ]));
+        cfg.setMemoryBalloonDevices(&NSArray::from_retained_slice(&[
+            VZVirtioTraditionalMemoryBalloonDeviceConfiguration::new().into_super(),
+        ]));
         let mut networks: Vec<Retained<VZNetworkDeviceConfiguration>> = Vec::new();
         let nat = VZVirtioNetworkDeviceConfiguration::new();
         if let Some(mac) = VZMACAddress::initWithString(

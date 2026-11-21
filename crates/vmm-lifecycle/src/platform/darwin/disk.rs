@@ -39,13 +39,17 @@ fn inspect(context: &Context, arguments: &[&str], deadline: Deadline) -> Result<
 fn open_owners(context: &Context, path: &Path, deadline: Deadline) -> Result<Vec<u32>> {
     let name = path.to_str().ok_or_else(|| err("state disk path is invalid"))?;
     if path.symlink_metadata().is_ok() {
-        return Ok(owners(&inspect(context, &["-Fpn", "--", name], deadline)?, None));
+        match inspect(context, &["-w", "-n", "-P", "-Fpn", "--", name], deadline) {
+            Ok(output) => return Ok(owners(&output, None)),
+            Err(_) if path.symlink_metadata().is_err() => {}
+            Err(error) => return Err(error),
+        }
     }
     // A removed disk can stay open. List the unlinked open files and match the name.
     let parent = path.parent().and_then(|parent| parent.canonicalize().ok());
     let expected = parent.zip(path.file_name()).map(|(parent, file)| parent.join(file));
     let expected = expected.as_deref().unwrap_or(path).display().to_string();
-    let output = inspect(context, &["+L1", "-Fpn"], deadline)?;
+    let output = inspect(context, &["-b", "-w", "-n", "-P", "+L1", "-Fpn"], deadline)?;
     if path.symlink_metadata().is_ok() {
         return Err(err("state disk changed during attachment inspection"));
     }
@@ -62,7 +66,6 @@ pub fn state_disk_owners(context: &Context, paths: &Paths, deadline: Deadline) -
 }
 
 pub fn wait_state_disk_release(context: &Context, paths: &Paths, deadline: Deadline) -> Result<()> {
-    let deadline = deadline.within(Duration::from_secs(5));
     loop {
         let owners = state_disk_owners(context, paths, deadline).map_err(|error| error.context("verify VM state disk ownership"))?;
         if owners.is_empty() {
@@ -77,6 +80,36 @@ pub fn wait_state_disk_release(context: &Context, paths: &Paths, deadline: Deadl
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::operator::Operator;
+    use crate::{CommandOutput, HttpResponse, System};
+    use std::sync::{Arc, Mutex};
+
+    type RunHandler = Box<dyn Fn(&str, &[&str], Deadline) -> Result<CommandOutput> + Send + Sync>;
+
+    struct FakeSystem {
+        handler: RunHandler,
+    }
+
+    impl System for FakeSystem {
+        fn operator(&self, _socket: &Path) -> Result<Box<dyn Operator>> {
+            Err(err("unused"))
+        }
+        fn run(&self, program: &str, arguments: &[&str], deadline: Deadline) -> Result<CommandOutput> {
+            (self.handler)(program, arguments, deadline)
+        }
+        fn process_running(&self, _pid: u32) -> bool {
+            false
+        }
+        fn post(&self, _url: &str, _authorization: &str, _body: &[u8], _limit: u64) -> Result<HttpResponse> {
+            Err(err("unused"))
+        }
+        fn euid(&self) -> u32 {
+            501
+        }
+        fn interrupted(&self) -> bool {
+            false
+        }
+    }
 
     #[test]
     fn open_file_listings_name_the_owning_processes() {
@@ -84,5 +117,74 @@ mod tests {
         let unlinked = "p12\nn/a/other\np34\nn/a/pool.raw (deleted)\nn/a/pool.raw\np56\nn/b/pool.raw\n";
         assert_eq!(owners(unlinked, Some("/a/pool.raw")), [34, 34]);
         assert!(owners("", None).is_empty());
+    }
+
+    #[test]
+    fn lsof_uses_non_blocking_warning_free_flags_and_polls_until_release() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance = dir.path().join("instance");
+        std::fs::create_dir_all(&instance).unwrap();
+        let pool = instance.join("pool.raw");
+        std::fs::write(&pool, b"").unwrap();
+        let pool_str = pool.to_str().unwrap().to_string();
+
+        let calls = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+        let seen = Arc::clone(&calls);
+        let polls = Arc::new(Mutex::new(0u32));
+        let poll_count = Arc::clone(&polls);
+        let context = Context {
+            system: Arc::new(FakeSystem {
+                handler: Box::new(move |program, args, _deadline| {
+                    assert_eq!(program, LSOF);
+                    seen.lock().unwrap().push(args.iter().map(|s| s.to_string()).collect());
+                    if args.last().copied() == Some(pool_str.as_str()) {
+                        let mut n = poll_count.lock().unwrap();
+                        *n += 1;
+                        if *n < 3 {
+                            return Ok(CommandOutput { code: Some(0), stdout: format!("p88\nn{pool_str}\n"), stderr: String::new() });
+                        }
+                    }
+                    Ok(CommandOutput { code: Some(1), stdout: String::new(), stderr: String::new() })
+                }),
+            }),
+        };
+        let paths = Paths { application_data: dir.path().to_path_buf(), ..Paths::default() };
+
+        wait_state_disk_release(&context, &paths, Deadline::after(Duration::from_secs(30))).unwrap();
+
+        let recorded = calls.lock().unwrap();
+        assert!(recorded.iter().any(|args| args == &["-w", "-n", "-P", "-Fpn", "--", pool.to_str().unwrap()]));
+        assert!(recorded.iter().any(|args| args == &["-b", "-w", "-n", "-P", "+L1", "-Fpn"]));
+        assert_eq!(*polls.lock().unwrap(), 3);
+    }
+
+    #[test]
+    fn concurrent_disk_removal_falls_back_to_unlinked_inspection() {
+        let dir = tempfile::tempdir().unwrap();
+        let instance = dir.path().join("instance");
+        std::fs::create_dir_all(&instance).unwrap();
+        let pool = instance.join("pool.raw");
+        std::fs::write(&pool, b"").unwrap();
+        let pool_for_rm = pool.clone();
+
+        let calls = Arc::new(Mutex::new(Vec::<Vec<String>>::new()));
+        let seen = Arc::clone(&calls);
+        let context = Context {
+            system: Arc::new(FakeSystem {
+                handler: Box::new(move |_, args, _| {
+                    seen.lock().unwrap().push(args.iter().map(|s| s.to_string()).collect());
+                    if args.first().copied() == Some("-w") {
+                        let _ = std::fs::remove_file(&pool_for_rm);
+                        return Ok(CommandOutput { code: Some(1), stdout: String::new(), stderr: "lsof: status error".into() });
+                    }
+                    Ok(CommandOutput { code: Some(1), stdout: String::new(), stderr: String::new() })
+                }),
+            }),
+        };
+
+        assert!(open_owners(&context, &pool, Deadline::after(Duration::from_secs(5))).unwrap().is_empty());
+        let recorded = calls.lock().unwrap();
+        assert_eq!(recorded.len(), 2);
+        assert_eq!(recorded[1], ["-b", "-w", "-n", "-P", "+L1", "-Fpn"]);
     }
 }

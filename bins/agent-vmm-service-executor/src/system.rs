@@ -137,7 +137,7 @@ impl System for Production {
         if std::fs::symlink_metadata(path).is_err() {
             return Ok(Vec::new());
         }
-        let output = Command::new("/usr/sbin/lsof").arg("-Fp").arg("--").arg(path).output()?;
+        let output = Command::new("/usr/sbin/lsof").args(["-w", "-n", "-P", "-Fp", "--"]).arg(path).output()?;
         // lsof exits with 1 and prints nothing when no process holds the file.
         if !output.stderr.is_empty() || !matches!(output.status.code(), Some(0 | 1)) {
             return Err(io::Error::other("open-file inspection failed"));

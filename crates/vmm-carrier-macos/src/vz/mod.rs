@@ -251,6 +251,19 @@ impl CarrierHypervisor for VzHypervisor {
         {
             return Err(io::Error::other("invalid balloon target"));
         }
+        self.on_queue(|m, _| {
+            if let Some(vm) = &m.vm {
+                // SAFETY: configuration installs one traditional balloon; the setter runs on the VM queue.
+                unsafe {
+                    let device = vm.memoryBalloonDevices().objectAtIndex(0);
+                    device
+                        .downcast_ref::<VZVirtioTraditionalMemoryBalloonDevice>()
+                        .ok_or_else(|| io::Error::other("missing balloon device"))?
+                        .setTargetVirtualMachineMemorySize(bytes);
+                }
+            }
+            Ok(())
+        })?;
         self.target = bytes;
         Ok(())
     }
