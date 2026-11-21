@@ -1,4 +1,4 @@
-From 32927757850d590bb2a7937d62b5c53ea9185e83 Mon Sep 17 00:00:00 2001
+From 989a482cde23e863a9a218701934aad4c8066b50 Mon Sep 17 00:00:00 2001
 From: l4h <l4h@localhost>
 Date: Fri, 20 Nov 2026 08:59:34 +0000
 Subject: [PATCH] aarch64: add apple-vz GICv3 platform with dynamic FDT RAM and
@@ -7,15 +7,17 @@ Subject: [PATCH] aarch64: add apple-vz GICv3 platform with dynamic FDT RAM and
 ---
  include/arch/arm/arch/64/mode/machine/timer.h |   4 +-
  include/arch/arm/arch/machine/timer.h         |   6 +-
+ include/kernel/boot.h                         |   5 +
  .../apple-vz/sel4/plat/api/constants.h        |  19 ++
- src/arch/arm/kernel/boot.c                    | 203 +++++++++++++++++-
- src/arch/arm/machine/gic_v3.c                 |  14 +-
+ src/arch/arm/kernel/boot.c                    | 219 +++++++++++++++++-
+ src/arch/arm/machine/gic_v3.c                 |  34 ++-
  src/arch/arm/machine/io.c                     |   8 +
  src/drivers/timer/generic_timer.c             |   4 +-
+ src/kernel/boot.c                             |  52 ++++-
  src/plat/apple-vz/apple-vz.dts                |  41 ++++
  src/plat/apple-vz/config.cmake                |  18 ++
  tools/hardware.yml                            |   2 +-
- 10 files changed, 299 insertions(+), 20 deletions(-)
+ 12 files changed, 386 insertions(+), 26 deletions(-)
  create mode 100644 libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h
  create mode 100644 src/plat/apple-vz/apple-vz.dts
  create mode 100644 src/plat/apple-vz/config.cmake
@@ -73,6 +75,22 @@ index 71fdba9..ef2284a 100644
      /* Split before multiplying, including for non-integral MHz rates. */
      return (us / HZ_IN_MHZ) * armKSGenericTimerFrequency +
             ((us % HZ_IN_MHZ) * armKSGenericTimerFrequency) / HZ_IN_MHZ;
+diff --git a/include/kernel/boot.h b/include/kernel/boot.h
+index 1bce4e3..3ba1bbd 100644
+--- a/include/kernel/boot.h
++++ b/include/kernel/boot.h
+@@ -40,6 +40,11 @@ typedef struct ndks_boot {
+ 
+ extern ndks_boot_t ndks_boot;
+ 
++#ifdef CONFIG_PLAT_APPLE_VZ
++extern paddr_t apple_vz_boot_dirty_hi_start;
++extern paddr_t apple_vz_boot_dirty_hi_end;
++#endif
++
+ /* function prototypes */
+ 
+ static inline bool_t is_reg_empty(region_t reg)
 diff --git a/libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h b/libsel4/sel4_plat_include/apple-vz/sel4/plat/api/constants.h
 new file mode 100644
 index 0000000..abbda1f
@@ -99,15 +117,18 @@ index 0000000..abbda1f
 +#error "unsupported core"
 +#endif
 diff --git a/src/arch/arm/kernel/boot.c b/src/arch/arm/kernel/boot.c
-index f770dcb..ee0ca9f 100644
+index f770dcb..0245f8d 100644
 --- a/src/arch/arm/kernel/boot.c
 +++ b/src/arch/arm/kernel/boot.c
-@@ -39,10 +39,166 @@ BOOT_BSS static volatile _Atomic int node_boot_lock;
+@@ -39,10 +39,169 @@ BOOT_BSS static volatile _Atomic int node_boot_lock;
  
  BOOT_BSS static region_t reserved[NUM_RESERVED_REGIONS];
  
 +
 +#ifdef CONFIG_PLAT_APPLE_VZ
++BOOT_BSS paddr_t apple_vz_boot_dirty_hi_start;
++BOOT_BSS paddr_t apple_vz_boot_dirty_hi_end;
++
 +static BOOT_CODE uint32_t fdt_be32(const uint8_t *p)
 +{
 +    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
@@ -270,7 +291,7 @@ index f770dcb..ee0ca9f 100644
  {
      /* reserve the kernel image region */
      reserved[0] = paddr_to_pptr_reg(get_p_reg_kernel_img());
-@@ -109,8 +265,18 @@ BOOT_CODE static bool_t arch_init_freemem(p_region_t ui_p_reg,
+@@ -109,8 +268,18 @@ BOOT_CODE static bool_t arch_init_freemem(p_region_t ui_p_reg,
          reserve_region(ui_p_reg);
      }
  
@@ -291,7 +312,7 @@ index f770dcb..ee0ca9f 100644
                          index, reserved,
                          it_v_reg, extra_bi_size_bits);
  }
-@@ -321,7 +487,7 @@ BOOT_CODE static bool_t try_init_kernel_secondary_core(void)
+@@ -321,7 +490,7 @@ BOOT_CODE static bool_t try_init_kernel_secondary_core(void)
      return true;
  }
  
@@ -300,7 +321,7 @@ index f770dcb..ee0ca9f 100644
  {
      /* release the cpus at the same time */
      assert(0 == node_boot_lock); /* Sanity check for a proper lock state. */
-@@ -345,7 +511,7 @@ BOOT_CODE static void release_secondary_cpus(void)
+@@ -345,7 +514,7 @@ BOOT_CODE static void release_secondary_cpus(void)
  #endif
  
      /* Wait until all the secondary cores are done initialising */
@@ -309,7 +330,7 @@ index f770dcb..ee0ca9f 100644
  #ifdef ENABLE_SMP_CLOCK_SYNC_TEST_ON_BOOT
          NODE_STATE(ksCurTime) = getCurrentTime();
  #endif
-@@ -460,7 +626,26 @@ static BOOT_CODE bool_t try_init_kernel(
+@@ -460,7 +629,39 @@ static BOOT_CODE bool_t try_init_kernel(
          return false;
      }
  
@@ -333,11 +354,24 @@ index f770dcb..ee0ca9f 100644
 +        }
 +    }
 +#endif
++#ifdef CONFIG_PLAT_APPLE_VZ
++    {
++        paddr_t hi_lo = ui_p_reg.start;
++        if (dtb_p_reg.start != 0 && dtb_p_reg.start < hi_lo) {
++            hi_lo = dtb_p_reg.start;
++        }
++        paddr_t hi_hi = MAX(ui_p_reg.end, dtb_p_reg.end);
++        apple_vz_boot_dirty_hi_start = ROUND_DOWN(
++            hi_lo > BIT(seL4_LargePageBits) ? hi_lo - BIT(seL4_LargePageBits) : 0,
++            seL4_LargePageBits);
++        apple_vz_boot_dirty_hi_end = ROUND_UP(hi_hi, seL4_LargePageBits);
++    }
++#endif
 +    if (!arch_init_freemem(ui_p_reg, dtb_p_reg, it_v_reg, extra_bi_size_bits, num_mem_regs, mem_regs)) {
          printf("ERROR: free memory management initialization failed\n");
          return false;
      }
-@@ -486,7 +671,7 @@ static BOOT_CODE bool_t try_init_kernel(
+@@ -486,7 +687,7 @@ static BOOT_CODE bool_t try_init_kernel(
      init_smc(root_cnode_cap);
  #endif
  
@@ -346,7 +380,7 @@ index f770dcb..ee0ca9f 100644
  
      /* put DTB in the bootinfo block, if present. */
      seL4_BootInfoHeader header;
-@@ -568,7 +753,7 @@ static BOOT_CODE bool_t try_init_kernel(
+@@ -568,7 +769,7 @@ static BOOT_CODE bool_t try_init_kernel(
      }
  
  #ifdef CONFIG_KERNEL_MCS
@@ -355,7 +389,7 @@ index f770dcb..ee0ca9f 100644
  #endif
  
      /* create the initial thread's IPC buffer */
-@@ -645,7 +830,7 @@ static BOOT_CODE bool_t try_init_kernel(
+@@ -645,7 +846,7 @@ static BOOT_CODE bool_t try_init_kernel(
  
      /* initialize BKL before booting up other cores */
      SMP_COND_STATEMENT(clh_lock_init());
@@ -365,7 +399,7 @@ index f770dcb..ee0ca9f 100644
      /* All cores now use the kernel's translation tables. Before this point,
       * secondary cores still need the loader's tables, which reside in free
 diff --git a/src/arch/arm/machine/gic_v3.c b/src/arch/arm/machine/gic_v3.c
-index ad9769a..342d4dc 100644
+index ad9769a..6168431 100644
 --- a/src/arch/arm/machine/gic_v3.c
 +++ b/src/arch/arm/machine/gic_v3.c
 @@ -15,7 +15,11 @@
@@ -418,7 +452,7 @@ index ad9769a..342d4dc 100644
          gic_rdist_sgi_ppi_map[CURRENT_CPU_INDEX()]->igroupr0 = IRQ_SET_ALL;
      }
  
-@@ -434,5 +442,25 @@ void arch_ipi_send_target(irq_t irq, word_t cpuTargetList)
+@@ -434,6 +442,26 @@ void arch_ipi_send_target(irq_t irq, word_t cpuTargetList)
      uint64_t sgi1r_base = ((word_t) IRQT_TO_IRQ(irq)) << ICC_SGI1R_INTID_SHIFT;
      word_t sgi1r[CONFIG_MAX_NUM_NODES];
      word_t last_aff1 = 0;
@@ -444,6 +478,7 @@ index ad9769a..342d4dc 100644
 +#endif
  
      for (word_t i = 0; i < CONFIG_MAX_NUM_NODES; i++) {
+         sgi1r[i] = 0;
 diff --git a/src/arch/arm/machine/io.c b/src/arch/arm/machine/io.c
 index ca859bb..1181ae3 100644
 --- a/src/arch/arm/machine/io.c
@@ -491,31 +526,19 @@ index 855b32f..0d96cb3 100644
      SYSTEM_READ_WORD(CNTFRQ, frequency);
      if (CURRENT_CPU_INDEX() == 0) {
 diff --git a/src/kernel/boot.c b/src/kernel/boot.c
-index 29f2dd6..8c4e1a2 100644
+index 29f2dd6..75c3884 100644
 --- a/src/kernel/boot.c
 +++ b/src/kernel/boot.c
-@@ -656,9 +656,26 @@ BOOT_CODE static void clear_boot_memory(pptr_t pptr, word_t bits)
+@@ -654,13 +654,10 @@ BOOT_CODE static bool_t pptr_in_kernel_window(pptr_t pptr)
+  * first preserves a hypervisor's shared zero pages; only dirty pages need
+  * backing memory. All CPUs must have stopped using the loader's memory.
+  * This must never be used to reset memory after handoff. */
+-BOOT_CODE static void clear_boot_memory(pptr_t pptr, word_t bits)
++BOOT_CODE static void clear_boot_memory_range(pptr_t start, word_t len, word_t step, word_t step_bits)
  {
-     word_t step_bits = MIN(bits, (word_t)seL4_PageBits);
-     word_t step = BIT(step_bits);
-+    pptr_t start = pptr;
-+    word_t len = BIT(bits);
-+
-+#ifdef CONFIG_PLAT_APPLE_VZ
-+    /* Only the 128 MiB loader boot window [0x9000_0000, 0x9800_0000) can hold
-+     * dirty pages or cache lines from boot; untouched pages outside it stay
-+     * zero-backed in XNU MAP_ANON without faulting the full guest RAM. */
-+    paddr_t reg_start = addrFromPPtr((void *)pptr);
-+    paddr_t reg_end = reg_start + len;
-+    paddr_t dirty_start = MAX(reg_start, (paddr_t)0x90000000ULL);
-+    paddr_t dirty_end = MIN(reg_end, (paddr_t)0x98000000ULL);
-+    if (dirty_start >= dirty_end) {
-+        return;
-+    }
-+    start = pptr + (dirty_start - reg_start);
-+    len = dirty_end - dirty_start;
-+#endif
- 
+-    word_t step_bits = MIN(bits, (word_t)seL4_PageBits);
+-    word_t step = BIT(step_bits);
+-
 -    for (word_t off = 0; off < BIT(bits); off += step) {
 -        word_t *p = WORD_PTR(pptr + off);
 +    for (word_t off = 0; off < len; off += step) {
@@ -523,6 +546,56 @@ index 29f2dd6..8c4e1a2 100644
  #ifdef CONFIG_ARCH_ARM
          /* Account for cache state inherited from the boot environment. */
          cleanInvalidateCacheRange_RAM((word_t)p, (word_t)p + step - 1,
+@@ -675,6 +672,49 @@ BOOT_CODE static void clear_boot_memory(pptr_t pptr, word_t bits)
+     }
+ }
+ 
++BOOT_CODE static void clear_boot_memory(pptr_t pptr, word_t bits)
++{
++    word_t step_bits = MIN(bits, (word_t)seL4_PageBits);
++    word_t step = BIT(step_bits);
++    word_t len = BIT(bits);
++
++#ifdef CONFIG_PLAT_APPLE_VZ
++    /* Only the 128 MiB loader boot window [0x9000_0000, 0x9800_0000) and the
++     * 2 MiB-aligned neighborhood around ui_p_reg / dtb_p_reg can hold dirty
++     * pages or cache lines from boot; untouched pages outside them stay
++     * zero-backed in XNU MAP_ANON without faulting the full guest RAM. */
++    paddr_t reg_start = addrFromPPtr((void *)pptr);
++    paddr_t reg_end = reg_start + len;
++    paddr_t w0_start = (paddr_t)0x90000000ULL;
++    paddr_t w0_end = (paddr_t)0x98000000ULL;
++    paddr_t w1_start = apple_vz_boot_dirty_hi_start;
++    paddr_t w1_end = apple_vz_boot_dirty_hi_end;
++
++    if (w1_start < w1_end && w1_start <= w0_end && w1_end >= w0_start) {
++        w0_start = MIN(w0_start, w1_start);
++        w0_end = MAX(w0_end, w1_end);
++        w1_start = w1_end;
++    }
++
++    paddr_t dirty_start = MAX(reg_start, w0_start);
++    paddr_t dirty_end = MIN(reg_end, w0_end);
++    if (dirty_start < dirty_end) {
++        clear_boot_memory_range(pptr + (dirty_start - reg_start),
++                                dirty_end - dirty_start, step, step_bits);
++    }
++    if (w1_start < w1_end) {
++        dirty_start = MAX(reg_start, w1_start);
++        dirty_end = MIN(reg_end, w1_end);
++        if (dirty_start < dirty_end) {
++            clear_boot_memory_range(pptr + (dirty_start - reg_start),
++                                    dirty_end - dirty_start, step, step_bits);
++        }
++    }
++#else
++    clear_boot_memory_range(pptr, len, step, step_bits);
++#endif
++}
++
+ /**
+  * Create an untyped cap, store it in a cnode and mark it in boot info.
+  *
 diff --git a/src/plat/apple-vz/apple-vz.dts b/src/plat/apple-vz/apple-vz.dts
 new file mode 100644
 index 0000000..9157f3a

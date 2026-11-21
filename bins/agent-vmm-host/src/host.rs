@@ -49,6 +49,7 @@ impl HostState {
         );
         let store = Arc::new(open_database(database)?);
         ImageImports::migrate_legacy_failed_receipts(&store)?;
+        Containers::migrate_legacy_failed_receipts(&store)?;
         let staging = directory.join("image-staging");
         private_directory(&staging)?;
         cleanup_staging_leftovers(&staging);

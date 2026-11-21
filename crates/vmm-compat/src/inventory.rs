@@ -61,8 +61,12 @@ impl Containers {
     ) -> Result<h::Container, Status> {
         let def = &sb.definition;
         let facts = self.facts(&def.key)?;
+        let never_started = facts
+            .as_ref()
+            .is_some_and(|f| f.instance.is_empty() && f.started == 0);
         let state = match sb.state {
             SandboxState::Defined => h::ContainerState::Created,
+            SandboxState::Stopped if never_started => h::ContainerState::Created,
             SandboxState::Stopped => h::ContainerState::Stopped,
             SandboxState::Deleted => return Err(Status::not_found("container deleted")),
             _ => h::ContainerState::Unknown,
@@ -113,7 +117,7 @@ impl Containers {
             ..Default::default()
         };
         if !matches!(sb.state, SandboxState::Running | SandboxState::Quiesced) {
-            if sb.state == SandboxState::Stopped
+            if state == h::ContainerState::Stopped
                 && let Some((code, ended)) = self
                     .db()?
                     .query_row(
@@ -138,6 +142,29 @@ impl Containers {
             || store.sandbox(&def.key).map_err(core_status)?.boot.as_ref() != Some(boot)
         {
             return Err(core_status(vmm_core::Error::Fenced));
+        }
+        if out.start_request_instance_id.is_empty() {
+            let started_sec = sb
+                .vm
+                .as_ref()
+                .and_then(|v| i64::try_from(v.started_at).ok())
+                .unwrap_or(0);
+            self.db()?
+                .execute(
+                    "UPDATE container_facts SET instance=?,started=CASE WHEN started=0 THEN ? ELSE started END WHERE scope=? AND sandbox=? AND generation=? AND instance=''",
+                    params![
+                        live.instance_id,
+                        started_sec,
+                        def.key.scope_id,
+                        def.key.sandbox_id,
+                        def.key.generation_id
+                    ],
+                )
+                .map_err(db_error)?;
+            out.start_request_instance_id = live.instance_id.clone();
+            if out.started_at.is_none() {
+                out.started_at = seconds(started_sec);
+            }
         }
         out.instance_id = live.instance_id;
         out.state = match live.main {

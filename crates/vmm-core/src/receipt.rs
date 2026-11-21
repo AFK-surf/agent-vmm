@@ -112,10 +112,13 @@ impl Store {
         self.resume(key, request, false)
     }
 
-    /// Restart an image operation that repeats safely. The caller decides that a
+    /// Restart an operation that repeats safely. The caller decides that a
     /// `Failed` receipt does not hold a deterministic error.
     pub fn resume_reentrant_operation(&self, key: RequestKey<'_>, request: &[u8]) -> Result<()> {
-        if !matches!(key.domain, "runtime-import-image" | "runtime-pull-image") {
+        if !matches!(
+            key.domain,
+            "runtime-import-image" | "runtime-pull-image" | "runtime-start-container"
+        ) {
             return Err(Error::Invalid("reentrant domain"));
         }
         self.resume(key, request, true)

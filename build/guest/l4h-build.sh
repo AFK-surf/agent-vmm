@@ -50,13 +50,24 @@ fi
 
 # 2. Build seL4 kernel for apple-vz
 sel4_build=$build_cache/kernel-apple-vz-$profile
+sel4_alt_build=$build_cache/kernel-apple-vz-alt-$profile
 sel4_prefix=$out_dir/sel4-prefix
 debug=ON
 printing=ON
+alt_debug=OFF
+alt_printing=OFF
 if [ "$profile" = release ]; then
   debug=OFF
   printing=OFF
+  alt_debug=ON
+  alt_printing=ON
 fi
+cmake -G Ninja -S "$sel4_src" -B "$sel4_alt_build" \
+  -C "$l4h_root/kernel/configs/l4h-apple-vz.cmake" \
+  -DKernelDebugBuild="$alt_debug" \
+  -DKernelPrinting="$alt_printing" \
+  -DCROSS_COMPILER_PREFIX=aarch64-linux-gnu-
+ninja -C "$sel4_alt_build" kernel.elf
 rm -rf "$sel4_prefix"
 cmake -G Ninja -S "$sel4_src" -B "$sel4_build" \
   -C "$l4h_root/kernel/configs/l4h-apple-vz.cmake" \

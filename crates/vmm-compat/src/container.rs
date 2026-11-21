@@ -3,7 +3,10 @@ use crate::{
     container_spec::definition,
     context::{core_status, resource_id},
     error::host_status,
-    mutation::mutate,
+    mutation::{
+        ReentrantFailure, is_retryable_start_status, is_retryable_start_status_bytes, mutate,
+        mutate_reentrant_with_context,
+    },
 };
 use agent_vmm_proto::host::v1 as h;
 use async_trait::async_trait;
@@ -114,6 +117,12 @@ impl Containers {
         )
         .await
     }
+    pub fn migrate_legacy_failed_receipts(store: &vmm_core::Store) -> vmm_core::Result<usize> {
+        store.normalize_failed_receipts(
+            &["runtime-start-container"],
+            is_retryable_start_status_bytes,
+        )
+    }
     pub async fn start(
         &self,
         ctx: &RuntimeContext,
@@ -121,31 +130,69 @@ impl Containers {
     ) -> Result<h::StartContainerResponse, Status> {
         let host = self.clone();
         let owner = ctx.clone();
-        mutate(
+        mutate_reentrant_with_context(
             ctx.core.store.clone(),
             ctx.scope.id.clone(),
             "runtime-start-container",
+            "container_start",
             r.request_id.clone(),
             r.encode_to_vec(),
-            async move {
-                let sb = current(&owner, &r.container_id)?;
+            move |resumed| async move {
+                let classify = |status: Status| ReentrantFailure {
+                    terminal: !is_retryable_start_status(&status),
+                    status,
+                };
+                let sb = current(&owner, &r.container_id).map_err(classify)?;
                 let key = &sb.definition.key;
-                check_generation(key, &r.expected_generation_id)?;
+                check_generation(key, &r.expected_generation_id).map_err(classify)?;
                 if !sb.definition.host_shares.is_empty() {
                     host.driver
                         .authorize_shares(&owner.scope.id, &sb.definition.host_shares)
-                        .await?;
+                        .await
+                        .map_err(classify)?;
                 }
-                let vm = owner.core.start(key).await.map_err(core_status)?;
+                let vm = if resumed
+                    && sb.state == vmm_core::SandboxState::Running
+                    && let Some(vm) = sb.vm.clone()
+                    && host
+                        .facts(key)
+                        .map_err(classify)?
+                        .is_some_and(|f| f.instance.is_empty() || f.instance == vm.boot.instance_id)
+                {
+                    vm
+                } else {
+                    owner
+                        .core
+                        .start(key)
+                        .await
+                        .map_err(|err| classify(core_status(err)))?
+                };
                 let started = i64::try_from(vm.started_at)
-                    .map_err(|_| Status::internal("VM timestamp exceeds host range"))?;
-                host.db()?.execute(
-                    "UPDATE container_facts SET instance=?,started=? WHERE scope=? AND sandbox=? AND generation=?",
-                    params![vm.boot.instance_id, started, key.scope_id, key.sandbox_id, key.generation_id],
-                ).map_err(db_error)?;
-                let sb = owner.core.store.sandbox(key).map_err(core_status)?;
+                    .map_err(|_| classify(Status::internal("VM timestamp exceeds host range")))?;
+                host.db()
+                    .map_err(classify)?
+                    .execute(
+                        "UPDATE container_facts SET instance=?,started=? WHERE scope=? AND sandbox=? AND generation=?",
+                        params![
+                            vm.boot.instance_id,
+                            started,
+                            key.scope_id,
+                            key.sandbox_id,
+                            key.generation_id
+                        ],
+                    )
+                    .map_err(|err| classify(db_error(err)))?;
+                let sb = owner
+                    .core
+                    .store
+                    .sandbox(key)
+                    .map_err(|err| classify(core_status(err)))?;
                 Ok(h::StartContainerResponse {
-                    container: Some(host.observe(&owner.core.store, &sb, None).await?),
+                    container: Some(
+                        host.observe(&owner.core.store, &sb, None)
+                            .await
+                            .map_err(classify)?,
+                    ),
                 })
             },
         )

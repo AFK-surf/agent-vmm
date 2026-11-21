@@ -61,12 +61,45 @@ pub(crate) fn is_non_terminal_status_bytes(bytes: &[u8]) -> bool {
     decode_status(bytes).is_ok_and(|status| status.code() != Code::InvalidArgument)
 }
 
-pub(crate) fn is_resumable_receipt(receipt: &OperationReceipt) -> bool {
-    match receipt.state {
-        ReceiptState::Retryable | ReceiptState::Interrupted => true,
-        ReceiptState::Failed => is_non_terminal_status_bytes(&receipt.response),
+pub(crate) fn is_retryable_start_status(status: &Status) -> bool {
+    match status.code() {
+        Code::Internal
+        | Code::Unavailable
+        | Code::DeadlineExceeded
+        | Code::ResourceExhausted => true,
+        Code::FailedPrecondition => rpc::Status::decode(status.details())
+            .ok()
+            .is_some_and(|wire| {
+                wire.details.iter().any(|detail| {
+                    detail.type_url == "type.googleapis.com/google.rpc.ErrorInfo"
+                        && crate::details::ErrorInfo::decode(detail.value.as_slice())
+                            .is_ok_and(|info| info.reason == "VM_ADMISSION_CLOSED")
+                })
+            }),
         _ => false,
     }
+}
+
+pub(crate) fn is_retryable_start_status_bytes(bytes: &[u8]) -> bool {
+    decode_status(bytes).is_ok_and(|status| is_retryable_start_status(&status))
+}
+
+pub(crate) fn is_resumable_domain_receipt(domain: &str, receipt: &OperationReceipt) -> bool {
+    match receipt.state {
+        ReceiptState::Retryable | ReceiptState::Interrupted => true,
+        ReceiptState::Failed => {
+            if domain == "runtime-start-container" {
+                is_retryable_start_status_bytes(&receipt.response)
+            } else {
+                is_non_terminal_status_bytes(&receipt.response)
+            }
+        }
+        _ => false,
+    }
+}
+
+pub(crate) fn is_resumable_receipt(receipt: &OperationReceipt) -> bool {
+    is_resumable_domain_receipt("runtime-import-image", receipt)
 }
 
 struct PanicRetryableGuard {
@@ -144,9 +177,9 @@ where
     .map_err(|_| Status::internal("operation task interrupted"))?
 }
 
-/// Re-entrant idempotent mutation for resumable image domains (`runtime-import-image`,
-/// `runtime-pull-image`). Preserves `Failed` only for deterministic invalid input/artifacts;
-/// records all transient/storage failures as `Retryable` so retries resume via
+/// Re-entrant idempotent mutation for resumable domains (`runtime-import-image`,
+/// `runtime-pull-image`, `runtime-start-container`). Preserves `Failed` only for deterministic
+/// errors; records retryable failures as `Retryable` so retries resume via
 /// `resume_reentrant_operation`.
 pub(crate) async fn mutate_reentrant<R>(
     store: Arc<Store>,
@@ -160,6 +193,23 @@ pub(crate) async fn mutate_reentrant<R>(
 where
     R: Message + Default + Send + 'static,
 {
+    mutate_reentrant_with_context(store, scope, domain, stage, id, input, move |_| action).await
+}
+
+pub(crate) async fn mutate_reentrant_with_context<R, F, Fut>(
+    store: Arc<Store>,
+    scope: String,
+    domain: &'static str,
+    stage: &'static str,
+    id: String,
+    input: Vec<u8>,
+    action: F,
+) -> Result<R, Status>
+where
+    R: Message + Default + Send + 'static,
+    F: FnOnce(bool) -> Fut + Send + 'static,
+    Fut: Future<Output = Result<R, ReentrantFailure>> + Send + 'static,
+{
     if id.is_empty() {
         return Err(Status::invalid_argument("request_id is required"));
     }
@@ -169,6 +219,7 @@ where
             domain,
             request_id: &id,
         };
+        let mut resumed = false;
         match store.begin_operation(key, &input).map_err(core_status)? {
             BeginOperation::Accepted => {}
             BeginOperation::Replay(old) => match old.state {
@@ -176,7 +227,7 @@ where
                     return R::decode(old.response.as_slice())
                         .map_err(|_| Status::internal("invalid stored response"));
                 }
-                ReceiptState::Failed if !is_resumable_receipt(&old) => {
+                ReceiptState::Failed if !is_resumable_domain_receipt(domain, &old) => {
                     return Err(decode_status(old.response.as_slice())?);
                 }
                 ReceiptState::Running => {
@@ -184,7 +235,9 @@ where
                 }
                 ReceiptState::Failed | ReceiptState::Retryable | ReceiptState::Interrupted => {
                     match store.resume_reentrant_operation(key, &input) {
-                        Ok(()) => {}
+                        Ok(()) => {
+                            resumed = true;
+                        }
                         Err(vmm_core::Error::Conflict("operation cannot be resumed")) => {
                             return Err(operation_in_progress(stage));
                         }
@@ -204,7 +257,7 @@ where
             input: input.clone(),
             armed: true,
         };
-        let response = action.await;
+        let response = action(resumed).await;
         guard.armed = false;
         let (state, bytes, result) = match response {
             Ok(val) => {

@@ -9,6 +9,12 @@ Workload processes have an empty capability set.
 A root entrypoint cannot initialize a mode-0700 volume owned by another numeric UID.
 Start the workload with the UID and GID that own the volume.
 
+## Apple VZ boot
+
+On `PLAT_APPLE_VZ`, `clear_boot_memory` scans only the loader boot window and the user-image neighborhood so untouched host pages stay zero-backed.
+`sel4-kernel-loader` must zero and clean-invalidate (`dc civac`) the compile-time `payload.info.dtb` after `copy_data_out` whenever it is not passed to the kernel.
+Otherwise, a `free_index = 0` boot Untyped retains FDT bytes and corrupts later kernel objects.
+
 ## Guest init
 
 `std::process::Command` keeps the descriptors of its `Stdio` values until it is dropped.
