@@ -109,20 +109,75 @@ impl Store {
 
     /// Restart an operation whose caller has reconciled or can safely resume its effects.
     pub fn resume_operation(&self, key: RequestKey<'_>, request: &[u8]) -> Result<()> {
+        self.resume(key, request, false)
+    }
+
+    /// Restart an image operation that repeats safely. The caller decides that a
+    /// `Failed` receipt does not hold a deterministic error.
+    pub fn resume_reentrant_operation(&self, key: RequestKey<'_>, request: &[u8]) -> Result<()> {
+        if !matches!(key.domain, "runtime-import-image" | "runtime-pull-image") {
+            return Err(Error::Invalid("reentrant domain"));
+        }
+        self.resume(key, request, true)
+    }
+
+    fn resume(&self, key: RequestKey<'_>, request: &[u8], allow_failed: bool) -> Result<()> {
         let fingerprint: Digest = Sha256::digest(request).into();
         self.write(|db| {
             let receipt = read_receipt(db, key)?.ok_or(Error::Missing("receipt"))?;
             if receipt.fingerprint != Some(fingerprint) {
                 return Err(Error::Conflict("request fingerprint"));
             }
-            if !matches!(receipt.state, ReceiptState::Retryable | ReceiptState::Interrupted) {
-                return Err(Error::Conflict("operation cannot be resumed"));
+            match receipt.state {
+                ReceiptState::Retryable | ReceiptState::Interrupted => {}
+                ReceiptState::Failed if allow_failed => {}
+                _ => return Err(Error::Conflict("operation cannot be resumed")),
             }
             db.execute(
                 "UPDATE receipts SET state='running',response=X'' WHERE domain=? AND scope=? AND request=?",
                 key.parts(),
             )?;
             Ok(())
+        })
+    }
+
+    /// Make `failed` receipts of `domains` retryable when `should_retry` accepts the stored
+    /// response. A release before re-entrant image operations stored each error as `failed`.
+    /// A fenced request keeps its receipt.
+    pub fn normalize_failed_receipts(
+        &self,
+        domains: &[&str],
+        should_retry: impl Fn(&[u8]) -> bool,
+    ) -> Result<usize> {
+        self.write(|db| {
+            let mut updated = 0;
+            for domain in domains {
+                let failed = db
+                    .prepare(
+                        "SELECT scope,request,response FROM receipts r
+                         WHERE r.domain=?1 AND r.state='failed' AND NOT EXISTS(
+                             SELECT 1 FROM reset_fences f
+                             WHERE (f.domain,f.scope,f.request)=(r.domain,r.scope,r.request))",
+                    )?
+                    .query_map([domain], |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, String>(1)?,
+                            r.get::<_, Vec<u8>>(2)?,
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                for (scope, request, response) in failed {
+                    if should_retry(&response) {
+                        updated += db.execute(
+                            "UPDATE receipts SET state='retryable'
+                             WHERE domain=?1 AND scope=?2 AND request=?3 AND state='failed'",
+                            params![domain, scope, request],
+                        )?;
+                    }
+                }
+            }
+            Ok(updated)
         })
     }
 

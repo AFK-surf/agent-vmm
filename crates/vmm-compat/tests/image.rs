@@ -8,6 +8,24 @@ use std::path::Path;
 use vmm_rpc::{Code, Status};
 use vmm_compat::image::VerifiedArchive;
 
+struct NoopDriver;
+#[async_trait::async_trait]
+impl vmm_compat::RuntimeDriver for NoopDriver {
+    async fn authorize_shares(
+        &self,
+        _: &str,
+        _: &[vmm_core::HostShareMount],
+    ) -> Result<(), Status> {
+        Ok(())
+    }
+    async fn health(
+        &self,
+        _: &vmm_core::BootIdentity,
+    ) -> Result<vmm_guest_proto::rpc::HealthReply, Status> {
+        Err(Status::unimplemented("unused"))
+    }
+}
+
 async fn receive(
     dir: &Path,
     header: ImportImageHeader,
@@ -205,7 +223,7 @@ async fn reentrant_import_retries_storage_failure_with_cached_part_and_reports_h
         atomic::{AtomicUsize, Ordering},
     };
     use vmm_compat::{
-        Containers, RuntimeContext, RuntimeDriver,
+        Containers, RuntimeContext,
         details::ErrorInfo,
         image::{ImageImports, ImageStaging},
     };
@@ -213,24 +231,6 @@ async fn reentrant_import_retries_storage_failure_with_cached_part_and_reports_h
         CapacityDimension, Core, EgressMode, Error, ImageSource, Limits, Origin, ReceiptState,
         RequestKey, Scope, ScopeState, Store, fake::FakeDom0Backend,
     };
-
-    struct NoopDriver;
-    #[async_trait::async_trait]
-    impl RuntimeDriver for NoopDriver {
-        async fn authorize_shares(
-            &self,
-            _: &str,
-            _: &[vmm_core::HostShareMount],
-        ) -> Result<(), Status> {
-            Ok(())
-        }
-        async fn health(
-            &self,
-            _: &vmm_core::BootIdentity,
-        ) -> Result<vmm_guest_proto::rpc::HealthReply, Status> {
-            Err(Status::unimplemented("unused"))
-        }
-    }
 
     struct FlakyStage {
         calls: AtomicUsize,
@@ -338,7 +338,7 @@ async fn reentrant_import_retries_storage_failure_with_cached_part_and_reports_h
     assert_eq!(receipt.state, ReceiptState::Retryable);
     assert!(part_file.exists(), "retryable failure must keep cached .part");
 
-    // Attempt 2: same request_id resumes via resume_operation without re-downloading.
+    // Attempt 2: same request_id resumes without re-downloading.
     let ok = imports
         .receive(make_ctx(), containers.clone(), make_stream())
         .await
@@ -366,7 +366,7 @@ async fn concurrent_running_import_returns_operation_in_progress_and_executes_on
         mpsc,
     };
     use vmm_compat::{
-        Containers, RuntimeContext, RuntimeDriver,
+        Containers, RuntimeContext,
         details::ErrorInfo,
         image::{ImageImports, ImageStaging},
     };
@@ -374,24 +374,6 @@ async fn concurrent_running_import_returns_operation_in_progress_and_executes_on
         Core, EgressMode, ImageSource, Limits, Origin, Scope, ScopeState, Store,
         fake::FakeDom0Backend,
     };
-
-    struct NoopDriver;
-    #[async_trait::async_trait]
-    impl RuntimeDriver for NoopDriver {
-        async fn authorize_shares(
-            &self,
-            _: &str,
-            _: &[vmm_core::HostShareMount],
-        ) -> Result<(), Status> {
-            Ok(())
-        }
-        async fn health(
-            &self,
-            _: &vmm_core::BootIdentity,
-        ) -> Result<vmm_guest_proto::rpc::HealthReply, Status> {
-            Err(Status::unimplemented("unused"))
-        }
-    }
 
     struct BlockingStage {
         calls: AtomicUsize,
@@ -499,6 +481,179 @@ async fn concurrent_running_import_returns_operation_in_progress_and_executes_on
     release_tx.send(()).unwrap();
     assert!(first.await.unwrap().is_ok());
     assert_eq!(stage.calls.load(Ordering::SeqCst), 1);
+}
+
+#[tokio::test]
+async fn legacy_failed_host_store_failure_receipt_recovers_on_preserve_upgrade_and_same_request_id()
+{
+    use agent_vmm_proto::google::rpc;
+    use prost::Message;
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use vmm_compat::{
+        Containers, RuntimeContext,
+        image::{ImageImports, ImageStaging},
+    };
+    use vmm_core::{
+        BeginOperation, Core, EgressMode, ImageSource, Limits, Origin, ReceiptState, RequestKey,
+        Scope, ScopeState, Store, fake::FakeDom0Backend,
+    };
+
+    struct CountingStage {
+        calls: AtomicUsize,
+    }
+    impl ImageStaging for CountingStage {
+        fn stage_image(&self, _: &Path, manifest: [u8; 32]) -> vmm_core::Result<ImageSource> {
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ImageSource {
+                manifest_digest: manifest,
+                staged_extent: format!("token-{n}"),
+                physical_bytes: 4096,
+            })
+        }
+        fn discard_staged_image(&self, _: &str) -> vmm_core::Result<()> {
+            Ok(())
+        }
+    }
+    fn key(request_id: &str) -> RequestKey<'_> {
+        RequestKey {
+            domain: "runtime-import-image",
+            scope_id: "scope-legacy",
+            request_id,
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path().join("host.db")).unwrap());
+    let core = Core::new(store.clone(), Arc::new(FakeDom0Backend::default()));
+    store
+        .create_scope(
+            &Scope {
+                id: "scope-legacy".into(),
+                generation: 1,
+                origin: Origin::Local,
+                revision: 1,
+                limits: Limits {
+                    pids_max: 100,
+                    disk_quota_bytes: 1 << 20,
+                    vcpus: 1,
+                    boot_ram_mb: 64,
+                    max_ram_mb: 64,
+                },
+                egress_mode: EgressMode::DenyAll,
+                host_socket_rules: vec![],
+                state: ScopeState::Active,
+            },
+            None,
+        )
+        .unwrap();
+    let (session, _) = store.issue_session("scope-legacy", None).unwrap();
+    let containers = Containers::open(dir.path().join("compat.db"), Arc::new(NoopDriver)).unwrap();
+    let stage = Arc::new(CountingStage {
+        calls: AtomicUsize::new(0),
+    });
+    let staging_dir = dir.path().join("image-staging");
+    std::fs::create_dir_all(staging_dir.join("parts")).unwrap();
+    let imports = ImageImports::new(staging_dir.clone(), stage.clone());
+
+    // The bytes that the previous `mutate` stored for `Status::internal("host store failure")`.
+    let legacy_bytes = hex::decode("080d1212686f73742073746f7265206661696c757265").unwrap();
+    let legacy = rpc::Status::decode(legacy_bytes.as_slice()).unwrap();
+    assert_eq!(legacy.code, Code::Internal as i32);
+    assert_eq!(legacy.message, "host store failure");
+    let invalid_bytes = rpc::Status {
+        code: Code::InvalidArgument as i32,
+        message: "invalid archive".into(),
+        details: vec![],
+    }
+    .encode_to_vec();
+
+    let (bytes, inline) = fixture(b"expected", "arm64");
+    let part_file = staging_dir
+        .join("parts")
+        .join(format!("{}.part", hex::encode(&inline.archive_sha256)));
+    let request = |request_id: &str, archive_url: &str| ImportImageHeader {
+        request_id: request_id.into(),
+        archive_url: archive_url.into(),
+        ..inline.clone()
+    };
+    let direct = request("legacy-direct-req-1", "");
+    let upgrade = request(
+        "legacy-upgrade-req-1",
+        "https://example.invalid/shell.oci.tar",
+    );
+    let invalid = request("invalid-arg-req-1", "https://example.invalid/shell.oci.tar");
+    for (header, response) in [
+        (&direct, &legacy_bytes),
+        (&upgrade, &legacy_bytes),
+        (&invalid, &invalid_bytes),
+    ] {
+        let mut canonical = header.clone();
+        canonical.archive_url.clear();
+        let input = canonical.encode_to_vec();
+        let key = key(&header.request_id);
+        assert_eq!(
+            store.begin_operation(key, &input).unwrap(),
+            BeginOperation::Accepted
+        );
+        store
+            .finish_operation(key, &input, ReceiptState::Failed, response)
+            .unwrap();
+    }
+    let state = |request_id: &str| store.receipt(key(request_id)).unwrap().unwrap().state;
+    let receive = |header: &ImportImageHeader| {
+        let mut req = vmm_rpc::Request::new(());
+        req.extensions_mut().insert(session.clone());
+        let ctx = RuntimeContext::from_request(&core, &req).unwrap();
+        let chunks = if header.archive_url.is_empty() {
+            bytes.chunks(247).collect()
+        } else {
+            vec![]
+        };
+        let input = std::iter::once(Payload::Header(header.clone()))
+            .chain(
+                chunks
+                    .into_iter()
+                    .map(|b| Payload::ArchiveChunk(b.to_owned())),
+            )
+            .map(|payload| {
+                Ok(ImportImageRequest {
+                    payload: Some(payload),
+                })
+            })
+            .collect::<Vec<_>>();
+        imports.receive(ctx, containers.clone(), tokio_stream::iter(input))
+    };
+
+    // Without the startup migration, the same request ID runs the inline import again.
+    let ok = receive(&direct).await.unwrap();
+    assert_eq!(ok.image.unwrap().digest, direct.manifest_digest);
+    assert_eq!(stage.calls.load(Ordering::SeqCst), 1);
+    assert_eq!(state("legacy-direct-req-1"), ReceiptState::Succeeded);
+
+    // The startup migration changes only the receipt that holds a non-deterministic error.
+    assert_eq!(
+        ImageImports::migrate_legacy_failed_receipts(&store).unwrap(),
+        1
+    );
+    assert_eq!(state("legacy-upgrade-req-1"), ReceiptState::Retryable);
+    assert_eq!(state("invalid-arg-req-1"), ReceiptState::Failed);
+
+    std::fs::write(&part_file, &bytes).unwrap();
+    let ok = receive(&upgrade).await.unwrap();
+    assert_eq!(ok.image.unwrap().digest, upgrade.manifest_digest);
+    assert_eq!(stage.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(state("legacy-upgrade-req-1"), ReceiptState::Succeeded);
+
+    // A deterministic error replays and does not stage the archive.
+    std::fs::write(&part_file, &bytes).unwrap();
+    let err = receive(&invalid).await.unwrap_err();
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert_eq!(err.message(), "invalid archive");
+    assert_eq!(stage.calls.load(Ordering::SeqCst), 2);
+    assert_eq!(state("invalid-arg-req-1"), ReceiptState::Failed);
 }
 
 #[tokio::test]

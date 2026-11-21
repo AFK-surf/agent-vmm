@@ -2,7 +2,7 @@ use crate::{context::core_status, error::operation_in_progress};
 use agent_vmm_proto::google::rpc;
 use prost::Message;
 use std::{future::Future, sync::Arc};
-use vmm_core::{BeginOperation, ReceiptState, RequestKey, Store};
+use vmm_core::{BeginOperation, OperationReceipt, ReceiptState, RequestKey, Store};
 use vmm_rpc::{Code, Status};
 
 pub(crate) struct ReentrantFailure {
@@ -53,6 +53,20 @@ fn decode_status(bytes: &[u8]) -> Result<Status, Status> {
         wire.message,
         bytes.to_vec().into(),
     ))
+}
+
+/// `InvalidArgument` is the only deterministic error of the re-entrant image domains.
+/// A release before `mutate_reentrant` stored each other error as `Failed` too.
+pub(crate) fn is_non_terminal_status_bytes(bytes: &[u8]) -> bool {
+    decode_status(bytes).is_ok_and(|status| status.code() != Code::InvalidArgument)
+}
+
+pub(crate) fn is_resumable_receipt(receipt: &OperationReceipt) -> bool {
+    match receipt.state {
+        ReceiptState::Retryable | ReceiptState::Interrupted => true,
+        ReceiptState::Failed => is_non_terminal_status_bytes(&receipt.response),
+        _ => false,
+    }
 }
 
 struct PanicRetryableGuard {
@@ -132,7 +146,8 @@ where
 
 /// Re-entrant idempotent mutation for resumable image domains (`runtime-import-image`,
 /// `runtime-pull-image`). Preserves `Failed` only for deterministic invalid input/artifacts;
-/// records all transient/storage failures as `Retryable` so retries resume via `resume_operation`.
+/// records all transient/storage failures as `Retryable` so retries resume via
+/// `resume_reentrant_operation`.
 pub(crate) async fn mutate_reentrant<R>(
     store: Arc<Store>,
     scope: String,
@@ -161,14 +176,14 @@ where
                     return R::decode(old.response.as_slice())
                         .map_err(|_| Status::internal("invalid stored response"));
                 }
-                ReceiptState::Failed => {
+                ReceiptState::Failed if !is_resumable_receipt(&old) => {
                     return Err(decode_status(old.response.as_slice())?);
                 }
                 ReceiptState::Running => {
                     return Err(operation_in_progress(stage));
                 }
-                ReceiptState::Retryable | ReceiptState::Interrupted => {
-                    match store.resume_operation(key, &input) {
+                ReceiptState::Failed | ReceiptState::Retryable | ReceiptState::Interrupted => {
+                    match store.resume_reentrant_operation(key, &input) {
                         Ok(()) => {}
                         Err(vmm_core::Error::Conflict("operation cannot be resumed")) => {
                             return Err(operation_in_progress(stage));

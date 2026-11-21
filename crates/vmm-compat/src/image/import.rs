@@ -3,14 +3,17 @@ use crate::{
     Containers, RuntimeContext,
     context::core_status,
     error::{import_core_status, invalid_field},
-    mutation::{ReentrantFailure, is_terminal_core_error, mutate_reentrant},
+    mutation::{
+        ReentrantFailure, is_non_terminal_status_bytes, is_resumable_receipt,
+        is_terminal_core_error, mutate_reentrant,
+    },
 };
 use agent_vmm_proto::host::v1 as h;
 use prost::Message;
 use std::{path::PathBuf, sync::Arc};
 use tokio::sync::Semaphore;
 use tokio_stream::Stream;
-use vmm_core::{ReceiptState, RequestKey};
+use vmm_core::RequestKey;
 use vmm_rpc::Status;
 
 #[derive(Clone)]
@@ -34,6 +37,15 @@ impl ImageImports {
     pub fn with_min_free_bytes(mut self, bytes: u64) -> Self {
         self.min_free_bytes = bytes;
         self
+    }
+
+    /// Make the image receipts that a previous release stored as `failed` for a
+    /// non-deterministic error retryable. Returns the number of changed receipts.
+    pub fn migrate_legacy_failed_receipts(store: &vmm_core::Store) -> vmm_core::Result<usize> {
+        store.normalize_failed_receipts(
+            &["runtime-import-image", "runtime-pull-image"],
+            is_non_terminal_status_bytes,
+        )
     }
 
     pub async fn receive<S>(
@@ -130,10 +142,7 @@ impl ImageImports {
             request_id: &request_id,
         };
         if let Some(existing) = ctx.core.store.receipt(key).map_err(core_status)?
-            && !matches!(
-                existing.state,
-                ReceiptState::Retryable | ReceiptState::Interrupted
-            )
+            && !is_resumable_receipt(&existing)
         {
             return mutate_reentrant(
                 ctx.core.store.clone(),
