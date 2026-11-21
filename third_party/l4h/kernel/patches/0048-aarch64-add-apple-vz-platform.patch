@@ -490,6 +490,39 @@ index 855b32f..0d96cb3 100644
      word_t frequency;
      SYSTEM_READ_WORD(CNTFRQ, frequency);
      if (CURRENT_CPU_INDEX() == 0) {
+diff --git a/src/kernel/boot.c b/src/kernel/boot.c
+index 29f2dd6..8c4e1a2 100644
+--- a/src/kernel/boot.c
++++ b/src/kernel/boot.c
+@@ -656,9 +656,26 @@ BOOT_CODE static void clear_boot_memory(pptr_t pptr, word_t bits)
+ {
+     word_t step_bits = MIN(bits, (word_t)seL4_PageBits);
+     word_t step = BIT(step_bits);
++    pptr_t start = pptr;
++    word_t len = BIT(bits);
++
++#ifdef CONFIG_PLAT_APPLE_VZ
++    /* Only the 128 MiB loader boot window [0x9000_0000, 0x9800_0000) can hold
++     * dirty pages or cache lines from boot; untouched pages outside it stay
++     * zero-backed in XNU MAP_ANON without faulting the full guest RAM. */
++    paddr_t reg_start = addrFromPPtr((void *)pptr);
++    paddr_t reg_end = reg_start + len;
++    paddr_t dirty_start = MAX(reg_start, (paddr_t)0x90000000ULL);
++    paddr_t dirty_end = MIN(reg_end, (paddr_t)0x98000000ULL);
++    if (dirty_start >= dirty_end) {
++        return;
++    }
++    start = pptr + (dirty_start - reg_start);
++    len = dirty_end - dirty_start;
++#endif
+ 
+-    for (word_t off = 0; off < BIT(bits); off += step) {
+-        word_t *p = WORD_PTR(pptr + off);
++    for (word_t off = 0; off < len; off += step) {
++        word_t *p = WORD_PTR(start + off);
+ #ifdef CONFIG_ARCH_ARM
+         /* Account for cache state inherited from the boot environment. */
+         cleanInvalidateCacheRange_RAM((word_t)p, (word_t)p + step - 1,
 diff --git a/src/plat/apple-vz/apple-vz.dts b/src/plat/apple-vz/apple-vz.dts
 new file mode 100644
 index 0000000..9157f3a
