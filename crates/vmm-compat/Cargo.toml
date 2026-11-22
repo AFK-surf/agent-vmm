@@ -25,7 +25,7 @@ tar = { version = "0.4", default-features = false }
 tempfile = "3"
 tokio-stream = "0.1"
 vmm-guest-proto = { path = "../vmm-guest-proto" }
-agent-vmm-data = { path = "../../data/agent-vmm-data" }
+vmm-data = { path = "../vmm-data" }
 agent-vmm-proto = { path = "../agent-vmm-proto" }
 base64 = "0.22"
 prost = "0.14"

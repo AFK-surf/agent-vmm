@@ -50,7 +50,7 @@ set -- -cargo-manifest "$repo/bins/agent-vmm/Cargo.toml"
 if [ -n "$data_worker" ]; then
 	test -x "$data_worker"
 	install -m 0755 "$data_worker" "$release/agent-vmm-data"
-	set -- "$@" -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml"
+	set -- "$@" -cargo-manifest "$repo/bins/agent-vmm-data/Cargo.toml"
 fi
 cp "$repo/LICENSE" "$repo/NOTICE" "$release/"
 (cd "$repo" && cargo run --locked -p xtask -- notices -o "$release/THIRD_PARTY_NOTICES" \

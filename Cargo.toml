@@ -4,16 +4,19 @@ members = [
     "xtask",
     "bins/agent-vmm",
     "bins/agent-vmm-carrier",
+    "bins/agent-vmm-data",
     "bins/agent-vmm-host",
     "bins/agent-vmm-lifecycle",
     "bins/agent-vmm-service-executor",
     "bins/l4h-dom0d",
     "bins/vmm-guest-init",
     "crates/agent-vmm-proto",
+    "crates/netdev-compat",
     "crates/vmm-carrier-macos",
     "crates/vmm-comma-contract-tests",
     "crates/vmm-compat",
     "crates/vmm-core",
+    "crates/vmm-data",
     "crates/vmm-dom0",
     "crates/vmm-guest-proto",
     "crates/vmm-mcp",
@@ -22,8 +25,6 @@ members = [
     "crates/vmm-remote-salix",
     "crates/vmm-rpc",
     "crates/vmm-signing",
-    "data/agent-vmm-data",
-    "data/agent-vmm-data/netdev-compat",
 ]
 exclude = ["third_party/l4h"]
 
@@ -31,7 +32,7 @@ exclude = ["third_party/l4h"]
 edition = "2024"
 
 [patch.crates-io]
-netdev = { path = "data/agent-vmm-data/netdev-compat" }
+netdev = { path = "crates/netdev-compat" }
 
 [profile.dev]
 debug = 0

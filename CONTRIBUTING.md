@@ -2,11 +2,9 @@
 
 ## Toolchain
 
-Use the Go toolchain from `go.mod`.
 Install `buf`, Rust and Cargo, `jq`, and Docker Buildx.
 For macOS development, install Xcode and `xcodegen`.
 Install the Swift protobuf and gRPC generators before you generate Swift code.
-The Go generators use the `tool` versions from `go.mod`.
 
 Read [the Guest build requirements](docs/build.md#guest).
 SBOM tools also need `syft`. Guest extraction needs `unsquashfs`.
@@ -31,7 +29,7 @@ Retained fields, types, tags, JSON names, and RPC shapes must preserve their exi
 ## Check a change
 
 ```sh
-make check GOTESTFLAGS=-race
+make check
 make test-data-worker lint-data-worker
 cargo check --locked --manifest-path crates/agent-vmm-proto/Cargo.toml
 ```

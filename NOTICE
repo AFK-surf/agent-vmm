@@ -23,7 +23,7 @@ Guest distributions include third-party software. THIRD_PARTY_NOTICES lists
 the installed components and their license notices.
 
 The source-address lookup and IPv6 flag mapping in
-data/agent-vmm-data/netdev-compat/src/macos.rs adapt netdev 0.46.3:
+crates/netdev-compat/src/macos.rs adapt netdev 0.46.3:
 https://github.com/shellrow/netdev/tree/v0.46.3
 
 MIT License

@@ -92,7 +92,7 @@ if [ "$phase" != sign ]; then
 	fi
 	cp "$repo/LICENSE" "$repo/NOTICE" "$resources/"
 	set -- -o "$resources/THIRD_PARTY_NOTICES" -licenses "$repo/third_party/licenses" -cargo-target "$target"
-	for crate in bins/agent-vmm-host bins/agent-vmm-carrier bins/agent-vmm-lifecycle bins/agent-vmm bins/agent-vmm-service-executor data/agent-vmm-data; do
+	for crate in bins/agent-vmm-host bins/agent-vmm-carrier bins/agent-vmm-lifecycle bins/agent-vmm bins/agent-vmm-service-executor bins/agent-vmm-data; do
 		set -- "$@" -cargo-manifest "$repo/$crate/Cargo.toml"
 	done
 	(cd "$repo" && cargo run --locked -p xtask -- notices "$@")

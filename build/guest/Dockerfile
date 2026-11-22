@@ -48,7 +48,6 @@ COPY xtask/ xtask/
 COPY .cargo/ .cargo/
 COPY crates/ crates/
 COPY bins/ bins/
-COPY data/ data/
 COPY third_party/l4h/ third_party/l4h/
 COPY third_party/licenses/ third_party/licenses/
 COPY api/ api/

@@ -7,7 +7,6 @@
 !build/
 !bins/
 !crates/
-!data/
 !third_party/l4h/
 !third_party/licenses/
 **/.git

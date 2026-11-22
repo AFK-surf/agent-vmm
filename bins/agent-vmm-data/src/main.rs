@@ -1,7 +1,3 @@
-use agent_vmm_data::{
-    Command,
-    node::{Channel, DataNode, Tunnel},
-};
 use anyhow::{Context, Result};
 use std::{
     io::Read,
@@ -12,6 +8,10 @@ use tokio::{
     io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
     sync::mpsc,
+};
+use vmm_data::{
+    Command,
+    node::{Channel, DataNode, Tunnel},
 };
 use zeroize::Zeroizing;
 

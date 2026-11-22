@@ -42,8 +42,7 @@
       {"entry": "build/host/sbom.sh <app-or-dir> <out>", "sources": ["Cue .github/workflows/agent-vmm.yml:383,486"]},
       {"entry": "build/host/test-keychain.sh", "env": ["CODE_SIGN_IDENTITY", "OUTPUT_DIRECTORY"], "sources": ["Cue .github/workflows/agent-vmm.yml:375-380"]},
       {"entry": "build/host-linux/package.sh", "env": ["AGENT_VMM_GUEST_BUNDLE", "AGENT_VMM_DATA_WORKER", "OUTPUT_DIRECTORY", "AGENT_VMM_RELEASE_ID"], "outputs": ["$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.tar.gz", "$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.json"], "sources": ["Cue .github/workflows/agent-vmm.yml:474-480,484-485,500-511"]},
-      {"entry": "cargo build --locked --release --target aarch64-unknown-linux-gnu --manifest-path data/agent-vmm-data/Cargo.toml", "outputs": ["agent-vmm-data"], "sources": ["Cue .github/workflows/agent-vmm.yml:467-473,478"]},
-      {"entry": "go.mod (setup-go go-version-file)", "sources": ["Cue .github/workflows/agent-vmm.yml:124,218,221,333,437"]}
+      {"entry": "cargo build --locked --release --target aarch64-unknown-linux-gnu -p agent-vmm-data", "outputs": ["agent-vmm-data"], "sources": ["Cue .github/workflows/agent-vmm.yml:455-461,466"]}
     ]
   }
 }

@@ -8,7 +8,7 @@ mod volume;
 
 pub use context::RuntimeContext;
 
-pub use agent_vmm_data::node;
+pub use vmm_data::node;
 
 mod container;
 mod container_spec;

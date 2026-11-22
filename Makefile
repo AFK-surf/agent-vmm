@@ -58,10 +58,10 @@ lint-rust:
 	cargo clippy --locked -p agent-vmm-lifecycle --features e2e-isolation --all-targets -- -D warnings
 
 test-data-worker:
-	cargo test --locked --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
+	cargo test --locked -p vmm-data -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets
 
 lint-data-worker:
-	cargo clippy --locked --manifest-path data/agent-vmm-data/Cargo.toml -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets -- -D warnings
+	cargo clippy --locked -p vmm-data -p agent-vmm-data -p netdev@0.46.3+comma.1 --all-targets -- -D warnings
 
 audit-data-worker:
 	cargo audit --file Cargo.lock
