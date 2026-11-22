@@ -291,23 +291,33 @@ impl LocalDom0Backend {
     }
     fn create(&self, b: &SavedBoot, disks: &[DiskVolume], ip: std::net::Ipv4Addr) -> Result<u64> {
         let cmdline = format!(
-            "console=hvc0 vmm.slot={} vmm.boot_port={}",
+            "console=hvc0 psi=1 l4h_memhp.demand=1 vmm.slot={} vmm.boot_port={}",
             b.slot, self.cfg.boot_port
         );
-        self.ctl
-            .lock()
-            .map_err(|_| Error::Interrupted)?
+        let initrd_buf;
+        let initrd: &[u8] = match &self.cfg.initrd_path {
+            Some(path) => {
+                initrd_buf = std::fs::read(path)?;
+                &initrd_buf
+            }
+            None => &self.cfg.initrd,
+        };
+        let boot_ram_mb = b.scope.limits.boot_ram_mb;
+        let max_ram_mb = b.scope.limits.max_ram_mb.max(boot_ram_mb);
+        let boot_ram_bytes = boot_ram_mb
+            .checked_mul(1 << 20)
+            .ok_or(Error::Invalid("boot RAM"))?;
+        let max_ram_bytes = max_ram_mb
+            .checked_mul(1 << 20)
+            .ok_or(Error::Invalid("max RAM"))?;
+        let mut ctl = self.ctl.lock().map_err(|_| Error::Interrupted)?;
+        let id = ctl
             .create_networked_vm(
                 &VmSpec {
                     name: &b.name,
-                    memory_bytes: b
-                        .scope
-                        .limits
-                        .boot_ram_mb
-                        .checked_mul(1 << 20)
-                        .ok_or(Error::Invalid("boot RAM"))?,
+                    memory_bytes: boot_ram_bytes,
                     vcpus: b.scope.limits.vcpus,
-                    initrd: &self.cfg.initrd,
+                    initrd,
                     cmdline: &cmdline,
                     volumes: disks,
                 },
@@ -316,7 +326,12 @@ impl LocalDom0Backend {
                     address: ip,
                 },
             )
-            .map_err(ctl_error)
+            .map_err(ctl_error)?;
+        if let Err(err) = ctl.vm_set_mem(id, max_ram_bytes) {
+            let _ = ctl.destroy_vm(id);
+            return Err(ctl_error(err));
+        }
+        Ok(id)
     }
     fn incarnation(&self, b: &SavedBoot, id: u64) -> Result<VMIncarnation> {
         Ok(VMIncarnation {

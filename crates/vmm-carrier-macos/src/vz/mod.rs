@@ -204,9 +204,34 @@ impl CarrierHypervisor for VzHypervisor {
             self.last_error = Some(e.to_string());
             return Err(e);
         }
+        // Set the balloon target after dom0 is ready so l4h-memd has already
+        // completed VirtIO reset and driver_ok (Apple VZ resets num_pages on
+        // device reset).
+        // SAFETY: static VZ minimum getter has no instance or queue requirement.
+        let min_target = unsafe { VZVirtualMachineConfiguration::minimumAllowedMemorySize() }
+            .next_multiple_of(1 << 20)
+            .min(self.settings.memory);
+        if let Err(e) = self.on_queue(|m, _| {
+            if let Some(vm) = &m.vm {
+                // SAFETY: configuration installs one traditional balloon; the setter runs on the VM queue.
+                unsafe {
+                    let device = vm.memoryBalloonDevices().objectAtIndex(0);
+                    device
+                        .downcast_ref::<VZVirtioTraditionalMemoryBalloonDevice>()
+                        .ok_or_else(|| io::Error::other("missing balloon device"))?
+                        .setTargetVirtualMachineMemorySize(min_target);
+                }
+            }
+            Ok(())
+        }) {
+            quic.close();
+            let _ = self.force_stop().await;
+            self.last_error = Some(e.to_string());
+            return Err(e);
+        }
         self.quic = Some(quic);
         self.boot = Some(hex::encode(id));
-        self.target = self.settings.memory;
+        self.target = min_target;
         self.last_error = None;
         Ok(())
     }
@@ -241,30 +266,6 @@ impl CarrierHypervisor for VzHypervisor {
             completed(rx).await?;
         }
         self.release();
-        Ok(())
-    }
-    async fn set_target_virtual_machine_memory_size(&mut self, bytes: u64) -> io::Result<()> {
-        // SAFETY: static VZ minimum getter has no instance or queue requirement.
-        if bytes < unsafe { VZVirtualMachineConfiguration::minimumAllowedMemorySize() }
-            || bytes > self.settings.memory
-            || !bytes.is_multiple_of(1 << 20)
-        {
-            return Err(io::Error::other("invalid balloon target"));
-        }
-        self.on_queue(|m, _| {
-            if let Some(vm) = &m.vm {
-                // SAFETY: configuration installs one traditional balloon; the setter runs on the VM queue.
-                unsafe {
-                    let device = vm.memoryBalloonDevices().objectAtIndex(0);
-                    device
-                        .downcast_ref::<VZVirtioTraditionalMemoryBalloonDevice>()
-                        .ok_or_else(|| io::Error::other("missing balloon device"))?
-                        .setTargetVirtualMachineMemorySize(bytes);
-                }
-            }
-            Ok(())
-        })?;
-        self.target = bytes;
         Ok(())
     }
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()> {

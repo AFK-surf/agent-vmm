@@ -19,7 +19,6 @@ pub trait CarrierHypervisor: Send {
         self.request_stop()
     }
     async fn force_stop(&mut self) -> io::Result<()>;
-    async fn set_target_virtual_machine_memory_size(&mut self, bytes: u64) -> io::Result<()>;
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()>;
     async fn punch(&mut self, offset: u64, len: u64) -> io::Result<()>;
     fn begin_open_vsock(&mut self, port: u32) -> io::Result<PendingVsock>;
@@ -70,12 +69,6 @@ async fn connection<H: CarrierHypervisor>(
                 })
                 .await??;
                 return Ok((Reply::Status(status), None));
-            }
-            Request::SetBalloonTarget {
-                target_memory_bytes,
-            } => {
-                vm.set_target_virtual_machine_memory_size(target_memory_bytes)
-                    .await?
             }
             Request::SetHostShares { shares } => vm.set_host_shares(shares).await?,
             Request::PunchPoolRange { offset, len } => vm.punch(offset, len).await?,

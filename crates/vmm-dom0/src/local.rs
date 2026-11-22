@@ -153,10 +153,11 @@ impl Dom0Config {
             headroom,
             self.emergency_bytes.unwrap_or(DEFAULT_EMERGENCY_BYTES),
         )?);
-        let mut options = Options::new(
-            std::fs::read(self.initrd)?.into(),
-            self.state_dir.join("images"),
-        );
+        if !std::fs::metadata(&self.initrd)?.is_file() {
+            return Err("initrd must be a regular file".into());
+        }
+        let mut options = Options::new(Arc::from([]), self.state_dir.join("images"));
+        options.initrd_path = Some(self.initrd);
         options.dns_port = 53;
         let resolv = std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default();
         options.upstream_dns = Some(crate::dns::public_resolver(&resolv));

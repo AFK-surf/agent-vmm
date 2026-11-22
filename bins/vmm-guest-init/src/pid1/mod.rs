@@ -14,6 +14,7 @@ use std::collections::BTreeMap;
 use std::convert::Infallible;
 use std::ffi::CString;
 use std::fs::{self, File};
+use std::io::Write;
 use std::net::{IpAddr, SocketAddr, TcpListener};
 use std::os::fd::AsRawFd;
 use std::path::PathBuf;
@@ -32,6 +33,44 @@ use crate::workspace_server::WorkspaceServer;
 const INTERFACE: &str = "eth0";
 const CGROUP_ROOT: &str = "/sys/fs/cgroup";
 const WORKLOAD_CGROUP: &str = "/sys/fs/cgroup/workload";
+const ZRAM_DISKSIZE_BYTES: u64 = 512 << 20;
+const SWAP_PAGE_SIZE: usize = 4096;
+
+/// Builds a standard 4 KiB Linux v1 swap header for a device of `size_bytes`.
+pub(super) fn format_swap_header(size_bytes: u64) -> [u8; SWAP_PAGE_SIZE] {
+    let mut header = [0u8; SWAP_PAGE_SIZE];
+    let pages = (size_bytes / SWAP_PAGE_SIZE as u64) as u32;
+    header[1024..1028].copy_from_slice(&1u32.to_le_bytes());
+    header[1028..1032].copy_from_slice(&pages.saturating_sub(1).to_le_bytes());
+    header[4086..4096].copy_from_slice(b"SWAPSPACE2");
+    header
+}
+
+/// Configures VM memory sysctls and enables zram0 swap when the kernel provides it.
+fn configure_memory() {
+    let _ = fs::write("/proc/sys/vm/swappiness", "10");
+    let _ = fs::write("/proc/sys/vm/overcommit_memory", "1");
+    let disksize_path = "/sys/block/zram0/disksize";
+    if !std::path::Path::new(disksize_path).exists() {
+        return;
+    }
+    let _ = fs::write("/sys/block/zram0/comp_algorithm", "lz4");
+    if fs::write(disksize_path, ZRAM_DISKSIZE_BYTES.to_string()).is_err() {
+        return;
+    }
+    let header = format_swap_header(ZRAM_DISKSIZE_BYTES);
+    let Ok(mut dev) = File::options().write(true).open("/dev/zram0") else {
+        return;
+    };
+    if dev.write_all(&header).is_err() {
+        return;
+    }
+    drop(dev);
+    // SAFETY: `/dev/zram0` is a static NUL-terminated path.
+    unsafe {
+        libc::swapon(c"/dev/zram0".as_ptr(), 0);
+    }
+}
 
 /// Runs the machine. Never returns: a failure powers the VM off.
 pub fn run() -> ! {
@@ -82,6 +121,7 @@ fn boot() -> Result<Infallible, String> {
     }
     mounts::kernel_filesystems()?;
     attach_console();
+    configure_memory();
 
     let text = fs::read_to_string("/proc/cmdline").map_err(|error| error.to_string())?;
     let cmdline = cmdline::parse(&text)?;

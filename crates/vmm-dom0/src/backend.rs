@@ -27,6 +27,7 @@ pub use crate::proxy::ExternalServiceRoute;
 
 pub struct Options {
     pub initrd: Arc<[u8]>,
+    pub initrd_path: Option<PathBuf>,
     pub staging: PathBuf,
     pub switch: Option<u64>,
     pub gateway: Ipv4Addr,
@@ -46,6 +47,7 @@ impl Options {
     pub fn new(initrd: Arc<[u8]>, staging: PathBuf) -> Self {
         Self {
             initrd,
+            initrd_path: None,
             staging,
             switch: None,
             gateway: boot::DEFAULT_GATEWAY,

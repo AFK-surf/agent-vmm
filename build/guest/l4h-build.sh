@@ -127,7 +127,7 @@ export L4H_VERSION=0.1.0-apple-vz
 
 (
   cd "$l4h_root/host"
-  nicds=(virtio gvnic ena ixgbe e1000e mlx5 r8125)
+  nicds=(virtio)
   nicd_pkgs=()
   for d in "${nicds[@]}"; do nicd_pkgs+=(-p "l4h-nicd-$d"); done
   cargo +nightly-2026-08-21 build --release --target aarch64-sel4 --target-dir "$host_target" \

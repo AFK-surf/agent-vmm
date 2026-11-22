@@ -59,10 +59,6 @@ impl CarrierHypervisor for MockCarrierHypervisor {
         self.status.boot_id = None;
         Ok(())
     }
-    async fn set_target_virtual_machine_memory_size(&mut self, bytes: u64) -> io::Result<()> {
-        self.status.balloon_target_bytes = bytes;
-        Ok(())
-    }
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()> {
         self.shares = shares;
         Ok(())

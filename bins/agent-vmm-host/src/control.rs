@@ -118,8 +118,8 @@ pub(crate) async fn serve_online(
     // Allocation admission replaces the PID and disk limits from the accepted pool policy.
     let defaults = vmm_core::Limits {
         vcpus: 1,
-        boot_ram_mb: 2048,
-        max_ram_mb: 2048,
+        boot_ram_mb: 384,
+        max_ram_mb: 4096,
         pids_max: 0,
         disk_quota_bytes: 0,
     };

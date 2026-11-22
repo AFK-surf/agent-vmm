@@ -9,7 +9,22 @@ use vmm_guest_proto::Secret;
 use vmm_guest_proto::boot::EncryptedDisk;
 
 use super::dm::{self, CryptDisk};
-use super::{mounts, shutdown};
+use super::{format_swap_header, mounts, shutdown};
+
+#[test]
+fn swap_header_encodes_v1_layout_and_signature() {
+    let header = format_swap_header(512 << 20);
+    assert_eq!(header.len(), 4096);
+    assert_eq!(
+        u32::from_le_bytes(header[1024..1028].try_into().unwrap()),
+        1
+    );
+    assert_eq!(
+        u32::from_le_bytes(header[1028..1032].try_into().unwrap()),
+        (512u32 << 8) - 1
+    );
+    assert_eq!(&header[4086..4096], b"SWAPSPACE2");
+}
 
 #[test]
 fn directories_resolve_inside_the_root_also_through_absolute_links() {

@@ -34,7 +34,6 @@ pub enum Request {
     Status,
     EnsureStarted { operation_id: String },
     Stop { force: bool },
-    SetBalloonTarget { target_memory_bytes: u64 },
     SetHostShares { shares: Shares },
     PunchPoolRange { offset: u64, len: u64 },
     OpenVsock { port: u32 },

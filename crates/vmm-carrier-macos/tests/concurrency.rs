@@ -43,9 +43,6 @@ impl CarrierHypervisor for UnresponsiveGuest {
     async fn ensure_started(&mut self, id: String) -> io::Result<()> {
         self.vm.ensure_started(id).await
     }
-    async fn set_target_virtual_machine_memory_size(&mut self, bytes: u64) -> io::Result<()> {
-        self.vm.set_target_virtual_machine_memory_size(bytes).await
-    }
     async fn set_host_shares(&mut self, shares: Shares) -> io::Result<()> {
         self.vm.set_host_shares(shares).await
     }

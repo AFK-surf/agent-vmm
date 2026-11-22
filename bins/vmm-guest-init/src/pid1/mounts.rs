@@ -86,7 +86,7 @@ pub fn kernel_filesystems() -> Result<(), String> {
             "/dev/shm",
             "tmpfs",
             libc::MS_NOSUID | libc::MS_NODEV,
-            Some("mode=1777"),
+            Some("mode=1777,size=512m"),
         ),
         ("/sys/fs/cgroup", "cgroup2", nosuid | libc::MS_NODEV, None),
     ];
@@ -266,7 +266,13 @@ pub fn assemble(config: &BootConfig) -> Result<(PathBuf, Assembled), String> {
         }
         (None, None) => step(
             "mount the root layer",
-            mount("tmpfs", &layer, Some("tmpfs"), 0, Some("mode=0755")),
+            mount(
+                "tmpfs",
+                &layer,
+                Some("tmpfs"),
+                0,
+                Some("mode=0755,size=2048m"),
+            ),
         )?,
     }
     for name in ["upper", "work"] {
@@ -365,7 +371,13 @@ fn volatile_directories(root: &File, scratch: Option<&Path>) -> Result<(), Strin
     let run = descriptor_path(&run);
     step(
         "mount /run",
-        mount("tmpfs", &run, Some("tmpfs"), flags, Some("mode=0755")),
+        mount(
+            "tmpfs",
+            &run,
+            Some("tmpfs"),
+            flags,
+            Some("mode=0755,size=256m"),
+        ),
     )?;
 
     let tmp = step("create /tmp", directory_in(root, "/tmp"))?;
@@ -384,7 +396,13 @@ fn volatile_directories(root: &File, scratch: Option<&Path>) -> Result<(), Strin
         }
         None => step(
             "mount /tmp",
-            mount("tmpfs", &tmp, Some("tmpfs"), flags, Some("mode=1777")),
+            mount(
+                "tmpfs",
+                &tmp,
+                Some("tmpfs"),
+                flags,
+                Some("mode=1777,size=2048m"),
+            ),
         ),
     }
 }
