@@ -11,11 +11,11 @@ use std::{
     path::{Component, Path},
 };
 use tokio::sync::mpsc;
-use vmm_rpc::Status;
 use vmm_guest_proto::{
     client::{Client, ExecEvent},
     rpc as g,
 };
+use vmm_rpc::Status;
 
 pub(super) fn progress(text: String) -> h::BuildImageResponse {
     h::BuildImageResponse {
@@ -93,6 +93,41 @@ impl Write for OutputArchive<'_> {
 
 type Sender = mpsc::Sender<Result<h::BuildImageResponse, Status>>;
 
+fn prepare_context(mut file: File, max_bytes: u64) -> Result<File, Status> {
+    let bad = || Status::invalid_argument("invalid build context archive");
+    let staging_err = |_| Status::unavailable("build context staging unavailable");
+    let mut magic = [0u8; 2];
+    let mut read = 0;
+    while read < magic.len() {
+        match file.read(&mut magic[read..]).map_err(|_| bad())? {
+            0 => break,
+            n => read += n,
+        }
+    }
+    file.rewind().map_err(|_| bad())?;
+    if read == 2 && magic == [0x1f, 0x8b] {
+        let mut out = tempfile::tempfile().map_err(staging_err)?;
+        let mut decoder = flate2::read::GzDecoder::new(file);
+        let mut buf = [0u8; 64 * 1024];
+        let mut total = 0u64;
+        loop {
+            let n = decoder.read(&mut buf).map_err(|_| bad())?;
+            if n == 0 {
+                break;
+            }
+            total = total.checked_add(n as u64).ok_or_else(bad)?;
+            if total > max_bytes {
+                return Err(bad());
+            }
+            out.write_all(&buf[..n]).map_err(staging_err)?;
+        }
+        out.flush().map_err(staging_err)?;
+        out.rewind().map_err(|_| bad())?;
+        return Ok(out);
+    }
+    Ok(file)
+}
+
 fn validate_context(file: &mut File) -> Result<(), Status> {
     let bad = || Status::invalid_argument("invalid build context archive");
     let mut entries = 0;
@@ -151,6 +186,7 @@ pub(super) fn run(
     dir: &Path,
     tx: Sender,
 ) -> Result<VerifiedArchive, Status> {
+    upload.context = prepare_context(upload.context, MAX_ARCHIVE_BYTES)?;
     validate_context(&mut upload.context)?;
     write(&client, "context.tar", upload.context)?;
     if let Some(file) = base_file {
@@ -273,4 +309,100 @@ pub(super) fn run(
         },
         digest,
     ))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use flate2::{Compression, write::GzEncoder};
+    use vmm_rpc::Code;
+
+    fn temp_file_with(bytes: &[u8]) -> File {
+        let mut file = tempfile::tempfile().unwrap();
+        file.write_all(bytes).unwrap();
+        file.rewind().unwrap();
+        file
+    }
+
+    fn tar_bytes(entries: &[(&str, &[u8])]) -> Vec<u8> {
+        let mut builder = tar::Builder::new(Vec::new());
+        for (path, data) in entries {
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder.append_data(&mut header, path, *data).unwrap();
+        }
+        builder.into_inner().unwrap()
+    }
+
+    fn gzip_bytes(data: &[u8]) -> Vec<u8> {
+        let mut encoder = GzEncoder::new(Vec::new(), Compression::default());
+        encoder.write_all(data).unwrap();
+        encoder.finish().unwrap()
+    }
+
+    fn raw_tar_with_path(path: &str, data: &[u8]) -> Vec<u8> {
+        let mut header = tar::Header::new_gnu();
+        header.set_size(data.len() as u64);
+        header.set_mode(0o644);
+        header.set_entry_type(tar::EntryType::Regular);
+        let raw = header.as_mut_bytes();
+        raw[..path.len()].copy_from_slice(path.as_bytes());
+        raw[path.len()] = 0;
+        header.set_cksum();
+        let mut out = Vec::new();
+        out.extend_from_slice(header.as_bytes());
+        out.extend_from_slice(data);
+        let rem = data.len() % 512;
+        if rem != 0 {
+            out.extend_from_slice(&vec![0u8; 512 - rem]);
+        }
+        out.extend_from_slice(&[0u8; 1024]);
+        out
+    }
+
+    #[test]
+    fn plain_tar_context_passes() {
+        let tar = tar_bytes(&[("Dockerfile", b"FROM scratch\n")]);
+        let mut prepared = prepare_context(temp_file_with(&tar), MAX_ARCHIVE_BYTES).unwrap();
+        validate_context(&mut prepared).unwrap();
+    }
+
+    #[test]
+    fn gzipped_tar_context_decompresses_and_passes() {
+        let tar = tar_bytes(&[("Dockerfile", b"FROM scratch\n")]);
+        let gz = gzip_bytes(&tar);
+        let mut prepared = prepare_context(temp_file_with(&gz), MAX_ARCHIVE_BYTES).unwrap();
+        validate_context(&mut prepared).unwrap();
+        let mut archive = tar::Archive::new(&mut prepared);
+        let mut entries = archive.entries().unwrap();
+        let mut first = entries.next().unwrap().unwrap();
+        assert_eq!(first.path().unwrap(), Path::new("Dockerfile"));
+        let mut body = Vec::new();
+        first.read_to_end(&mut body).unwrap();
+        assert_eq!(body, b"FROM scratch\n");
+    }
+
+    #[test]
+    fn corrupt_gzip_context_rejected_as_invalid_argument() {
+        let corrupt = [0x1f, 0x8b, 0x08, 0x00, 0xde, 0xad, 0xbe, 0xef];
+        let err = prepare_context(temp_file_with(&corrupt), MAX_ARCHIVE_BYTES).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "invalid build context archive");
+    }
+
+    #[test]
+    fn gzip_context_exceeding_limit_and_parent_traversal_rejected() {
+        let oversized = gzip_bytes(&vec![0u8; 128 * 1024]);
+        let err = prepare_context(temp_file_with(&oversized), 64 * 1024).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "invalid build context archive");
+
+        let traversal = gzip_bytes(&raw_tar_with_path("../Dockerfile", b"FROM scratch\n"));
+        let mut prepared = prepare_context(temp_file_with(&traversal), MAX_ARCHIVE_BYTES).unwrap();
+        let err = validate_context(&mut prepared).unwrap_err();
+        assert_eq!(err.code(), Code::InvalidArgument);
+        assert_eq!(err.message(), "invalid build context archive");
+    }
 }

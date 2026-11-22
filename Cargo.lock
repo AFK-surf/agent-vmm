@@ -5142,6 +5142,7 @@ dependencies = [
  "agent-vmm-proto",
  "async-trait",
  "base64 0.22.1",
+ "flate2",
  "hex",
  "http",
  "http-auth",

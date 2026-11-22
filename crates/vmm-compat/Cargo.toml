@@ -20,6 +20,7 @@ rusqlite = { version = "0.39", features = ["bundled"] }
 uuid = { version = "1", features = ["v4"] }
 async-trait = "0.1"
 sha2 = "0.10"
+flate2 = { version = "1", default-features = false, features = ["rust_backend"] }
 tar = { version = "0.4", default-features = false }
 tempfile = "3"
 tokio-stream = "0.1"

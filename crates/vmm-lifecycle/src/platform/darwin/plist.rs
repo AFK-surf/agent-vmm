@@ -71,6 +71,7 @@ mod tests {
         assert!(args.contains("<string>--disable-personal-mesh-pairing</string>"));
         let agent = carrier(&Params { daemon: false, disable_pairing: false, ..params });
         assert!(agent.contains("/Contents/Helpers/agent-vmm-carrier</string>") && agent.contains("<string>Interactive</string>"));
+        assert!(agent.contains("<string>--state-size</string>\n    <string>137438953472</string>"));
         assert!(agent.contains("<string>/Users/a&amp;b/Library/Logs/AgentVMM/carrier.stdout.log</string>") && !agent.contains("UserName"));
     }
 }
