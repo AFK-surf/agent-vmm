@@ -4,13 +4,25 @@ use super::{Connect, Fault, Request, read, write};
 use crate::{backend::LocalDom0Backend, catalog::image_id, extent::ctl_error};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
-use std::{path::Path, sync::Arc, time::Duration};
+use std::{
+    io::{BufReader, Read, Seek, SeekFrom},
+    path::Path,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use vmm_core::{Digest, Error, ImageSource, Result};
+use vmm_core::{
+    Digest, Error, ImageSource, Result,
+    erofs_bundle::{
+        EROFS_BLOCK_BYTES, EROFS_SUPER_MAGIC_LE, EROFS_SUPER_OFFSET, ErofsBundleCompression,
+        ParsedErofsBundle,
+    },
+};
 
 const MAX_ARCHIVE: u64 = 8 << 30;
 const MAX_EROFS: u64 = 16 << 30;
 const STAGE_TIMEOUT: Duration = Duration::from_secs(720);
+const STREAM_CHUNK_BYTES: usize = 1 << 20;
 
 #[derive(Serialize, Deserialize)]
 pub(super) enum StageErofsAdmission {
@@ -46,6 +58,150 @@ impl RemoteImageStage {
         )
         .await
         .map_err(|_| Error::Interrupted)?
+    }
+
+    pub async fn upload_erofs_bundle(
+        connector: &dyn Connect,
+        path: &Path,
+        parsed: &ParsedErofsBundle,
+    ) -> Result<Self> {
+        tokio::time::timeout(
+            STAGE_TIMEOUT,
+            Self::transfer_erofs_bundle(connector, path, parsed),
+        )
+        .await
+        .map_err(|_| Error::Interrupted)?
+    }
+
+    async fn transfer_erofs_bundle(
+        connector: &dyn Connect,
+        path: &Path,
+        parsed: &ParsedErofsBundle,
+    ) -> Result<Self> {
+        let physical_bytes = parsed.header.erofs_bytes;
+        let manifest = parsed.manifest_digest;
+        let expected_sha256 = parsed.erofs_sha256;
+        check_erofs_size(physical_bytes)?;
+        let mut stream = connector.connect().await?;
+        write(
+            &mut stream,
+            &(
+                1_u32,
+                Request::StageErofs {
+                    manifest,
+                    physical_bytes,
+                    sha256: expected_sha256,
+                    defaults: parsed.header.defaults.clone(),
+                },
+            ),
+        )
+        .await?;
+        match read::<_, std::result::Result<StageErofsAdmission, Fault>>(&mut stream)
+            .await?
+            .map_err(Error::from)?
+        {
+            StageErofsAdmission::AlreadyInstalled { physical_bytes } => {
+                return Ok(Self {
+                    source: ImageSource {
+                        manifest_digest: manifest,
+                        staged_extent: String::new(),
+                        physical_bytes,
+                    },
+                    _control: stream,
+                });
+            }
+            StageErofsAdmission::Upload => {}
+        }
+
+        let bundle_path = path.to_path_buf();
+        let payload_offset = parsed.payload_offset;
+        let payload_len = parsed.payload_len;
+        let compression = parsed.header.compression;
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<Result<Vec<u8>>>(4);
+        let reader_task = tokio::task::spawn_blocking(move || {
+            let result = (|| -> Result<()> {
+                let mut file = std::fs::File::open(&bundle_path)?;
+                file.seek(SeekFrom::Start(payload_offset))?;
+                let bounded = file.take(payload_len);
+                let mut reader: Box<dyn Read> = match compression {
+                    ErofsBundleCompression::None => Box::new(bounded),
+                    ErofsBundleCompression::Zstd => Box::new(
+                        zstd::stream::read::Decoder::new(BufReader::new(bounded))
+                            .map_err(|_| Error::Invalid("invalid zstd EROFS payload"))?,
+                    ),
+                };
+                let mut limited = (&mut reader).take(physical_bytes + 1);
+                let mut sha = Sha256::new();
+                let mut total = 0u64;
+                let mut first_chunk = true;
+                loop {
+                    let mut buf = vec![0u8; STREAM_CHUNK_BYTES];
+                    let mut filled = 0usize;
+                    while filled < buf.len() {
+                        match limited.read(&mut buf[filled..]) {
+                            Ok(0) => break,
+                            Ok(n) => filled += n,
+                            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => continue,
+                            Err(_) if compression == ErofsBundleCompression::Zstd => {
+                                return Err(Error::Invalid("invalid zstd EROFS payload"));
+                            }
+                            Err(e) => return Err(Error::Io(e)),
+                        }
+                    }
+                    if filled == 0 {
+                        break;
+                    }
+                    total = total
+                        .checked_add(filled as u64)
+                        .ok_or(Error::Invalid("EROFS bundle decompressed length mismatch"))?;
+                    if total > physical_bytes {
+                        return Err(Error::Invalid("EROFS bundle decompressed length mismatch"));
+                    }
+                    if first_chunk {
+                        first_chunk = false;
+                        if filled < EROFS_SUPER_OFFSET + 4
+                            || buf[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4]
+                                != EROFS_SUPER_MAGIC_LE
+                        {
+                            return Err(Error::Invalid("invalid EROFS superblock"));
+                        }
+                    }
+                    buf.truncate(filled);
+                    sha.update(&buf);
+                    if tx.blocking_send(Ok(buf)).is_err() {
+                        return Ok(());
+                    }
+                }
+                if total != physical_bytes {
+                    return Err(Error::Invalid("EROFS bundle decompressed length mismatch"));
+                }
+                if Digest::from(sha.finalize()) != expected_sha256 {
+                    return Err(Error::Invalid("EROFS bundle sha256 mismatch"));
+                }
+                Ok(())
+            })();
+            if let Err(err) = result {
+                let _ = tx.blocking_send(Err(err));
+            }
+        });
+
+        while let Some(chunk) = rx.recv().await {
+            let chunk = chunk?;
+            stream.write_all(&chunk).await?;
+        }
+        reader_task.await.map_err(|_| Error::Interrupted)?;
+        stream.flush().await?;
+        let (staged_extent, physical_bytes) = read::<_, std::result::Result<_, Fault>>(&mut stream)
+            .await?
+            .map_err(Error::from)?;
+        Ok(Self {
+            source: ImageSource {
+                manifest_digest: manifest,
+                staged_extent,
+                physical_bytes,
+            },
+            _control: stream,
+        })
     }
 
     async fn transfer_erofs(
@@ -144,7 +300,7 @@ fn check_size(size: u64) -> Result<()> {
 }
 
 fn check_erofs_size(size: u64) -> Result<()> {
-    if !(1..=MAX_EROFS).contains(&size) || !size.is_multiple_of(crate::extent::BLOCK_BYTES) {
+    if !(EROFS_BLOCK_BYTES..=MAX_EROFS).contains(&size) || !size.is_multiple_of(EROFS_BLOCK_BYTES) {
         return Err(Error::Invalid("EROFS upload size"));
     }
     Ok(())
@@ -331,11 +487,16 @@ pub(super) async fn serve_erofs<S: AsyncRead + AsyncWrite + Unpin>(
     let result = tokio::time::timeout(STAGE_TIMEOUT, async {
         let mut sha = Sha256::new();
         let disk = local.pool.disk();
+        let mut remaining_sectors = physical_bytes / 512;
+        let mut first_chunk = true;
         for ext in extents {
+            if remaining_sectors == 0 {
+                break;
+            }
             let mut pos = ext.sector;
             let end = ext.sector + ext.sectors;
-            while pos < end {
-                let sectors = (end - pos).min(2048); // 1 MiB
+            while pos < end && remaining_sectors > 0 {
+                let sectors = (end - pos).min(2048).min(remaining_sectors); // up to 1 MiB
                 let byte_len = (sectors * 512) as usize;
                 let mut buf = vec![0u8; byte_len];
                 stream.read_exact(&mut buf).await.map_err(|e| {
@@ -345,6 +506,14 @@ pub(super) async fn serve_erofs<S: AsyncRead + AsyncWrite + Unpin>(
                         Error::Io(e)
                     }
                 })?;
+                if first_chunk {
+                    first_chunk = false;
+                    if buf.len() < EROFS_SUPER_OFFSET + 4
+                        || buf[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4] != EROFS_SUPER_MAGIC_LE
+                    {
+                        return Err(Error::Invalid("invalid EROFS superblock"));
+                    }
+                }
                 sha.update(&buf);
                 let ctl = local.ctl.clone();
                 let write_pos = pos;
@@ -357,6 +526,7 @@ pub(super) async fn serve_erofs<S: AsyncRead + AsyncWrite + Unpin>(
                 .await
                 .map_err(|_| Error::Interrupted)??;
                 pos += sectors;
+                remaining_sectors -= sectors;
             }
         }
         if Digest::from(sha.finalize()) != expected_sha256 {

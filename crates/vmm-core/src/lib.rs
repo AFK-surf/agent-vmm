@@ -2,6 +2,7 @@ mod cleanup;
 pub use cleanup::{CleanupInventory, CleanupKind, CleanupOperation, CleanupResource};
 mod authority;
 pub mod backend;
+pub mod erofs_bundle;
 pub mod fake;
 mod host_socket;
 pub use host_socket::HostSocketApproval;

@@ -251,7 +251,10 @@ impl Pool {
             })
             .optional()?
             .ok_or(Error::Missing("staged image"))?;
-        if bytes != expected_bytes || bytes == 0 || !bytes.is_multiple_of(BLOCK_BYTES) {
+        if bytes != expected_bytes
+            || bytes < vmm_core::erofs_bundle::EROFS_BLOCK_BYTES
+            || !bytes.is_multiple_of(vmm_core::erofs_bundle::EROFS_BLOCK_BYTES)
+        {
             return Err(Error::Invalid("staged image length"));
         }
         tx.execute(

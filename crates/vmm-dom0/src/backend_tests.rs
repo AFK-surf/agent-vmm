@@ -776,3 +776,242 @@ async fn stage_erofs_promotes_idempotently_and_recovers_orphaned_stage_on_restar
     assert!(!reopened.pool.has_object(&orphan_obj)?);
     Ok(())
 }
+
+#[tokio::test]
+async fn erofs_bundle_local_and_remote_streaming_short_circuit_and_rejects_adversarial_inputs()
+-> Result<()> {
+    use crate::remote::{Connect, RemoteImageStage, serve_host_connection};
+    use sha2::{Digest as _, Sha256};
+    use tokio::net::{UnixListener, UnixStream};
+    use vmm_core::erofs_bundle::{
+        EROFS_BLOCK_BYTES, EROFS_SUPER_MAGIC_LE, EROFS_SUPER_OFFSET, ErofsBundleCompression,
+        ErofsBundleHeader, encode_frame, parse_and_validate_file,
+    };
+
+    struct Dial(std::path::PathBuf);
+    #[async_trait::async_trait]
+    impl Connect for Dial {
+        async fn connect(&self) -> std::io::Result<UnixStream> {
+            UnixStream::connect(&self.0).await
+        }
+    }
+
+    let make_zstd_bundle = |manifest: Digest,
+                            erofs_bytes: &[u8],
+                            declared_erofs_bytes: u64,
+                            declared_sha: Digest,
+                            defaults: crate::image::Defaults|
+     -> Vec<u8> {
+        let compressed = zstd::stream::encode_all(erofs_bytes, 1).unwrap();
+        let header = ErofsBundleHeader {
+            schema_version: 1,
+            manifest_digest: format!("sha256:{}", hex::encode(manifest)),
+            platform: "linux/arm64".into(),
+            logical_bytes: 987_654,
+            erofs_bytes: declared_erofs_bytes,
+            erofs_sha256: hex::encode(declared_sha),
+            compression: ErofsBundleCompression::Zstd,
+            defaults,
+        };
+        encode_frame(&header, &compressed).unwrap()
+    };
+
+    // Build a real EROFS image via built-in plain writer.
+    let build_dir = tempfile::tempdir()?;
+    let (oci_bytes, manifest) = crate::image::tests::fixture(false);
+    let oci_path = build_dir.path().join("image.oci.tar");
+    std::fs::write(&oci_path, oci_bytes)?;
+    let built = crate::image::build_plain(&oci_path, manifest, build_dir.path())?;
+    let real_erofs = std::fs::read(built.file.path())?;
+    let real_sha: Digest = Sha256::digest(&real_erofs).into();
+    let valid_bundle = make_zstd_bundle(
+        manifest,
+        &real_erofs,
+        real_erofs.len() as u64,
+        real_sha,
+        built.defaults.clone(),
+    );
+
+    // 1. LocalDom0Backend::stage_image -> install -> second stage_image short-circuits.
+    {
+        let (dir, pool, ctl) = setup()?;
+        let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+        let bundle_path = dir.path().join("valid.erofs.bundle");
+        std::fs::write(&bundle_path, &valid_bundle)?;
+
+        let staged = b.stage_image(&bundle_path, manifest)?;
+        assert!(!staged.staged_extent.is_empty());
+        assert_eq!(b.disk_accounting()?.2, 0);
+        let artifact = b.install_image_artifact(&staged).await?;
+        assert_eq!(artifact.manifest_digest, manifest);
+        assert!(b.image_installed(manifest)?);
+        assert_eq!(
+            b.catalog().defaults(&crate::catalog::image_id(manifest))?,
+            Some(built.defaults.clone())
+        );
+
+        let hit = b.stage_image(&bundle_path, manifest)?;
+        assert!(hit.staged_extent.is_empty());
+        b.discard_staged_image(&hit.staged_extent)?;
+        let artifact2 = b.install_image_artifact(&hit).await?;
+        assert_eq!(artifact2.physical_bytes, artifact.physical_bytes);
+    }
+
+    // 2. RemoteImageStage::upload_erofs_bundle -> serve_erofs -> install + AlreadyInstalled short-circuit.
+    {
+        let (dir, pool, ctl) = setup()?;
+        let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+        let bundle_path = dir.path().join("remote.erofs.bundle");
+        std::fs::write(&bundle_path, &valid_bundle)?;
+        let parsed = parse_and_validate_file(&bundle_path, Some(manifest))?.unwrap();
+
+        let sockets = tempfile::tempdir_in("/tmp")?;
+        let dial = Dial(sockets.path().join("dom0.sock"));
+        let listener = UnixListener::bind(&dial.0)?;
+
+        let accept = async {
+            let (socket, _) = listener.accept().await?;
+            serve_host_connection(socket, &b).await
+        };
+        let upload = async {
+            let stage = RemoteImageStage::upload_erofs_bundle(&dial, &bundle_path, &parsed).await?;
+            assert!(!stage.source.staged_extent.is_empty());
+            assert_eq!(b.disk_accounting()?.2, 0);
+            let artifact = b.install_image_artifact(&stage.source).await?;
+            assert_eq!(artifact.manifest_digest, manifest);
+            assert!(b.image_installed(manifest)?);
+            drop(stage);
+            Ok::<_, Error>(())
+        };
+        tokio::try_join!(accept, upload)?;
+
+        // Overwrite payload with garbage after header to prove AlreadyInstalled never decompresses.
+        let mut corrupted = valid_bundle.clone();
+        let off = parsed.payload_offset as usize;
+        corrupted[off] ^= 0xff;
+        std::fs::write(&bundle_path, &corrupted)?;
+        let accept = async {
+            let (socket, _) = listener.accept().await?;
+            serve_host_connection(socket, &b).await
+        };
+        let hit = async {
+            let stage = RemoteImageStage::upload_erofs_bundle(&dial, &bundle_path, &parsed).await?;
+            assert!(stage.source.staged_extent.is_empty());
+            let artifact = b.install_image_artifact(&stage.source).await?;
+            assert_eq!(artifact.manifest_digest, manifest);
+            Ok::<_, Error>(())
+        };
+        tokio::try_join!(accept, hit)?;
+    }
+
+    // 3. Adversarial inputs on both Local and Remote paths must fail and leak 0 pool bytes.
+    let mut bad_sha = real_sha;
+    bad_sha[0] ^= 1;
+    let tampered_sha = make_zstd_bundle(
+        manifest,
+        &real_erofs,
+        real_erofs.len() as u64,
+        bad_sha,
+        built.defaults.clone(),
+    );
+
+    let mut fake_super = vec![0u8; (EROFS_BLOCK_BYTES * 2) as usize];
+    fake_super[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4].copy_from_slice(b"BAD!");
+    let bad_super = make_zstd_bundle(
+        manifest,
+        &fake_super,
+        fake_super.len() as u64,
+        Sha256::digest(&fake_super).into(),
+        built.defaults.clone(),
+    );
+
+    let mut oversized = vec![0u8; (EROFS_BLOCK_BYTES * 2) as usize];
+    oversized[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4].copy_from_slice(&EROFS_SUPER_MAGIC_LE);
+    let bomb = make_zstd_bundle(
+        manifest,
+        &oversized,
+        EROFS_BLOCK_BYTES, // declares 4096, decompresses to 8192
+        Sha256::digest(&oversized[..EROFS_BLOCK_BYTES as usize]).into(),
+        built.defaults.clone(),
+    );
+
+    for (name, bytes) in [
+        ("tampered-sha", tampered_sha),
+        ("bad-superblock", bad_super),
+        ("zstd-overflow", bomb),
+    ] {
+        // Local path
+        let (dir, pool, ctl) = setup()?;
+        let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+        let path = dir.path().join(format!("{name}.bundle"));
+        std::fs::write(&path, &bytes)?;
+        let err = b.stage_image(&path, manifest).unwrap_err();
+        assert!(
+            matches!(err, Error::Invalid(_)),
+            "local {name} should return Error::Invalid, got {err:?}"
+        );
+        assert_eq!(
+            b.disk_accounting()?.0,
+            0,
+            "local {name} leaked pool bytes"
+        );
+        assert!(b.catalog().staged_tokens()?.is_empty());
+
+        // Remote path
+        let parsed = parse_and_validate_file(&path, Some(manifest))?.unwrap();
+        let sockets = tempfile::tempdir_in("/tmp")?;
+        let dial = Dial(sockets.path().join("dom0.sock"));
+        let listener = UnixListener::bind(&dial.0)?;
+        let (server, client) = tokio::join!(
+            async {
+                let (socket, _) = listener.accept().await?;
+                serve_host_connection(socket, &b).await
+            },
+            RemoteImageStage::upload_erofs_bundle(&dial, &path, &parsed),
+        );
+        let _ = server;
+        let err = client.err().expect("remote adversarial bundle must fail");
+        assert!(
+            matches!(err, Error::Invalid(_)),
+            "remote {name} should return Error::Invalid, got {err:?}"
+        );
+        assert_eq!(
+            b.disk_accounting()?.0,
+            0,
+            "remote {name} leaked pool bytes"
+        );
+    }
+
+    // 4. Direct serve_erofs also rejects raw EROFS upload with forged superblock magic.
+    {
+        let (dir, pool, ctl) = setup()?;
+        let b = Arc::new(open(&pool, &ctl, options(dir.path()))?);
+        let raw_bad = vec![0u8; EROFS_BLOCK_BYTES as usize];
+        let raw_sha: Digest = Sha256::digest(&raw_bad).into();
+        let raw_path = dir.path().join("bad.erofs");
+        std::fs::write(&raw_path, &raw_bad)?;
+
+        let sockets = tempfile::tempdir_in("/tmp")?;
+        let dial = Dial(sockets.path().join("dom0.sock"));
+        let listener = UnixListener::bind(&dial.0)?;
+        let (server, client) = tokio::join!(
+            async {
+                let (socket, _) = listener.accept().await?;
+                serve_host_connection(socket, &b).await
+            },
+            RemoteImageStage::upload_erofs(
+                &dial,
+                &raw_path,
+                manifest,
+                raw_bad.len() as u64,
+                raw_sha,
+                built.defaults.clone(),
+            ),
+        );
+        server?;
+        assert!(matches!(client, Err(Error::Invalid(_))));
+        assert_eq!(b.disk_accounting()?.0, 0);
+    }
+
+    Ok(())
+}

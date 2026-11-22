@@ -288,7 +288,9 @@ impl ImageImports {
             let store = ctx.core.store.clone();
             move || {
                 super::base::collect(&retain_dir, &store)?;
-                super::base::retain(&retain_dir, archive.path(), archive.digest)?;
+                if archive.is_oci() {
+                    super::base::retain(&retain_dir, archive.path(), archive.digest)?;
+                }
                 Ok::<_, Status>(archive)
             }
         })
@@ -366,7 +368,9 @@ impl ImageImports {
                     .ok_or_else(|| Status::internal("image staging directory"))?
                     .to_owned();
                 super::base::collect(&dir, &store)?;
-                super::base::retain(&dir, archive.path(), archive.digest)?;
+                if archive.is_oci() {
+                    super::base::retain(&dir, archive.path(), archive.digest)?;
+                }
                 Ok::<_, Status>((archive, dir))
             }
         })

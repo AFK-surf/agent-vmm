@@ -184,24 +184,37 @@ impl vmm_compat::image::ImageStaging for CarrierImageStaging {
         archive: &std::path::Path,
         digest: vmm_core::Digest,
     ) -> vmm_core::Result<vmm_core::ImageSource> {
-        let archive_len = std::fs::metadata(archive)?.len();
-        self.check_host_headroom(archive_len)?;
-        let mut built = vmm_dom0::image::build_plain(archive, digest, &self.staging_dir)?;
-        let physical_bytes = built.file.as_file().metadata()?.len();
-        self.check_host_headroom(physical_bytes)?;
-        let erofs_sha256 = vmm_dom0::image::file_sha256(built.file.as_file_mut())?;
+        let lease = if let Some(parsed) =
+            vmm_core::erofs_bundle::parse_and_validate_file(archive, Some(digest))?
+        {
+            tokio::runtime::Handle::current().block_on(
+                vmm_dom0::remote::RemoteImageStage::upload_erofs_bundle(
+                    &self.client,
+                    archive,
+                    &parsed,
+                ),
+            )?
+        } else {
+            let archive_len = std::fs::metadata(archive)?.len();
+            self.check_host_headroom(archive_len)?;
+            let mut built = vmm_dom0::image::build_plain(archive, digest, &self.staging_dir)?;
+            let physical_bytes = built.file.as_file().metadata()?.len();
+            self.check_host_headroom(physical_bytes)?;
+            let erofs_sha256 = vmm_dom0::image::file_sha256(built.file.as_file_mut())?;
 
-        let lease = tokio::runtime::Handle::current().block_on(
-            vmm_dom0::remote::RemoteImageStage::upload_erofs(
-                &self.client,
-                built.file.path(),
-                digest,
-                physical_bytes,
-                erofs_sha256,
-                built.defaults,
-            ),
-        )?;
-        drop(built.file);
+            let lease = tokio::runtime::Handle::current().block_on(
+                vmm_dom0::remote::RemoteImageStage::upload_erofs(
+                    &self.client,
+                    built.file.path(),
+                    digest,
+                    physical_bytes,
+                    erofs_sha256,
+                    built.defaults,
+                ),
+            )?;
+            drop(built.file);
+            lease
+        };
         let source = lease.source.clone();
         if !source.staged_extent.is_empty() {
             self.leases

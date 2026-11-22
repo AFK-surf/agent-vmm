@@ -1,9 +1,15 @@
 use crate::{backend::LocalDom0Backend, catalog::image_id, extent::ctl_error};
+use sha2::{Digest as _, Sha256};
 use std::{
-    io::{ErrorKind, Read, Seek},
+    io::{BufReader, ErrorKind, Read, Seek, SeekFrom},
     path::Path,
 };
-use vmm_core::{Digest, Error, ImageArtifact, ImageSource, Result};
+use vmm_core::{
+    Digest, Error, ImageArtifact, ImageSource, Result,
+    erofs_bundle::{
+        EROFS_SUPER_MAGIC_LE, EROFS_SUPER_OFFSET, ErofsBundleCompression, ParsedErofsBundle,
+    },
+};
 
 pub(crate) fn valid_token(token: &str) -> bool {
     token.len() == 32 && token.bytes().all(|c| c.is_ascii_hexdigit())
@@ -50,6 +56,9 @@ impl LocalDom0Backend {
     }
 
     pub fn discard_staged_image(&self, token: &str) -> Result<()> {
+        if token.is_empty() {
+            return Ok(());
+        }
         if !valid_token(token) {
             return Err(Error::Invalid("staged image ID"));
         }
@@ -66,12 +75,135 @@ impl LocalDom0Backend {
 
     /// Build a staged EROFS file and publish its activation parameters alongside it.
     pub fn stage_image(&self, source: &Path, digest: Digest) -> Result<ImageSource> {
-        let built = if self.cfg.builder_image == Some(digest) {
-            crate::image::build_trusted_builder(source, digest, &self.cfg.staging)?
-        } else {
-            crate::image::build(source, digest, &self.cfg.staging)?
-        };
+        if self.cfg.builder_image == Some(digest) {
+            let built = crate::image::build_trusted_builder(source, digest, &self.cfg.staging)?;
+            return self.publish_stage(built, digest);
+        }
+        if let Some(parsed) =
+            vmm_core::erofs_bundle::parse_and_validate_file(source, Some(digest))?
+        {
+            return self.stage_erofs_bundle(source, &parsed);
+        }
+        let built = crate::image::build(source, digest, &self.cfg.staging)?;
         self.publish_stage(built, digest)
+    }
+
+    fn stage_erofs_bundle(
+        &self,
+        source: &Path,
+        parsed: &ParsedErofsBundle,
+    ) -> Result<ImageSource> {
+        let digest = parsed.manifest_digest;
+        let erofs_bytes = parsed.header.erofs_bytes;
+        if self.image_installed(digest)? {
+            let installed_bytes = self
+                .pool
+                .lookup(&image_id(digest))
+                .map(|exts| exts.iter().map(|e| e.sectors * 512).sum())
+                .unwrap_or(erofs_bytes);
+            return Ok(ImageSource {
+                manifest_digest: digest,
+                staged_extent: String::new(),
+                physical_bytes: installed_bytes,
+            });
+        }
+        let token = hex::encode(crate::keys::random::<16>()?.as_ref());
+        let stage_obj = format!("stage/{token}");
+        let extents = self.pool.allocate(&stage_obj, erofs_bytes)?;
+        let write_result = (|| -> Result<()> {
+            let mut file = std::fs::File::open(source)?;
+            file.seek(SeekFrom::Start(parsed.payload_offset))?;
+            let bounded = file.take(parsed.payload_len);
+            let mut reader: Box<dyn Read> = match parsed.header.compression {
+                ErofsBundleCompression::None => Box::new(bounded),
+                ErofsBundleCompression::Zstd => Box::new(
+                    zstd::stream::read::Decoder::new(BufReader::new(bounded))
+                        .map_err(|_| Error::Invalid("invalid zstd EROFS payload"))?,
+                ),
+            };
+            let mut limited = (&mut reader).take(erofs_bytes + 1);
+            let mut sha = Sha256::new();
+            let mut buf = vec![0u8; 1 << 20];
+            let mut remaining_sectors = erofs_bytes / 512;
+            let mut first_chunk = true;
+            for ext in extents {
+                if remaining_sectors == 0 {
+                    break;
+                }
+                let mut pos = ext.sector;
+                let end = ext.sector + ext.sectors;
+                while pos < end && remaining_sectors > 0 {
+                    let sectors = (end - pos).min(2048).min(remaining_sectors);
+                    let byte_len = (sectors * 512) as usize;
+                    let data = &mut buf[..byte_len];
+                    let mut filled = 0usize;
+                    while filled < byte_len {
+                        match limited.read(&mut data[filled..]) {
+                            Ok(0) => {
+                                return Err(Error::Invalid(
+                                    "EROFS bundle decompressed length mismatch",
+                                ));
+                            }
+                            Ok(n) => filled += n,
+                            Err(e) if e.kind() == ErrorKind::Interrupted => continue,
+                            Err(_)
+                                if parsed.header.compression == ErofsBundleCompression::Zstd =>
+                            {
+                                return Err(Error::Invalid("invalid zstd EROFS payload"));
+                            }
+                            Err(e) => return Err(Error::Io(e)),
+                        }
+                    }
+                    if first_chunk {
+                        first_chunk = false;
+                        if data.len() < EROFS_SUPER_OFFSET + 4
+                            || data[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4]
+                                != EROFS_SUPER_MAGIC_LE
+                        {
+                            return Err(Error::Invalid("invalid EROFS superblock"));
+                        }
+                    }
+                    sha.update(&*data);
+                    self.ctl
+                        .lock()
+                        .map_err(|_| Error::Interrupted)?
+                        .blk_write(self.pool.disk(), pos, data)
+                        .map_err(ctl_error)?;
+                    pos += sectors;
+                    remaining_sectors -= sectors;
+                }
+            }
+            let mut extra = [0u8; 1];
+            match limited.read(&mut extra) {
+                Ok(0) => {}
+                Ok(_) => return Err(Error::Invalid("EROFS bundle decompressed length mismatch")),
+                Err(_) if parsed.header.compression == ErofsBundleCompression::Zstd => {
+                    return Err(Error::Invalid("invalid zstd EROFS payload"));
+                }
+                Err(e) => return Err(Error::Io(e)),
+            }
+            if Digest::from(sha.finalize()) != parsed.erofs_sha256 {
+                return Err(Error::Invalid("EROFS bundle sha256 mismatch"));
+            }
+            self.ctl
+                .lock()
+                .map_err(|_| Error::Interrupted)?
+                .blk_flush(self.pool.disk())
+                .map_err(ctl_error)?;
+            self.catalog()
+                .put(&stage_obj, &(digest, parsed.header.defaults.clone(), erofs_bytes))?;
+            Ok(())
+        })();
+        if let Err(err) = write_result {
+            let _ = self.pool.discard(&stage_obj);
+            let _ = self.catalog().delete(&stage_obj);
+            return Err(err);
+        }
+        Ok(ImageSource {
+            manifest_digest: digest,
+            staged_extent: token,
+            physical_bytes: erofs_bytes,
+        })
     }
     /// Package a trusted host directory under its operator-assigned identity.
     pub fn stage_directory(&self, dir: &Path, digest: Digest) -> Result<ImageSource> {

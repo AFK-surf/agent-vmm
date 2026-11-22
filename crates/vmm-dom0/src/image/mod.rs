@@ -1,7 +1,7 @@
 mod layers;
 mod plain;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
 use std::{
     collections::BTreeMap,
@@ -11,17 +11,8 @@ use std::{
     process::{Command, Stdio},
 };
 use tempfile::{NamedTempFile, TempDir};
+pub use vmm_core::erofs_bundle::ContainerDefaults as Defaults;
 use vmm_core::{Digest, Error, Result};
-
-#[derive(Clone, Default, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "PascalCase")]
-pub struct Defaults {
-    pub entrypoint: Option<Vec<String>>,
-    pub cmd: Option<Vec<String>>,
-    pub env: Option<Vec<String>>,
-    pub working_dir: Option<String>,
-    pub user: Option<String>,
-}
 
 #[derive(Deserialize)]
 struct Descriptor {

@@ -786,3 +786,223 @@ async fn verified_url_imports_rejects_forged_sha256_and_private_inline_imports()
         pub_digest
     );
 }
+
+#[tokio::test]
+async fn import_erofs_bundle_inline_and_url_skips_oci_base_retention_and_rejects_malformed() {
+    use sha2::{Digest as _, Sha256};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicUsize, Ordering},
+    };
+    use vmm_compat::{
+        Containers, RuntimeContext,
+        image::{ImageImports, ImageStaging},
+    };
+    use vmm_core::{
+        Core, EgressMode, ImageSource, Limits, Origin, ReceiptState, RequestKey, Scope, ScopeState,
+        Store,
+        erofs_bundle::{
+            ContainerDefaults, EROFS_BLOCK_BYTES, EROFS_SUPER_MAGIC_LE, EROFS_SUPER_OFFSET,
+            ErofsBundleCompression, ErofsBundleHeader, encode_frame,
+        },
+        fake::FakeDom0Backend,
+    };
+
+    struct BundleStage {
+        calls: AtomicUsize,
+    }
+    impl ImageStaging for BundleStage {
+        fn stage_image(&self, path: &Path, manifest: [u8; 32]) -> vmm_core::Result<ImageSource> {
+            let parsed = vmm_core::erofs_bundle::parse_and_validate_file(path, Some(manifest))?
+                .expect("staged archive must be a valid EROFS bundle");
+            let n = self.calls.fetch_add(1, Ordering::SeqCst);
+            Ok(ImageSource {
+                manifest_digest: manifest,
+                staged_extent: format!("erofs-tok-{n}"),
+                physical_bytes: parsed.header.erofs_bytes,
+            })
+        }
+        fn discard_staged_image(&self, _: &str) -> vmm_core::Result<()> {
+            Ok(())
+        }
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = Arc::new(Store::open(dir.path().join("host.db")).unwrap());
+    let core = Core::new(store.clone(), Arc::new(FakeDom0Backend::default()));
+    store
+        .create_scope(
+            &Scope {
+                id: "scope-erofs".into(),
+                generation: 1,
+                origin: Origin::Local,
+                revision: 1,
+                limits: Limits {
+                    pids_max: 100,
+                    disk_quota_bytes: 1 << 20,
+                    vcpus: 1,
+                    boot_ram_mb: 64,
+                    max_ram_mb: 64,
+                },
+                egress_mode: EgressMode::DenyAll,
+                host_socket_rules: vec![],
+                state: ScopeState::Active,
+            },
+            None,
+        )
+        .unwrap();
+    let (session, _) = store.issue_session("scope-erofs", None).unwrap();
+    let containers = Containers::open(dir.path().join("compat.db"), Arc::new(NoopDriver)).unwrap();
+    let stage = Arc::new(BundleStage {
+        calls: AtomicUsize::new(0),
+    });
+    let staging_dir = dir.path().join("image-staging");
+    std::fs::create_dir_all(staging_dir.join("parts")).unwrap();
+    let imports = ImageImports::new(staging_dir.clone(), stage.clone());
+
+    let manifest_bytes: [u8; 32] = Sha256::digest(b"erofs-bundle-manifest").into();
+    let manifest_str = format!("sha256:{}", hex::encode(manifest_bytes));
+    let mut erofs_payload = vec![0u8; EROFS_BLOCK_BYTES as usize];
+    erofs_payload[EROFS_SUPER_OFFSET..EROFS_SUPER_OFFSET + 4]
+        .copy_from_slice(&EROFS_SUPER_MAGIC_LE);
+    let erofs_sha: [u8; 32] = Sha256::digest(&erofs_payload).into();
+    let bundle_header = ErofsBundleHeader {
+        schema_version: 1,
+        manifest_digest: manifest_str.clone(),
+        platform: "linux/arm64".into(),
+        logical_bytes: 42_000,
+        erofs_bytes: EROFS_BLOCK_BYTES,
+        erofs_sha256: hex::encode(erofs_sha),
+        compression: ErofsBundleCompression::None,
+        defaults: ContainerDefaults {
+            entrypoint: Some(vec!["/bin/sh".into()]),
+            ..Default::default()
+        },
+    };
+    let bundle_bytes = encode_frame(&bundle_header, &erofs_payload).unwrap();
+    let bundle_sha = Sha256::digest(&bundle_bytes).to_vec();
+
+    let make_ctx = || {
+        let mut req = vmm_rpc::Request::new(());
+        req.extensions_mut().insert(session.clone());
+        RuntimeContext::from_request(&core, &req).unwrap()
+    };
+
+    // 1. Inline chunk mode
+    let inline_header = ImportImageHeader {
+        request_id: "erofs-inline-1".into(),
+        image_reference: "comma/prebaked:inline".into(),
+        manifest_digest: manifest_str.clone(),
+        platform: "linux/arm64".into(),
+        archive_size: bundle_bytes.len() as u64,
+        archive_sha256: bundle_sha.clone(),
+        archive_url: String::new(),
+    };
+    let inline_stream = std::iter::once(Payload::Header(inline_header))
+        .chain(
+            bundle_bytes
+                .chunks(512)
+                .map(|c| Payload::ArchiveChunk(c.to_owned())),
+        )
+        .map(|payload| Ok(ImportImageRequest { payload: Some(payload) }));
+    let resp = imports
+        .receive(make_ctx(), containers.clone(), tokio_stream::iter(inline_stream))
+        .await
+        .unwrap();
+    let img = resp.image.unwrap();
+    assert_eq!(img.digest, manifest_str);
+    assert_eq!(img.reference, "comma/prebaked:inline");
+    assert_eq!(img.logical_bytes, 42_000);
+    assert_eq!(stage.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        !staging_dir.join("oci").join(hex::encode(manifest_bytes)).exists(),
+        "EROFS bundle must not leave retained OCI base tar"
+    );
+
+    // 2. URL mode (with seeded .part file)
+    let url_manifest_bytes: [u8; 32] = Sha256::digest(b"erofs-bundle-url-manifest").into();
+    let url_manifest_str = format!("sha256:{}", hex::encode(url_manifest_bytes));
+    let mut url_bundle_hdr = bundle_header.clone();
+    url_bundle_hdr.manifest_digest = url_manifest_str.clone();
+    url_bundle_hdr.logical_bytes = 84_000;
+    let url_bundle_bytes = encode_frame(&url_bundle_hdr, &erofs_payload).unwrap();
+    let url_bundle_sha = Sha256::digest(&url_bundle_bytes).to_vec();
+    let part_file = staging_dir
+        .join("parts")
+        .join(format!("{}.part", hex::encode(&url_bundle_sha)));
+    std::fs::write(&part_file, &url_bundle_bytes).unwrap();
+
+    let url_header = ImportImageHeader {
+        request_id: "erofs-url-1".into(),
+        image_reference: "comma/prebaked:url".into(),
+        manifest_digest: url_manifest_str.clone(),
+        platform: "linux/arm64".into(),
+        archive_size: url_bundle_bytes.len() as u64,
+        archive_sha256: url_bundle_sha,
+        archive_url: "https://example.invalid/prebaked.erofs.bundle".into(),
+    };
+    let resp = imports
+        .receive(
+            make_ctx(),
+            containers.clone(),
+            tokio_stream::iter([Ok(ImportImageRequest {
+                payload: Some(Payload::Header(url_header)),
+            })]),
+        )
+        .await
+        .unwrap();
+    let img = resp.image.unwrap();
+    assert_eq!(img.digest, url_manifest_str);
+    assert_eq!(img.reference, "comma/prebaked:url");
+    assert_eq!(img.logical_bytes, 84_000);
+    assert_eq!(stage.calls.load(Ordering::SeqCst), 2);
+    assert!(!part_file.exists(), "successful URL import should clean .part");
+    assert!(
+        !staging_dir
+            .join("oci")
+            .join(hex::encode(url_manifest_bytes))
+            .exists(),
+        "URL EROFS bundle must not leave retained OCI base tar"
+    );
+
+    // 3. Malformed COMMA_EROFS_V1 via URL mode -> terminal InvalidArgument and cleans .part
+    let mut bad_bundle = vmm_core::erofs_bundle::MAGIC.to_vec();
+    bad_bundle.extend_from_slice(&4u32.to_be_bytes());
+    bad_bundle.extend_from_slice(b"{bad");
+    bad_bundle.extend_from_slice(b"payload");
+    let bad_sha = Sha256::digest(&bad_bundle).to_vec();
+    let bad_part = staging_dir
+        .join("parts")
+        .join(format!("{}.part", hex::encode(&bad_sha)));
+    std::fs::write(&bad_part, &bad_bundle).unwrap();
+    let bad_header = ImportImageHeader {
+        request_id: "erofs-bad-url-1".into(),
+        image_reference: "comma/prebaked:bad".into(),
+        manifest_digest: manifest_str,
+        platform: "linux/arm64".into(),
+        archive_size: bad_bundle.len() as u64,
+        archive_sha256: bad_sha,
+        archive_url: "https://example.invalid/bad.erofs.bundle".into(),
+    };
+    let err = imports
+        .receive(
+            make_ctx(),
+            containers.clone(),
+            tokio_stream::iter([Ok(ImportImageRequest {
+                payload: Some(Payload::Header(bad_header)),
+            })]),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), Code::InvalidArgument);
+    assert!(!bad_part.exists(), "malformed bundle .part must be removed");
+    let receipt = store
+        .receipt(RequestKey {
+            domain: "runtime-import-image",
+            scope_id: "scope-erofs",
+            request_id: "erofs-bad-url-1",
+        })
+        .unwrap()
+        .unwrap();
+    assert_eq!(receipt.state, ReceiptState::Failed);
+}

@@ -30,6 +30,12 @@ pub const MAX_ARCHIVE_BYTES: u64 = 8 << 30;
 const MAX_CHUNK: usize = 3 << 20;
 pub(super) const IMPORT_TIMEOUT: Duration = Duration::from_secs(720);
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum ArchiveKind {
+    Oci,
+    ErofsBundle,
+}
+
 enum ArchiveBacking {
     Temp(NamedTempFile),
     Part(PathBuf),
@@ -38,9 +44,21 @@ enum ArchiveBacking {
 /// Owns the staging file until the backend finishes consuming it.
 pub struct VerifiedArchive {
     backing: ArchiveBacking,
+    kind: ArchiveKind,
     logical_bytes: u64,
     header: h::ImportImageHeader,
     digest: [u8; 32],
+}
+
+fn validate_archive(path: &Path, digest: [u8; 32]) -> Result<(ArchiveKind, u64), Status> {
+    match vmm_core::erofs_bundle::parse_and_validate_file(path, Some(digest)) {
+        Ok(Some(parsed)) => Ok((ArchiveKind::ErofsBundle, parsed.header.logical_bytes)),
+        Ok(None) => Ok((ArchiveKind::Oci, oci::validate(path, digest)?)),
+        Err(vmm_core::Error::Io(_)) => Err(Status::unavailable("staged archive unavailable")),
+        Err(_) => Err(Status::invalid_argument(
+            "invalid EROFS bundle or content identity",
+        )),
+    }
 }
 
 impl VerifiedArchive {
@@ -52,10 +70,14 @@ impl VerifiedArchive {
     ) -> Self {
         Self {
             backing: ArchiveBacking::Temp(file),
+            kind: ArchiveKind::Oci,
             logical_bytes,
             header,
             digest,
         }
+    }
+    pub(super) fn is_oci(&self) -> bool {
+        self.kind == ArchiveKind::Oci
     }
     pub(crate) fn into_file(self) -> NamedTempFile {
         match self.backing {
@@ -158,9 +180,10 @@ impl VerifiedArchive {
             ));
         }
         tokio::task::spawn_blocking(move || {
-            let logical_bytes = oci::validate(file.path(), digest)?;
+            let (kind, logical_bytes) = validate_archive(file.path(), digest)?;
             Ok(Self {
                 backing: ArchiveBacking::Temp(file),
+                kind,
                 logical_bytes,
                 header,
                 digest,
@@ -196,13 +219,14 @@ impl VerifiedArchive {
         .await?;
         let part_for_validate = part.clone();
         let validated = tokio::task::spawn_blocking(move || {
-            oci::validate(&part_for_validate, digest)
+            validate_archive(&part_for_validate, digest)
         })
         .await
         .map_err(|_| ReentrantFailure::retryable(Status::unavailable("archive verifier interrupted")))?;
         match validated {
-            Ok(logical_bytes) => Ok(Self {
+            Ok((kind, logical_bytes)) => Ok(Self {
                 backing: ArchiveBacking::Part(part),
+                kind,
                 logical_bytes,
                 header,
                 digest,
