@@ -1,7 +1,8 @@
 **
 !Cargo.toml
 !Cargo.lock
-!go.mod
+!.cargo/
+!xtask/
 !api/
 !build/
 !bins/
@@ -11,4 +12,3 @@
 !third_party/licenses/
 **/.git
 **/target/
-**/*_test.go

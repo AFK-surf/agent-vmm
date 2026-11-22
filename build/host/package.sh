@@ -95,7 +95,7 @@ if [ "$phase" != sign ]; then
 	for crate in bins/agent-vmm-host bins/agent-vmm-carrier bins/agent-vmm-lifecycle bins/agent-vmm bins/agent-vmm-service-executor data/agent-vmm-data; do
 		set -- "$@" -cargo-manifest "$repo/$crate/Cargo.toml"
 	done
-	(cd "$repo" && go run ./build/notices "$@")
+	(cd "$repo" && cargo run --locked -p xtask -- notices "$@")
 	jq -n --arg release_id "$release_id" \
 		'{schema_version: 1, component: "agent-vmm-host-runtime", release_id: $release_id}' \
 		> "$resources/release-inventory.json"

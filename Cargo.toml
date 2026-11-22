@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
 members = [
+    "xtask",
     "bins/agent-vmm",
     "bins/agent-vmm-carrier",
     "bins/agent-vmm-host",

@@ -33,12 +33,12 @@ mkdir -p "$builder/sys/fs/cgroup" "$builder/workspace" "$builder/output" "$build
 find "$builder" -exec touch -h -d @0 {} +
 tar --sort=name --mtime=@0 --owner=0 --group=0 --numeric-owner -cf "$work/builder-root.tar" -C "$builder" .
 mkdir -p "$root/usr/lib/agent-vmm/helper-root"
-guest-oci "$work/builder-root.tar" "$root/usr/lib/agent-vmm/buildkit.oci.tar"
+xtask oci "$work/builder-root.tar" "$root/usr/lib/agent-vmm/buildkit.oci.tar"
 tar -xOf "$root/usr/lib/agent-vmm/buildkit.oci.tar" index.json \
   | jq -er '.manifests | select(length == 1) | .[0].digest' \
   > "$root/usr/lib/agent-vmm/buildkit.digest"
 
-guest-notices -apk-db "$root/lib/apk/db/installed" -apk-db "$builder/lib/apk/db/installed" \
+xtask notices -apk-db "$root/lib/apk/db/installed" -apk-db "$builder/lib/apk/db/installed" \
   -go-binary "$builder/usr/bin/buildkitd" -go-binary "$builder/usr/bin/buildctl" \
   -licenses "$repository/third_party/licenses" -o "$bundle/THIRD_PARTY_NOTICES"
 cat "$binaries/THIRD_PARTY_NOTICES" >> "$bundle/THIRD_PARTY_NOTICES"

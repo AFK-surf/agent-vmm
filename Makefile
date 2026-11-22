@@ -1,21 +1,17 @@
 PROTO_BASE_REF ?= origin/main
-GOTESTPACKAGES ?= ./build/...
 
-.PHONY: check fmt-check vet test tidy-check check-api-docs check-swift-generated proto proto-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
+.PHONY: check fmt-check vet test check-api-docs check-swift-generated proto proto-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
 
-check: fmt-check vet test tidy-check proto-check
+check: fmt-check vet test proto-check
 
 fmt-check:
-	test -z "$$(gofmt -l $$(git ls-files '*.go'))"
+	cargo fmt --check -p xtask
 
 vet:
-	go vet ./...
+	cargo clippy --locked -p xtask --all-targets -- -D warnings
 
 test:
-	go test $(GOTESTFLAGS) $(GOTESTPACKAGES) -count=1
-
-tidy-check:
-	go mod tidy -diff
+	cargo test --locked -p xtask
 
 check-api-docs:
 	sh build/check-generated.sh docs

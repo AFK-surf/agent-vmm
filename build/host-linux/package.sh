@@ -53,7 +53,7 @@ if [ -n "$data_worker" ]; then
 	set -- "$@" -cargo-manifest "$repo/data/agent-vmm-data/Cargo.toml"
 fi
 cp "$repo/LICENSE" "$repo/NOTICE" "$release/"
-(cd "$repo" && go run ./build/notices -o "$release/THIRD_PARTY_NOTICES" \
+(cd "$repo" && cargo run --locked -p xtask -- notices -o "$release/THIRD_PARTY_NOTICES" \
 	-licenses "$repo/third_party/licenses" -cargo-target "$target" "$@")
 
 # release.json lists every file. Its SHA-256 is the content ID and the

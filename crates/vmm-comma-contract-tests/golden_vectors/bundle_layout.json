@@ -43,10 +43,7 @@
       {"entry": "build/host/test-keychain.sh", "env": ["CODE_SIGN_IDENTITY", "OUTPUT_DIRECTORY"], "sources": ["Cue .github/workflows/agent-vmm.yml:375-380"]},
       {"entry": "build/host-linux/package.sh", "env": ["AGENT_VMM_GUEST_BUNDLE", "AGENT_VMM_DATA_WORKER", "OUTPUT_DIRECTORY", "AGENT_VMM_RELEASE_ID"], "outputs": ["$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.tar.gz", "$OUTPUT_DIRECTORY/agent-vmm-$AGENT_VMM_RELEASE_ID-linux-arm64.json"], "sources": ["Cue .github/workflows/agent-vmm.yml:474-480,484-485,500-511"]},
       {"entry": "cargo build --locked --release --target aarch64-unknown-linux-gnu --manifest-path data/agent-vmm-data/Cargo.toml", "outputs": ["agent-vmm-data"], "sources": ["Cue .github/workflows/agent-vmm.yml:467-473,478"]},
-      {"entry": "go.mod (setup-go go-version-file)", "sources": ["Cue .github/workflows/agent-vmm.yml:124,218,221,333,437", "Cue .github/workflows/salix-vmm-gateway.yml:151"]},
-      {"entry": "go test ./internal/remoteconnector -run '^TestEnrollAndControlTranscript$' (writes $AGENT_VMM_CONTRACT_OUTPUT_DIR/hello.json)", "sources": ["Cue .github/workflows/salix-vmm-gateway.yml:111-120 (continue-on-error)", "Cue systems/gateway/salix-vmm-gateway/gateway_test.go:197-207"]},
-      {"entry": "go test ./internal/lifecycle -run '^(TestVersionAndStatusReportSchemaCompatibility|TestProtocolStatusIsRegistrationScoped|TestMaintenanceSameVersionReinstallPreservesIdentityAndReallyReplaces)$'", "sources": ["Cue .github/workflows/salix-vmm-gateway.yml:164-173 (continue-on-error job)"]},
-      {"entry": "Go module github.com/AFK-surf/agent-vmm: api/host/v1, api/remote/v1, api/service/v1, api/trust/v1, controller/remote", "sources": ["Cue systems/gateway/salix-vmm-gateway/go.mod:6,21", "Cue systems/gateway/salix-vmm-gateway/gateway.go:20-23", "Cue systems/gateway/salix-vmm-gateway/operations.go:18-20", "Cue systems/gateway/salix-vmm-gateway/Dockerfile:10-11", "Cue .github/workflows/salix-vmm-gateway.yml:105-110,128-129"]}
+      {"entry": "go.mod (setup-go go-version-file)", "sources": ["Cue .github/workflows/agent-vmm.yml:124,218,221,333,437"]}
     ]
   }
 }

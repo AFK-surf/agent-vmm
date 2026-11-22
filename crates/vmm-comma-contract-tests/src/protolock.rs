@@ -1,13 +1,11 @@
 //! The pinned protobuf surface of agent-vmm and the names Cue depends on.
 //!
-//! `golden_vectors/proto_lock.json` records every field number, type, label,
-//! enum value and RPC of agent-vmm `89b0c0a` (the Host pin in Cue
-//! `.github/agent-vmm-host.json`). [`parse_tree`] reads a directory of
-//! `.proto` files and [`compare`] reports each incompatible difference.
+//! The protobuf sources in `golden_vectors/proto_pinned/` retain the contract.
+//! [`parse_tree`] reads both source trees and [`compare`] reports differences.
 //! Additions are compatible; removals, renumbering, type or label changes and
 //! streaming changes are not.
 
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 use std::path::Path;
 
 /// Parses every `.proto` file under `root` into the lock's `packages` shape.
@@ -20,19 +18,24 @@ pub fn parse_tree(root: &Path) -> Result<Value, String> {
     }
     let mut packages = Map::new();
     for file in files {
-        let text = std::fs::read_to_string(&file).map_err(|error| format!("{}: {error}", file.display()))?;
+        let text = std::fs::read_to_string(&file)
+            .map_err(|error| format!("{}: {error}", file.display()))?;
         parse_file(&text, &mut packages).map_err(|error| format!("{}: {error}", file.display()))?;
     }
     Ok(Value::Object(packages))
 }
 
 fn collect(directory: &Path, files: &mut Vec<std::path::PathBuf>) -> Result<(), String> {
-    let entries = std::fs::read_dir(directory).map_err(|error| format!("{}: {error}", directory.display()))?;
+    let entries = std::fs::read_dir(directory)
+        .map_err(|error| format!("{}: {error}", directory.display()))?;
     for entry in entries {
         let path = entry.map_err(|error| error.to_string())?.path();
         if path.is_dir() {
             collect(&path, files)?;
-        } else if path.extension().is_some_and(|extension| extension == "proto") {
+        } else if path
+            .extension()
+            .is_some_and(|extension| extension == "proto")
+        {
             files.push(path);
         }
     }
@@ -56,7 +59,10 @@ fn statements(text: &str) -> Result<Vec<(char, String)>, String> {
             rest = &rest[rest.find("*/").ok_or("unterminated comment")? + 2..];
         } else {
             if matches!(character, ';' | '{' | '}') {
-                tokens.push((character, current.split_whitespace().collect::<Vec<_>>().join(" ")));
+                tokens.push((
+                    character,
+                    current.split_whitespace().collect::<Vec<_>>().join(" "),
+                ));
                 current.clear();
             } else {
                 current.push(character);
@@ -82,7 +88,9 @@ fn parse_file(text: &str, packages: &mut Map<String, Value>) -> Result<(), Strin
         let head = words.first().copied().unwrap_or("");
         if terminator == '{' {
             match head {
-                "extend" | "oneof" => stack.push((head.into(), words.get(1).copied().unwrap_or("").into())),
+                "extend" | "oneof" => {
+                    stack.push((head.into(), words.get(1).copied().unwrap_or("").into()))
+                }
                 "message" | "enum" | "service" => {
                     let name = words.get(1).ok_or("block without a name")?.to_string();
                     if head != "service" && !stack.is_empty() {
@@ -97,7 +105,11 @@ fn parse_file(text: &str, packages: &mut Map<String, Value>) -> Result<(), Strin
                 }
                 "rpc" => {
                     let (name, rpc) = parse_rpc(&body)?;
-                    services.last_mut().ok_or("rpc outside a service")?.1.insert(name.clone(), rpc);
+                    services
+                        .last_mut()
+                        .ok_or("rpc outside a service")?
+                        .1
+                        .insert(name.clone(), rpc);
                     stack.push(("rpcbody".into(), name));
                 }
                 _ => return Err(format!("unknown block: {body}")),
@@ -111,23 +123,59 @@ fn parse_file(text: &str, packages: &mut Map<String, Value>) -> Result<(), Strin
             package = Some(words.get(1).ok_or("package without a name")?.to_string());
             continue;
         }
-        let (kind, name) = stack.last().ok_or_else(|| format!("top-level statement: {body}"))?.clone();
+        let (kind, name) = stack
+            .last()
+            .ok_or_else(|| format!("top-level statement: {body}"))?
+            .clone();
         match kind.as_str() {
             "service" => {
                 let (name, rpc) = parse_rpc(&body)?;
-                services.last_mut().ok_or("rpc outside a service")?.1.insert(name, rpc);
+                services
+                    .last_mut()
+                    .ok_or("rpc outside a service")?
+                    .1
+                    .insert(name, rpc);
             }
             "enum" => {
-                let (value_name, number) = body.split_once('=').ok_or_else(|| format!("bad enum value: {body}"))?;
-                let number: i64 = number.split('[').next().unwrap_or("").trim().parse().map_err(|_| format!("bad enum number: {body}"))?;
-                enums.last_mut().ok_or("enum value outside an enum")?.1.insert(value_name.trim().into(), json!(number));
+                let (value_name, number) = body
+                    .split_once('=')
+                    .ok_or_else(|| format!("bad enum value: {body}"))?;
+                let number: i64 = number
+                    .split('[')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("bad enum number: {body}"))?;
+                enums
+                    .last_mut()
+                    .ok_or("enum value outside an enum")?
+                    .1
+                    .insert(value_name.trim().into(), json!(number));
             }
             "message" | "oneof" => {
-                let (declaration, number) = body.split_once('=').ok_or_else(|| format!("bad field: {body}"))?;
-                let number: u64 = number.split('[').next().unwrap_or("").trim().parse().map_err(|_| format!("bad field number: {body}"))?;
-                let mut parts: Vec<&str> = declaration.split(' ').filter(|part| !part.is_empty()).collect();
-                let label = if matches!(parts.first(), Some(&"optional") | Some(&"repeated")) { parts.remove(0) } else { "" };
-                let [field_type, field_name] = parts.as_slice() else { return Err(format!("bad field: {body}")) };
+                let (declaration, number) = body
+                    .split_once('=')
+                    .ok_or_else(|| format!("bad field: {body}"))?;
+                let number: u64 = number
+                    .split('[')
+                    .next()
+                    .unwrap_or("")
+                    .trim()
+                    .parse()
+                    .map_err(|_| format!("bad field number: {body}"))?;
+                let mut parts: Vec<&str> = declaration
+                    .split(' ')
+                    .filter(|part| !part.is_empty())
+                    .collect();
+                let label = if matches!(parts.first(), Some(&"optional") | Some(&"repeated")) {
+                    parts.remove(0)
+                } else {
+                    ""
+                };
+                let [field_type, field_name] = parts.as_slice() else {
+                    return Err(format!("bad field: {body}"));
+                };
                 let mut entry = Map::new();
                 entry.insert("number".into(), json!(number));
                 entry.insert("type".into(), json!(field_type));
@@ -135,14 +183,24 @@ fn parse_file(text: &str, packages: &mut Map<String, Value>) -> Result<(), Strin
                 if kind == "oneof" {
                     entry.insert("oneof".into(), json!(name));
                 }
-                messages.last_mut().ok_or("field outside a message")?.1.insert(field_name.to_string(), Value::Object(entry));
+                messages
+                    .last_mut()
+                    .ok_or("field outside a message")?
+                    .1
+                    .insert(field_name.to_string(), Value::Object(entry));
             }
             _ => {}
         }
     }
     let package = package.ok_or("no package")?;
-    let target = packages.entry(package.clone()).or_insert_with(|| json!({"messages": {}, "enums": {}, "services": {}}));
-    for (kind, values) in [("messages", messages), ("enums", enums), ("services", services)] {
+    let target = packages
+        .entry(package.clone())
+        .or_insert_with(|| json!({"messages": {}, "enums": {}, "services": {}}));
+    for (kind, values) in [
+        ("messages", messages),
+        ("enums", enums),
+        ("services", services),
+    ] {
         let section = target[kind].as_object_mut().expect("section is an object");
         for (name, value) in values {
             if section.insert(name.clone(), Value::Object(value)).is_some() {
@@ -193,9 +251,9 @@ pub fn compare(lock: &Value, actual: &Value) -> Vec<String> {
                 for (member, value) in members.as_object().unwrap_or(&empty) {
                     match found_members.get(member) {
                         None => violations.push(format!("{package}.{name}.{member} is missing")),
-                        Some(found_value) if found_value != value => {
-                            violations.push(format!("{package}.{name}.{member} changed: pinned {value}, found {found_value}"))
-                        }
+                        Some(found_value) if found_value != value => violations.push(format!(
+                            "{package}.{name}.{member} changed: pinned {value}, found {found_value}"
+                        )),
                         Some(_) => {}
                     }
                 }
@@ -232,18 +290,33 @@ fn lookup<'a>(tree: &'a Value, kind: &str, full_name: &str) -> Option<&'a Map<St
 pub fn check_usage(usage: &Value, tree: &Value) -> Vec<String> {
     let mut problems = Vec::new();
     let strings = |value: &Value| -> Vec<String> {
-        value.as_array().map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
+        value
+            .as_array()
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let items = |value: &Value| value.as_array().cloned().unwrap_or_default();
     for entry in items(&usage["json_fields"]) {
         let message = entry["message"].as_str().unwrap_or_default();
         match lookup(tree, "messages", message) {
-            None => problems.push(format!("message {message} is missing ({})", entry["source"])),
+            None => problems.push(format!(
+                "message {message} is missing ({})",
+                entry["source"]
+            )),
             Some(fields) => {
                 let names: Vec<String> = fields.keys().map(|field| json_name(field)).collect();
                 for key in strings(&entry["json"]) {
                     if !names.contains(&key) {
-                        problems.push(format!("{message} has no JSON field {key} ({})", entry["source"]));
+                        problems.push(format!(
+                            "{message} has no JSON field {key} ({})",
+                            entry["source"]
+                        ));
                     }
                 }
             }
@@ -265,29 +338,46 @@ pub fn check_usage(usage: &Value, tree: &Value) -> Vec<String> {
     let reasons = &usage["host_error_reasons"];
     let reason_enum = lookup(tree, "enums", reasons["enum"].as_str().unwrap_or_default());
     for entry in items(&reasons["mapped"]) {
-        let literal = format!("ERROR_REASON_{}", entry["reason"].as_str().unwrap_or_default());
+        let literal = format!(
+            "ERROR_REASON_{}",
+            entry["reason"].as_str().unwrap_or_default()
+        );
         if !reason_enum.is_some_and(|values| values.contains_key(&literal)) {
-            problems.push(format!("host error reason {literal} is missing ({})", entry["source"]));
+            problems.push(format!(
+                "host error reason {literal} is missing ({})",
+                entry["source"]
+            ));
         }
     }
     let runtime = &usage["gateway_runtime_rpcs"];
     let service_name = runtime["service"].as_str().unwrap_or_default();
-    let package = service_name.rsplit_once('.').map_or("", |(package, _)| package);
+    let package = service_name
+        .rsplit_once('.')
+        .map_or("", |(package, _)| package);
     let service = lookup(tree, "services", service_name);
     for call in items(&runtime["calls"]) {
         let rpc = call["rpc"].as_str().unwrap_or_default();
         let Some(found) = service.and_then(|service| service.get(rpc)) else {
-            problems.push(format!("{service_name}.{rpc} is missing ({})", call["source"]));
+            problems.push(format!(
+                "{service_name}.{rpc} is missing ({})",
+                call["source"]
+            ));
             continue;
         };
         if found["request"] != call["request"] {
-            problems.push(format!("{service_name}.{rpc} request is {}, expected {}", found["request"], call["request"]));
+            problems.push(format!(
+                "{service_name}.{rpc} request is {}, expected {}",
+                found["request"], call["request"]
+            ));
         }
         let request = format!("{package}.{}", call["request"].as_str().unwrap_or_default());
         let fields = lookup(tree, "messages", &request);
         for field in strings(&call["request_fields"]) {
             if !fields.is_some_and(|fields| fields.contains_key(&field)) {
-                problems.push(format!("{request} has no field {field} ({})", call["source"]));
+                problems.push(format!(
+                    "{request} has no field {field} ({})",
+                    call["source"]
+                ));
             }
         }
     }
@@ -296,7 +386,10 @@ pub fn check_usage(usage: &Value, tree: &Value) -> Vec<String> {
         let fields = lookup(tree, "messages", message);
         for field in strings(&entry["proto"]) {
             if !fields.is_some_and(|fields| fields.contains_key(&field)) {
-                problems.push(format!("{message} has no field {field} ({})", entry["source"]));
+                problems.push(format!(
+                    "{message} has no field {field} ({})",
+                    entry["source"]
+                ));
             }
         }
     }
@@ -308,9 +401,14 @@ pub fn check_usage(usage: &Value, tree: &Value) -> Vec<String> {
         };
         let empty = Map::new();
         for (rpc, streaming) in entry["rpcs"].as_object().unwrap_or(&empty) {
-            let matches = found.get(rpc).is_some_and(|rpc| rpc["client_streaming"] == streaming[0] && rpc["server_streaming"] == streaming[1]);
+            let matches = found.get(rpc).is_some_and(|rpc| {
+                rpc["client_streaming"] == streaming[0] && rpc["server_streaming"] == streaming[1]
+            });
             if !matches {
-                problems.push(format!("{name}.{rpc} is missing or changed its streaming shape ({})", entry["source"]));
+                problems.push(format!(
+                    "{name}.{rpc} is missing or changed its streaming shape ({})",
+                    entry["source"]
+                ));
             }
         }
     }

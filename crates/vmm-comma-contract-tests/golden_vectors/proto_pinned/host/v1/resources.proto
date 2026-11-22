@@ -365,6 +365,7 @@ message ExecStart {
   string execution_id = 11;
   ExecutionKind execution_kind = 12;
   int64 execution_deadline_unix_nano = 13;
+  uint64 timeout_ms = 14;
 }
 
 // ExecResize changes the terminal dimensions of an already accepted PTY execution.

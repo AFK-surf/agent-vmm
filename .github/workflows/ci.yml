@@ -27,12 +27,12 @@ jobs:
           sudo apt-get install --yes protobuf-compiler
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.96.0 --profile minimal --component clippy
+          rustup toolchain install 1.96.0 --profile minimal --component clippy,rustfmt
           rustup default 1.96.0
       - name: Test and lint the Rust workspace
         env:
           CARGO_INCREMENTAL: "0"
-        run: make test-rust lint-rust
+        run: make fmt-check test-rust lint-rust
 
   linux-arm64:
     name: Protocol and workflows / Linux arm64
@@ -42,18 +42,24 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           fetch-depth: 0
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           version: 1.69.0
           setup_only: true
       - name: Lint workflows
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12
-      - name: Check Go build tools and protobuf lint
-        run: make check GOTESTFLAGS=-race
+        run: |
+          case "$(uname -m)" in
+            aarch64) arch=arm64; digest=325e971b6ba9bfa504672e29be93c24981eeb1c07576d730e9f7c8805afff0c6 ;;
+            x86_64) arch=amd64; digest=8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8 ;;
+            *) exit 1 ;;
+          esac
+          archive="$RUNNER_TEMP/actionlint.tar.gz"
+          curl --fail --location --retry 3 -o "$archive" "https://github.com/rhysd/actionlint/releases/download/v1.7.12/actionlint_1.7.12_linux_$arch.tar.gz"
+          printf '%s  %s\n' "$digest" "$archive" | sha256sum -c -
+          tar -xzf "$archive" -C "$RUNNER_TEMP" actionlint
+          "$RUNNER_TEMP/actionlint"
+      - name: Check protobuf lint
+        run: make proto-check
       - name: Check protobuf compatibility
         if: github.event_name == 'pull_request'
         env:
@@ -66,10 +72,6 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
-        with:
-          go-version-file: go.mod
-          cache: true
       - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           version: 1.69.0
@@ -79,8 +81,8 @@ jobs:
           brew install protobuf
           rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-darwin
           rustup default 1.96.0
-      - name: Test Go build tools with the race detector
-        run: make vet test GOTESTFLAGS=-race
+      - name: Test build tools on macOS
+        run: make test
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/SourcePackages

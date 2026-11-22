@@ -16,6 +16,3 @@ breaking:
     - api/internal
   use:
     - PACKAGE
-  except:
-    - RPC_NO_DELETE
-    - PACKAGE_MESSAGE_NO_DELETE
