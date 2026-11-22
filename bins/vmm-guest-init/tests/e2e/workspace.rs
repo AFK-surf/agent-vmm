@@ -88,6 +88,7 @@ fn files_are_written_read_listed_and_described() {
     let request = WorkspaceListRequest {
         target: target("docs"),
         limit: 0,
+        after: None,
     };
     let listed = guest.client.workspace_list(request).unwrap();
     let names: Vec<_> = listed
@@ -105,9 +106,11 @@ fn files_are_written_read_listed_and_described() {
     let request = WorkspaceListRequest {
         target: target("docs"),
         limit: 1,
+        after: None,
     };
     let listed = guest.client.workspace_list(request).unwrap();
     assert!(listed.truncated && listed.entries.len() == 1);
+    assert_eq!(listed.next_cursor.as_deref(), Some("a.txt"));
 
     // A named volume is a separate root.
     let volume = WorkspaceTarget {
@@ -453,4 +456,54 @@ fn archives_round_trip_and_hostile_archives_leave_nothing_behind() {
         .client
         .workspace_export_archive(target("project"), &mut Vec::new());
     assert_eq!(refused(export), ErrorCode::InvalidArgument);
+}
+
+#[test]
+fn list_paginates_deterministically_with_cursor() {
+    let guest = Guest::start(None, 4096);
+    let dir = guest.path("workspace/many");
+    std::fs::create_dir(&dir).unwrap();
+    for i in 0..300 {
+        std::fs::write(dir.join(format!("file-{i:03}.txt")), b"x").unwrap();
+    }
+
+    let mut all = Vec::new();
+    let mut cursor = None;
+    let mut pages = 0;
+    loop {
+        pages += 1;
+        let reply = guest
+            .client
+            .workspace_list(WorkspaceListRequest {
+                target: target("many"),
+                limit: 100,
+                after: cursor,
+            })
+            .unwrap();
+        for entry in reply.entries {
+            all.push(entry.path);
+        }
+        if !reply.truncated {
+            assert!(reply.next_cursor.is_none());
+            break;
+        }
+        assert!(reply.next_cursor.is_some());
+        cursor = reply.next_cursor;
+        assert!(pages <= 4, "too many pages");
+    }
+    assert!(pages == 3 || pages == 4);
+    assert_eq!(all.len(), 300);
+    assert!(all.windows(2).all(|w| w[0] < w[1]));
+    let expected: Vec<String> = (0..300).map(|i| format!("many/file-{i:03}.txt")).collect();
+    assert_eq!(all, expected);
+
+    // Invalid cursors are rejected.
+    for bad in ["sub/file", "bad\0name"] {
+        let err = guest.client.workspace_list(WorkspaceListRequest {
+            target: target("many"),
+            limit: 10,
+            after: Some(bad.into()),
+        });
+        assert_eq!(refused(err), ErrorCode::InvalidArgument);
+    }
 }

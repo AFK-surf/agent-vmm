@@ -162,12 +162,15 @@ message ListWorkspaceRequest {
   string path = 1;
   uint32 limit = 2;
   string volume_id = 3;
+  string cursor = 4;
 }
 
 // ListWorkspaceResponse carries results from an operation that reads a bounded directory view
 // beneath the owned workspace root.
 message ListWorkspaceResponse {
   repeated WorkspaceEntry entries = 1;
+  string next_cursor = 2;
+  bool has_more = 3;
 }
 
 // ReadWorkspaceRequest carries inputs for an operation that streams bytes from an authorized
@@ -411,6 +414,9 @@ message ExecResponse {
     bytes stderr = 2;
     uint32 exit_code = 3;
   }
+  bool timed_out = 4;
+  bool oom_killed = 5;
+  optional uint64 memory_peak_bytes = 6;
 }
 
 // CreateVolumeRequest carries inputs for an operation that creates a named private volume with

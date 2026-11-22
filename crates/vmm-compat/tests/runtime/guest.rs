@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use std::{net::SocketAddr, time::Duration};
-use vmm_rpc::Status;
 use vmm_compat::{
     RuntimeDriver,
     guest::{Duplex, GuestDriver},
@@ -12,6 +11,7 @@ use vmm_guest_proto::{
     frame::{ClientFrame, ServerFrame, read_frame, write_frame},
     rpc as g,
 };
+use vmm_rpc::Status;
 
 pub struct Guest(SocketAddr);
 
@@ -66,6 +66,8 @@ impl Guest {
                                 timed_out: false,
                                 stdout_truncated: false,
                                 stderr_truncated: false,
+                                oom_killed: false,
+                                memory_peak_bytes: None,
                             })
                         }
                         g::Call::ReadLogs(r) => {

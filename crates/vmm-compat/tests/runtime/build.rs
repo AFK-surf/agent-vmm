@@ -109,6 +109,8 @@ pub async fn builder() -> (Arc<Builder>, tokio::task::JoinHandle<()>) {
                             timed_out: false,
                             stdout_truncated: false,
                             stderr_truncated: false,
+                            oom_killed: false,
+                            memory_peak_bytes: None,
                         })
                     }
                     g::Call::WorkspaceRead(q) => {

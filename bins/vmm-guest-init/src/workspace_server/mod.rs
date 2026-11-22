@@ -203,6 +203,15 @@ impl WorkspaceServer {
     }
 
     pub fn list(&self, request: &WorkspaceListRequest) -> Result<WorkspaceListReply, RpcError> {
+        if let Some(after) = &request.after
+            && !after.is_empty()
+            && (after.len() > MAX_WORKSPACE_PATH_BYTES
+                || after.contains('/')
+                || after.contains('\0'))
+        {
+            return Err(invalid("invalid list cursor"));
+        }
+        let after = request.after.as_deref().filter(|cursor| !cursor.is_empty());
         let located = self.locate(&request.target)?;
         let flags = libc::O_RDONLY | libc::O_DIRECTORY;
         let dir = open_beneath(&located.root, &located.path, flags, 0).map_err(io_error)?;
@@ -210,7 +219,7 @@ impl WorkspaceServer {
             0 => MAX_LIST_ENTRIES,
             limit => limit.min(MAX_LIST_ENTRIES),
         } as usize;
-        // Keeps the first `limit` names in order without holding a large directory.
+        // Keeps the first `limit` names after `after` in order without holding a large directory.
         let mut names = BTreeSet::new();
         let mut truncated = false;
         for child in read_dir(&dir).map_err(io_error)? {
@@ -219,7 +228,9 @@ impl WorkspaceServer {
             let Ok(name) = child.file_name().into_string() else {
                 continue;
             };
-            if kind.is_file() || kind.is_dir() {
+            if (kind.is_file() || kind.is_dir())
+                && after.is_none_or(|cursor| name.as_str() > cursor)
+            {
                 names.insert(name);
                 if names.len() > limit {
                     names.pop_last();
@@ -228,6 +239,7 @@ impl WorkspaceServer {
             }
         }
         let mut entries = Vec::with_capacity(names.len());
+        let mut last_name = None;
         let mut room = MAX_LIST_REPLY_BYTES;
         for name in names {
             let path = join(&located.path, &name);
@@ -237,13 +249,21 @@ impl WorkspaceServer {
             };
             room = left;
             match open_beneath(&dir, &name, libc::O_PATH, 0) {
-                Ok(file) => entries.push(entry_of(&path, &file, false)?),
+                Ok(file) => {
+                    entries.push(entry_of(&path, &file, false)?);
+                    last_name = Some(name);
+                }
                 // The entry was removed or replaced after the listing.
                 Err(error) if matches!(error.raw_os_error(), Some(libc::ENOENT | libc::ELOOP)) => {}
                 Err(error) => return Err(io_error(error)),
             }
         }
-        Ok(WorkspaceListReply { entries, truncated })
+        let next_cursor = if truncated { last_name } else { None };
+        Ok(WorkspaceListReply {
+            entries,
+            truncated,
+            next_cursor,
+        })
     }
 
     /// Sends a range of a file in `Data` frames.

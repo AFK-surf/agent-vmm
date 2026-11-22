@@ -52,7 +52,7 @@ fn attach_console() {
     }
 }
 
-/// Creates the workload cgroup and returns its `cgroup.procs` path.
+/// Creates the workload cgroup, enables controllers for child cgroups, and returns its `cgroup.procs` path.
 fn workload_cgroup(pids_max: Option<u64>) -> Result<CString, String> {
     // A controller that the kernel lacks must not hide the others.
     for controller in ["+cpu", "+memory", "+pids", "+io"] {
@@ -62,6 +62,12 @@ fn workload_cgroup(pids_max: Option<u64>) -> Result<CString, String> {
     if let Some(pids_max) = pids_max {
         fs::write(format!("{WORKLOAD_CGROUP}/pids.max"), pids_max.to_string())
             .map_err(|error| format!("set pids.max: {error}"))?;
+    }
+    for controller in ["+cpu", "+memory", "+pids", "+io"] {
+        let _ = fs::write(
+            format!("{WORKLOAD_CGROUP}/cgroup.subtree_control"),
+            controller,
+        );
     }
     Ok(CString::new(format!("{WORKLOAD_CGROUP}/cgroup.procs")).expect("the path has no NUL byte"))
 }

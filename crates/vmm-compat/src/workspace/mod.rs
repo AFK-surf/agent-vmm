@@ -16,11 +16,12 @@ use std::{
     sync::{Arc, Mutex, Weak},
 };
 use tokio::sync::Mutex as AsyncMutex;
-use vmm_rpc::Status;
 use vmm_core::{AccessMode, Error};
 use vmm_guest_proto::rpc as g;
+use vmm_rpc::Status;
 
 pub const DEFAULT_VOLUME: &str = "__default_workspace";
+const DEFAULT_LIST_LIMIT: u32 = 256;
 const MAX_BYTES: u64 = 256 << 20;
 
 #[async_trait]
@@ -164,9 +165,7 @@ impl WorkspaceService {
         request: h::StatWorkspaceRequest,
     ) -> Result<h::StatWorkspaceResponse, Status> {
         let mut target = target("", request.path)?;
-        let lease = self
-            .resolve(ctx, &mut target, AccessMode::ReadOnly)
-            .await?;
+        let lease = self.resolve(ctx, &mut target, AccessMode::ReadOnly).await?;
         let entry = blocking(move || lease.stat(target)).await?;
         Ok(h::StatWorkspaceResponse {
             entry: Some(project(entry)),
@@ -179,15 +178,20 @@ impl WorkspaceService {
         request: h::ListWorkspaceRequest,
     ) -> Result<h::ListWorkspaceResponse, Status> {
         let mut target = target(&request.volume_id, request.path)?;
-        let lease = self
-            .resolve(ctx, &mut target, AccessMode::ReadOnly)
-            .await?;
+        let lease = self.resolve(ctx, &mut target, AccessMode::ReadOnly).await?;
         let limit = match request.limit {
-            0 => g::MAX_LIST_ENTRIES,
+            0 => DEFAULT_LIST_LIMIT,
             n => n.min(g::MAX_LIST_ENTRIES),
         };
-        let result =
-            blocking(move || lease.list(g::WorkspaceListRequest { target, limit })).await?;
+        let after = (!request.cursor.is_empty()).then_some(request.cursor);
+        let result = blocking(move || {
+            lease.list(g::WorkspaceListRequest {
+                target,
+                limit,
+                after,
+            })
+        })
+        .await?;
         Ok(h::ListWorkspaceResponse {
             entries: result
                 .entries
@@ -195,6 +199,8 @@ impl WorkspaceService {
                 .take(limit as usize)
                 .map(project)
                 .collect(),
+            next_cursor: result.next_cursor.unwrap_or_default(),
+            has_more: result.truncated,
         })
     }
 }

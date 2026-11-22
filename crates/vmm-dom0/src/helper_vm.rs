@@ -124,6 +124,7 @@ impl Workspace {
             .workspace_list(WorkspaceListRequest {
                 target: self.target(path),
                 limit,
+                after: None,
             })
             .await
     }

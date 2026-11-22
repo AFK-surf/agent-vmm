@@ -8,10 +8,10 @@ use std::{
     sync::{Arc, Mutex},
 };
 use tempfile::TempDir;
-use vmm_rpc::Status;
 use vmm_compat::workspace::{WorkspaceDriver, WorkspaceLease};
 use vmm_core::AccessMode;
 use vmm_guest_proto::rpc as g;
+use vmm_rpc::Status;
 
 // Paths come exclusively from the test fixture. No host directory is exported.
 type Roots = HashMap<(String, Option<String>), Arc<TempDir>>;
@@ -104,9 +104,16 @@ impl WorkspaceLease for Directory {
         })
     }
     fn list(&self, r: g::WorkspaceListRequest) -> Result<g::WorkspaceListReply, Status> {
-        let mut entries = vec![];
+        let mut items = vec![];
         for item in fs::read_dir(self.path(&r.target)?).map_err(io)? {
             let item = item.map_err(io)?;
+            let name = item.file_name().to_str().unwrap().to_owned();
+            if r.after
+                .as_deref()
+                .is_some_and(|cursor| !cursor.is_empty() && name.as_str() <= cursor)
+            {
+                continue;
+            }
             let path = item
                 .path()
                 .strip_prefix(self.root.path())
@@ -114,15 +121,28 @@ impl WorkspaceLease for Directory {
                 .to_str()
                 .unwrap()
                 .into();
-            entries.push(self.stat(g::WorkspaceTarget {
-                path,
-                volume: self.volume.clone(),
-            })?);
+            items.push((
+                name,
+                self.stat(g::WorkspaceTarget {
+                    path,
+                    volume: self.volume.clone(),
+                })?,
+            ));
         }
-        entries.sort_by(|a, b| a.path.cmp(&b.path));
-        let truncated = entries.len() > r.limit as usize;
-        entries.truncate(r.limit as usize);
-        Ok(g::WorkspaceListReply { entries, truncated })
+        items.sort_by(|a, b| a.0.cmp(&b.0));
+        let truncated = items.len() > r.limit as usize;
+        items.truncate(r.limit as usize);
+        let next_cursor = if truncated {
+            items.last().map(|(name, _)| name.clone())
+        } else {
+            None
+        };
+        let entries = items.into_iter().map(|(_, entry)| entry).collect();
+        Ok(g::WorkspaceListReply {
+            entries,
+            truncated,
+            next_cursor,
+        })
     }
     fn read(
         &self,

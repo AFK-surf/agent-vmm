@@ -11,9 +11,26 @@ use std::time::{Duration, Instant};
 use vmm_guest_proto::frame::{ClientFrame, ServerFrame};
 use vmm_guest_proto::rpc::{ErrorCode, ExecRequest, ExecResult, ExitStatus, Reply, RpcError};
 
+use super::cgroup::SubCgroup;
 use super::{OUTPUT_DRAIN, ProcessManager, signal_number};
+use crate::reaper::{ExitCell, Reaper};
 use crate::rpc_server::{Connection, LINGER};
 use crate::{io_error, spawn, sys};
+
+const TERM_GRACE: Duration = Duration::from_millis(200);
+
+fn kill_tree(reaper: &Reaper, pid: u32, exit: &ExitCell, sub_cgroup: Option<&SubCgroup>) {
+    let _ = reaper.signal(pid, libc::SIGTERM, true);
+    if exit.wait(Some(TERM_GRACE)).is_none() {
+        let _ = reaper.signal(pid, libc::SIGKILL, true);
+    }
+    if let Some(cg) = sub_cgroup {
+        cg.kill();
+    } else {
+        // Fallback when no sub-cgroup exists: kill any remaining members of the session's pgid.
+        let _ = sys::kill(pid, libc::SIGKILL, true);
+    }
+}
 
 /// Runs the process to its exit and sends the reply.
 ///
@@ -26,7 +43,23 @@ pub fn run(
     connection: &mut Connection,
 ) -> Result<(), RpcError> {
     let _permit = manager.admit_exec()?;
-    let mut command = spawn::command(&manager.context, &request.command, request.tty.is_some())?;
+    let sub_cgroup = SubCgroup::create(
+        manager.context.cgroup_dir(),
+        &format!("exec-{}", manager.next_exec_seq()),
+    );
+    let spawn_ctx = match &sub_cgroup {
+        Some(cg) => manager.context.with_cgroup_procs(cg.procs_path()),
+        None => manager.context.clone(),
+    };
+    let mut command = match spawn::command(&spawn_ctx, &request.command, request.tty.is_some()) {
+        Ok(command) => command,
+        Err(error) => {
+            if let Some(cg) = &sub_cgroup {
+                cg.finish(false, false);
+            }
+            return Err(error);
+        }
+    };
     let (stop_read, stop_write) = sys::pipe().map_err(io_error)?;
     let watch = connection.inbound.try_clone().map_err(io_error)?;
 
@@ -59,6 +92,9 @@ pub fn run(
     };
 
     let spawned = manager.reaper.spawn(command, None).map_err(|error| {
+        if let Some(cg) = &sub_cgroup {
+            cg.finish(false, false);
+        }
         let program = &request.command.argv[0];
         RpcError::new(
             ErrorCode::InvalidArgument,
@@ -67,6 +103,7 @@ pub fn run(
     })?;
     let (reaper, pid) = (manager.reaper, spawned.pid);
     let finished = AtomicBool::new(false);
+    let disconnected = AtomicBool::new(false);
     let truncated = [AtomicBool::new(false), AtomicBool::new(false)];
     let (pump_done, pumps_done) = mpsc::channel();
     let (input_done, inputs_done) = mpsc::channel();
@@ -109,7 +146,14 @@ pub fn run(
             });
         }
 
-        let (finished, terminal, watch) = (&finished, &terminal, &watch);
+        let (finished, disconnected, terminal, watch, exit_cell, sub_cg) = (
+            &finished,
+            &disconnected,
+            &terminal,
+            &watch,
+            &spawned.exit,
+            sub_cgroup.as_ref(),
+        );
         scope.spawn(move || {
             loop {
                 match Connection::receive_from(inbound) {
@@ -138,7 +182,8 @@ pub fn run(
                 }
             }
             if !finished.load(Ordering::Relaxed) {
-                let _ = reaper.signal(pid, libc::SIGKILL, true);
+                disconnected.store(true, Ordering::Relaxed);
+                kill_tree(reaper, pid, exit_cell, sub_cg);
             }
             let _ = input_done.send(());
         });
@@ -147,7 +192,7 @@ pub fn run(
         let exit = spawned.exit.wait(timeout);
         let timed_out = exit.is_none();
         if timed_out {
-            let _ = reaper.signal(pid, libc::SIGKILL, true);
+            kill_tree(reaper, pid, &spawned.exit, sub_cgroup.as_ref());
         }
         let killed = ExitStatus {
             code: 128 + libc::SIGKILL,
@@ -171,12 +216,20 @@ pub fn run(
             let _ = pumps_done.recv();
         }
 
+        let kill_remaining = timed_out || disconnected.load(Ordering::Relaxed);
+        let oom = sub_cgroup
+            .as_ref()
+            .map(|cg| cg.finish(timed_out, kill_remaining))
+            .unwrap_or_default();
+
         finished.store(true, Ordering::Relaxed);
         let result = ExecResult {
             exit,
             timed_out,
             stdout_truncated: truncated[0].load(Ordering::Relaxed),
             stderr_truncated: truncated[1].load(Ordering::Relaxed),
+            oom_killed: oom.oom_killed,
+            memory_peak_bytes: oom.memory_peak_bytes,
         };
         let _ = outbound.send(&ServerFrame::Done(Ok(Reply::Exec(result))));
         // The input thread reads until the client closes. A client that stays is cut off.

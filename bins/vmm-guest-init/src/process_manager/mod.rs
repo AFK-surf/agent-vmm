@@ -1,10 +1,12 @@
 //! Supervises the main process and the processes that RPC callers start.
 
+mod cgroup;
 mod exec;
 mod main_process;
 mod table;
 
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use vmm_guest_proto::rpc::{
@@ -47,6 +49,7 @@ pub struct ProcessManager {
     reaper: &'static Reaper,
     context: SpawnContext,
     admission: Mutex<Admission>,
+    exec_seq: AtomicU64,
     pub main: MainProcess,
     pub table: ProcessTable,
 }
@@ -72,9 +75,14 @@ impl ProcessManager {
                 active_execs: 0,
                 idle_since: Instant::now(),
             }),
+            exec_seq: AtomicU64::new(0),
             main: MainProcess::new(log_limit_bytes),
             table: ProcessTable::default(),
         }
+    }
+
+    pub(super) fn next_exec_seq(&self) -> u64 {
+        self.exec_seq.fetch_add(1, Ordering::Relaxed) + 1
     }
 
     pub fn reaper(&self) -> &'static Reaper {

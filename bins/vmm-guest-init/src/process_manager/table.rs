@@ -4,6 +4,7 @@ use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::fs::File;
 use std::io::{self, Read};
 use std::os::fd::AsFd;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
@@ -13,6 +14,7 @@ use vmm_guest_proto::rpc::{
     ProcessWriteRequest, RpcError,
 };
 
+use super::cgroup::SubCgroup;
 use super::{KILL_WAIT, OUTPUT_DRAIN, signal_number};
 use crate::reaper::{ExitCell, Reaper};
 use crate::spawn::{self, SpawnContext};
@@ -74,6 +76,8 @@ struct Entry {
     exit: Arc<ExitCell>,
     stdin: Mutex<Option<File>>,
     output: Arc<Output>,
+    cgroup: Arc<Mutex<Option<SubCgroup>>>,
+    oom_killed: Arc<AtomicBool>,
 }
 
 /// The leading arguments within the size that `ProcessInfo` reports.
@@ -95,18 +99,32 @@ fn summary(argv: &[String]) -> Vec<String> {
 }
 
 impl Entry {
+    fn finalize_cgroup(&self, kill_remaining: bool) {
+        if let Some(cg) = lock(&self.cgroup).take() {
+            let stats = cg.finish(false, kill_remaining);
+            if stats.oom_killed {
+                self.oom_killed.store(true, Ordering::Relaxed);
+            }
+        }
+    }
+
     fn info(&self) -> ProcessInfo {
+        let state = match self.exit.get() {
+            Some((exit, _)) => {
+                self.finalize_cgroup(false);
+                ProcessState::Exited(exit)
+            }
+            None => ProcessState::Running,
+        };
         ProcessInfo {
             process_id: self.id.to_string(),
             request_id: self.request.request_id.clone(),
             pid: self.pid,
             argv: summary(&self.request.command.argv),
-            state: match self.exit.get() {
-                Some((exit, _)) => ProcessState::Exited(exit),
-                None => ProcessState::Running,
-            },
+            state,
             started_unix_nanos: self.started_unix_nanos,
             output_end_offset: self.output.end_offset(),
+            oom_killed: self.oom_killed.load(Ordering::Relaxed),
         }
     }
 }
@@ -176,15 +194,47 @@ impl ProcessTable {
         let (output_read, output_write) = sys::pipe().map_err(io_error)?;
         let (stdin_read, stdin_write) = sys::pipe().map_err(io_error)?;
         sys::set_nonblocking(stdin_write.as_fd()).map_err(io_error)?;
-        let mut command = spawn::command(context, &request.command, false)?;
+        let next_id = table.last_id + 1;
+        let sub_cgroup = SubCgroup::create(context.cgroup_dir(), &format!("proc-{next_id}"));
+        let spawn_ctx = match &sub_cgroup {
+            Some(cg) => context.with_cgroup_procs(cg.procs_path()),
+            None => context.clone(),
+        };
+        let mut command = match spawn::command(&spawn_ctx, &request.command, false) {
+            Ok(command) => command,
+            Err(error) => {
+                if let Some(cg) = sub_cgroup {
+                    cg.finish(false, false);
+                }
+                return Err(error);
+            }
+        };
         command
             .stdin(stdin_read)
             .stdout(output_write.try_clone().map_err(io_error)?)
             .stderr(output_write);
+        let cgroup = Arc::new(Mutex::new(sub_cgroup));
+        let oom_killed = Arc::new(AtomicBool::new(false));
         let on_exit = output.clone();
+        let exit_cgroup = cgroup.clone();
+        let exit_oom = oom_killed.clone();
         let spawned = reaper
-            .spawn(command, Some(Box::new(move || on_exit.update(|_| {}))))
+            .spawn(
+                command,
+                Some(Box::new(move || {
+                    if let Some(cg) = lock(&exit_cgroup).take() {
+                        let stats = cg.finish(false, false);
+                        if stats.oom_killed {
+                            exit_oom.store(true, Ordering::Relaxed);
+                        }
+                    }
+                    on_exit.update(|_| {});
+                })),
+            )
             .map_err(|error| {
+                if let Some(cg) = lock(&cgroup).take() {
+                    cg.finish(false, false);
+                }
                 let program = &request.command.argv[0];
                 RpcError::new(
                     ErrorCode::InvalidArgument,
@@ -208,7 +258,7 @@ impl ProcessTable {
             sink.update(|window| (window.closed, window.settled) = (true, true));
         });
 
-        table.last_id += 1;
+        table.last_id = next_id;
         let entry = Arc::new(Entry {
             id: table.last_id,
             pid: spawned.pid,
@@ -216,6 +266,8 @@ impl ProcessTable {
             exit: spawned.exit,
             stdin: Mutex::new(Some(File::from(stdin_write))),
             output,
+            cgroup,
+            oom_killed,
             request,
         });
         table
@@ -332,11 +384,15 @@ impl ProcessTable {
             .take(max_bytes)
             .copied()
             .collect();
+        if exit.is_some() {
+            entry.finalize_cgroup(false);
+        }
         Ok(ProcessTailReply {
             next_offset: offset + data.len() as u64,
             offset,
             data,
             state: exit.map_or(ProcessState::Running, ProcessState::Exited),
+            oom_killed: entry.oom_killed.load(Ordering::Relaxed),
         })
     }
 
@@ -355,7 +411,13 @@ impl ProcessTable {
             reaper
                 .signal(entry.pid, libc::SIGKILL, true)
                 .map_err(io_error)?;
+            if let Some(cg) = lock(&entry.cgroup).as_ref() {
+                cg.kill();
+            }
             entry.exit.wait(Some(KILL_WAIT));
+            entry.finalize_cgroup(true);
+        } else if entry.exit.get().is_some() {
+            entry.finalize_cgroup(false);
         }
         Ok(entry.info())
     }

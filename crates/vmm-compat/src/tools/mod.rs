@@ -57,8 +57,8 @@ impl NativeTools {
                 pids_max: 1024,
                 disk_quota_bytes: available_disk.min(16 << 30),
                 vcpus: 1,
-                boot_ram_mb: 512,
-                max_ram_mb: 512,
+                boot_ram_mb: 2048,
+                max_ram_mb: 2048,
             },
             sessions: Mutex::default(),
         })

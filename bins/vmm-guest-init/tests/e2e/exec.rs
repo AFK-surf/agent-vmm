@@ -97,12 +97,37 @@ fn exec_relays_stdin_in_both_directions_at_once() {
 #[test]
 fn exec_kills_the_process_group_at_the_timeout() {
     let guest = Guest::start(None, 4096);
-    let mut request = exec("echo started; sleep 300 & sleep 300");
+    let mut request = exec("sleep 60 & child=$!; echo started:$child; wait");
     request.timeout_ms = 300;
     let started = Instant::now();
     let output = guest.client.exec(request, b"").unwrap();
     assert!(started.elapsed() < Duration::from_secs(20));
     assert!(output.result.timed_out);
+    assert!(!output.result.oom_killed);
+    assert!(
+        matches!(
+            output.result.exit.signal,
+            Some(libc::SIGTERM | libc::SIGKILL)
+        ),
+        "unexpected exit: {:?}",
+        output.result.exit
+    );
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let child_pid = stdout
+        .trim()
+        .strip_prefix("started:")
+        .expect("expected child pid");
+    eventually("the background child to be killed and reaped", || {
+        !std::path::Path::new(&format!("/proc/{child_pid}")).exists()
+    });
+
+    // A process that ignores SIGTERM is escalated to SIGKILL after the 200ms grace period.
+    let mut stubborn =
+        exec("trap '' TERM; sleep 60 & child=$!; echo armed:$child; while :; do sleep 1; done");
+    stubborn.timeout_ms = 250;
+    let output = guest.client.exec(stubborn, b"").unwrap();
+    assert!(output.result.timed_out);
+    assert!(!output.result.oom_killed);
     assert_eq!(
         output.result.exit,
         ExitStatus {
@@ -110,7 +135,14 @@ fn exec_kills_the_process_group_at_the_timeout() {
             signal: Some(9)
         }
     );
-    assert_eq!(output.stdout, b"started\n");
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let stubborn_child = stdout
+        .trim()
+        .strip_prefix("armed:")
+        .expect("expected stubborn child pid");
+    eventually("the stubborn background child to be killed", || {
+        !std::path::Path::new(&format!("/proc/{stubborn_child}")).exists()
+    });
 }
 
 #[test]
@@ -173,15 +205,64 @@ fn a_disconnected_exec_client_kills_the_process() {
     let guest = Guest::start(None, 4096);
     let mut session = guest
         .client
-        .exec_stream(exec("echo $$; sleep 300"))
+        .exec_stream(exec("sleep 300 & echo $$ $!; wait"))
         .unwrap();
-    let ExecEvent::Stdout(pid) = session.next_event().unwrap() else {
-        panic!("expected the PID");
+    let ExecEvent::Stdout(pids) = session.next_event().unwrap() else {
+        panic!("expected the PIDs");
     };
-    let pid = String::from_utf8(pid).unwrap().trim().to_owned();
+    let pids = String::from_utf8(pids).unwrap();
+    let mut parts = pids.split_whitespace();
+    let pid = parts.next().unwrap().to_owned();
+    let child_pid = parts.next().unwrap().to_owned();
     assert!(std::path::Path::new(&format!("/proc/{pid}")).exists());
+    assert!(std::path::Path::new(&format!("/proc/{child_pid}")).exists());
     drop(session);
-    eventually("the process to be killed and reaped", || {
+    eventually("the process group to be killed and reaped", || {
         !std::path::Path::new(&format!("/proc/{pid}")).exists()
+            && !std::path::Path::new(&format!("/proc/{child_pid}")).exists()
     });
+}
+
+#[test]
+fn exec_reports_oom_kill_and_memory_peak_from_cgroup() {
+    let cg_dir = tempfile::tempdir().unwrap();
+    let procs = cg_dir.path().join("cgroup.procs");
+    let events = cg_dir.path().join("memory.events");
+    let peak = cg_dir.path().join("memory.peak");
+    std::fs::write(&procs, "").unwrap();
+    std::fs::write(&events, "low 0\noom 0\noom_kill 0\n").unwrap();
+    std::fs::write(&peak, "4096\n").unwrap();
+
+    let guest = Guest::start_with_cgroup(
+        None,
+        4096,
+        Some(std::ffi::CString::new(procs.to_str().unwrap()).unwrap()),
+    );
+
+    // Simulates a child killed by OOM while outer sh returns exit code 137 with signal=None.
+    let script = format!(
+        "printf 'low 0\\noom 1\\noom_kill 1\\n' > {:?}; printf '67108864\\n' > {:?}; exit 137",
+        events, peak
+    );
+    let output = guest.client.exec(exec(&script), b"").unwrap();
+    assert_eq!(
+        output.result.exit,
+        ExitStatus {
+            code: 137,
+            signal: None
+        }
+    );
+    assert!(output.result.oom_killed);
+    assert_eq!(output.result.memory_peak_bytes, Some(67_108_864));
+
+    // Normal exit with unchanged oom_kill reports oom_killed == false.
+    let ok = guest.client.exec(exec("true"), b"").unwrap();
+    assert!(!ok.result.oom_killed);
+
+    // Timeout SIGKILL does not misreport OOM even if oom_kill counter was non-zero.
+    let mut timed = exec("trap '' TERM; sleep 60");
+    timed.timeout_ms = 150;
+    let timed_out = guest.client.exec(timed, b"").unwrap();
+    assert!(timed_out.result.timed_out);
+    assert!(!timed_out.result.oom_killed);
 }

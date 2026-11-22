@@ -1937,6 +1937,8 @@ public nonisolated struct Agentvmm_Host_V1_ExecStart: Sendable {
 
   public var executionDeadlineUnixNano: Int64 = 0
 
+  public var timeoutMs: UInt64 = 0
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -4321,7 +4323,7 @@ nonisolated extension Agentvmm_Host_V1_Image: SwiftProtobuf.Message, SwiftProtob
 
 nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecStart"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0\u{1}argv\0\u{1}env\0\u{1}workdir\0\u{1}user\0\u{1}tty\0\u{1}rows\0\u{1}columns\0\u{3}expected_instance_id\0\u{3}execution_id\0\u{3}execution_kind\0\u{3}execution_deadline_unix_nano\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{3}request_id\0\u{3}container_id\0\u{1}argv\0\u{1}env\0\u{1}workdir\0\u{1}user\0\u{1}tty\0\u{1}rows\0\u{1}columns\0\u{3}expected_instance_id\0\u{3}execution_id\0\u{3}execution_kind\0\u{3}execution_deadline_unix_nano\0\u{3}timeout_ms\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -4342,6 +4344,7 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
       case 11: try { try decoder.decodeSingularStringField(value: &self.executionID) }()
       case 12: try { try decoder.decodeSingularEnumField(value: &self.executionKind) }()
       case 13: try { try decoder.decodeSingularInt64Field(value: &self.executionDeadlineUnixNano) }()
+      case 14: try { try decoder.decodeSingularUInt64Field(value: &self.timeoutMs) }()
       default: break
       }
     }
@@ -4391,6 +4394,9 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
     if self.executionDeadlineUnixNano != 0 {
       try visitor.visitSingularInt64Field(value: self.executionDeadlineUnixNano, fieldNumber: 13)
     }
+    if self.timeoutMs != 0 {
+      try visitor.visitSingularUInt64Field(value: self.timeoutMs, fieldNumber: 14)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -4408,6 +4414,7 @@ nonisolated extension Agentvmm_Host_V1_ExecStart: SwiftProtobuf.Message, SwiftPr
     if lhs.executionID != rhs.executionID {return false}
     if lhs.executionKind != rhs.executionKind {return false}
     if lhs.executionDeadlineUnixNano != rhs.executionDeadlineUnixNano {return false}
+    if lhs.timeoutMs != rhs.timeoutMs {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

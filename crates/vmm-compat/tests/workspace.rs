@@ -4,7 +4,6 @@ use agent_vmm_proto::host::v1 as h;
 use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio_stream::{StreamExt, iter};
-use vmm_rpc::{Code, Request, Status};
 use vmm_compat::{
     RuntimeContext,
     workspace::{DEFAULT_VOLUME, WorkspaceService},
@@ -13,6 +12,7 @@ use vmm_core::{
     Core, EgressMode, ImageSource, Limits, Origin, SandboxDefinition, SandboxKey, Scope,
     ScopeState, Store, fake::FakeDom0Backend,
 };
+use vmm_rpc::{Code, Request, Status};
 
 fn session(core: &Core, id: &str) -> RuntimeContext {
     core.store
@@ -397,4 +397,88 @@ async fn default_workspace_resolves_to_single_mounted_workspace_volume() {
         .code(),
         Code::InvalidArgument
     );
+}
+
+#[tokio::test]
+async fn list_workspace_paginates_with_cursor_and_default_limit() {
+    let dir = tempfile::tempdir().unwrap();
+    let core = Core::new(
+        Arc::new(Store::open(dir.path().join("db")).unwrap()),
+        Arc::new(FakeDom0Backend::default()),
+    );
+    let ws = WorkspaceService::new(Arc::new(driver::TestDriver::default()));
+    let ctx = session(&core, "page");
+
+    for i in 0..270 {
+        use h::write_workspace_request::Payload;
+        let frames = [
+            Payload::Header(h::WriteWorkspaceHeader {
+                request_id: format!("w-{i:03}"),
+                path: format!("f-{i:03}"),
+                mode: 0o600,
+                ..Default::default()
+            }),
+            Payload::Finish(true),
+        ]
+        .into_iter()
+        .map(|p| Ok(h::WriteWorkspaceRequest { payload: Some(p) }));
+        ws.write(&ctx, iter(frames)).await.unwrap();
+    }
+
+    // Default limit=0 caps at 256 and returns has_more + next_cursor.
+    let first = ws
+        .list(
+            &ctx,
+            h::ListWorkspaceRequest {
+                path: ".".into(),
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(first.entries.len(), 256);
+    assert!(first.has_more);
+    assert_eq!(first.next_cursor, "f-255");
+
+    let second = ws
+        .list(
+            &ctx,
+            h::ListWorkspaceRequest {
+                path: ".".into(),
+                cursor: first.next_cursor,
+                ..Default::default()
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(second.entries.len(), 14);
+    assert!(!second.has_more);
+    assert!(second.next_cursor.is_empty());
+
+    // Explicit limit=100 paginates cleanly across all 270 entries.
+    let mut collected = Vec::new();
+    let mut cursor = String::new();
+    loop {
+        let page = ws
+            .list(
+                &ctx,
+                h::ListWorkspaceRequest {
+                    path: ".".into(),
+                    limit: 100,
+                    cursor,
+                    ..Default::default()
+                },
+            )
+            .await
+            .unwrap();
+        collected.extend(page.entries.into_iter().map(|e| e.path));
+        if !page.has_more {
+            assert!(page.next_cursor.is_empty());
+            break;
+        }
+        assert!(!page.next_cursor.is_empty());
+        cursor = page.next_cursor;
+    }
+    let expected: Vec<String> = (0..270).map(|i| format!("f-{i:03}")).collect();
+    assert_eq!(collected, expected);
 }

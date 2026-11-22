@@ -27,6 +27,21 @@ pub struct SpawnContext {
     pub grant_subid_caps: bool,
 }
 
+impl SpawnContext {
+    /// Returns the workload cgroup directory derived from `cgroup_procs`.
+    pub fn cgroup_dir(&self) -> Option<&Path> {
+        let procs = self.cgroup_procs.as_ref()?;
+        Path::new(procs.to_str().ok()?).parent()
+    }
+
+    /// Returns a clone of this context targeting a specific `cgroup.procs` path.
+    pub fn with_cgroup_procs(&self, cgroup_procs: Option<CString>) -> Self {
+        let mut copy = self.clone();
+        copy.cgroup_procs = cgroup_procs;
+        copy
+    }
+}
+
 fn invalid(message: impl Into<String>) -> RpcError {
     RpcError::new(ErrorCode::InvalidArgument, message)
 }

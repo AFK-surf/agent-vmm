@@ -17,4 +17,4 @@ mod secret;
 pub use secret::Secret;
 
 /// Increment when a frame or message layout changes.
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;

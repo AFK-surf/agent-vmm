@@ -38,6 +38,8 @@ public nonisolated struct Agentvmm_Host_V1_ListWorkspaceRequest: Sendable {
 
   public var volumeID: String = String()
 
+  public var cursor: String = String()
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public init() {}
@@ -51,6 +53,10 @@ public nonisolated struct Agentvmm_Host_V1_ListWorkspaceResponse: Sendable {
   // methods supported on all messages.
 
   public var entries: [Agentvmm_Host_V1_WorkspaceEntry] = []
+
+  public var nextCursor: String = String()
+
+  public var hasMore_p: Bool = false
 
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
@@ -786,6 +792,19 @@ public nonisolated struct Agentvmm_Host_V1_ExecResponse: Sendable {
     set {event = .exitCode(newValue)}
   }
 
+  public var timedOut: Bool = false
+
+  public var oomKilled: Bool = false
+
+  public var memoryPeakBytes: UInt64 {
+    get {_memoryPeakBytes ?? 0}
+    set {_memoryPeakBytes = newValue}
+  }
+  /// Returns true if `memoryPeakBytes` has been explicitly set.
+  public var hasMemoryPeakBytes: Bool {self._memoryPeakBytes != nil}
+  /// Clears the value of `memoryPeakBytes`. Subsequent reads from it will return its default value.
+  public mutating func clearMemoryPeakBytes() {self._memoryPeakBytes = nil}
+
   public var unknownFields = SwiftProtobuf.UnknownStorage()
 
   public nonisolated enum OneOf_Event: Equatable, Sendable {
@@ -796,6 +815,8 @@ public nonisolated struct Agentvmm_Host_V1_ExecResponse: Sendable {
   }
 
   public init() {}
+
+  fileprivate var _memoryPeakBytes: UInt64? = nil
 }
 
 /// CreateVolumeRequest carries inputs for an operation that creates a named private volume with
@@ -2028,7 +2049,7 @@ fileprivate nonisolated let _protobuf_package = "agentvmm.host.v1"
 
 nonisolated extension Agentvmm_Host_V1_ListWorkspaceRequest: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListWorkspaceRequest"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}limit\0\u{3}volume_id\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}path\0\u{1}limit\0\u{3}volume_id\0\u{1}cursor\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2039,6 +2060,7 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceRequest: SwiftProtobuf.Messa
       case 1: try { try decoder.decodeSingularStringField(value: &self.path) }()
       case 2: try { try decoder.decodeSingularUInt32Field(value: &self.limit) }()
       case 3: try { try decoder.decodeSingularStringField(value: &self.volumeID) }()
+      case 4: try { try decoder.decodeSingularStringField(value: &self.cursor) }()
       default: break
       }
     }
@@ -2054,6 +2076,9 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceRequest: SwiftProtobuf.Messa
     if !self.volumeID.isEmpty {
       try visitor.visitSingularStringField(value: self.volumeID, fieldNumber: 3)
     }
+    if !self.cursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.cursor, fieldNumber: 4)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
@@ -2061,6 +2086,7 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceRequest: SwiftProtobuf.Messa
     if lhs.path != rhs.path {return false}
     if lhs.limit != rhs.limit {return false}
     if lhs.volumeID != rhs.volumeID {return false}
+    if lhs.cursor != rhs.cursor {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -2068,7 +2094,7 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceRequest: SwiftProtobuf.Messa
 
 nonisolated extension Agentvmm_Host_V1_ListWorkspaceResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ListWorkspaceResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}entries\0\u{3}next_cursor\0\u{3}has_more\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -2077,6 +2103,8 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceResponse: SwiftProtobuf.Mess
       // enabled. https://github.com/apple/swift-protobuf/issues/1034
       switch fieldNumber {
       case 1: try { try decoder.decodeRepeatedMessageField(value: &self.entries) }()
+      case 2: try { try decoder.decodeSingularStringField(value: &self.nextCursor) }()
+      case 3: try { try decoder.decodeSingularBoolField(value: &self.hasMore_p) }()
       default: break
       }
     }
@@ -2086,11 +2114,19 @@ nonisolated extension Agentvmm_Host_V1_ListWorkspaceResponse: SwiftProtobuf.Mess
     if !self.entries.isEmpty {
       try visitor.visitRepeatedMessageField(value: self.entries, fieldNumber: 1)
     }
+    if !self.nextCursor.isEmpty {
+      try visitor.visitSingularStringField(value: self.nextCursor, fieldNumber: 2)
+    }
+    if self.hasMore_p != false {
+      try visitor.visitSingularBoolField(value: self.hasMore_p, fieldNumber: 3)
+    }
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_ListWorkspaceResponse, rhs: Agentvmm_Host_V1_ListWorkspaceResponse) -> Bool {
     if lhs.entries != rhs.entries {return false}
+    if lhs.nextCursor != rhs.nextCursor {return false}
+    if lhs.hasMore_p != rhs.hasMore_p {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }
@@ -3379,7 +3415,7 @@ nonisolated extension Agentvmm_Host_V1_ExecRequest: SwiftProtobuf.Message, Swift
 
 nonisolated extension Agentvmm_Host_V1_ExecResponse: SwiftProtobuf.Message, SwiftProtobuf._MessageImplementationBase, SwiftProtobuf._ProtoNameProviding {
   public static let protoMessageName: String = _protobuf_package + ".ExecResponse"
-  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}stdout\0\u{1}stderr\0\u{3}exit_code\0")
+  public static let _protobuf_nameMap = SwiftProtobuf._NameMap(bytecode: "\0\u{1}stdout\0\u{1}stderr\0\u{3}exit_code\0\u{3}timed_out\0\u{3}oom_killed\0\u{3}memory_peak_bytes\0")
 
   public mutating func decodeMessage<D: SwiftProtobuf.Decoder>(decoder: inout D) throws {
     while let fieldNumber = try decoder.nextFieldNumber() {
@@ -3411,6 +3447,9 @@ nonisolated extension Agentvmm_Host_V1_ExecResponse: SwiftProtobuf.Message, Swif
           self.event = .exitCode(v)
         }
       }()
+      case 4: try { try decoder.decodeSingularBoolField(value: &self.timedOut) }()
+      case 5: try { try decoder.decodeSingularBoolField(value: &self.oomKilled) }()
+      case 6: try { try decoder.decodeSingularUInt64Field(value: &self._memoryPeakBytes) }()
       default: break
       }
     }
@@ -3436,11 +3475,23 @@ nonisolated extension Agentvmm_Host_V1_ExecResponse: SwiftProtobuf.Message, Swif
     }()
     case nil: break
     }
+    if self.timedOut != false {
+      try visitor.visitSingularBoolField(value: self.timedOut, fieldNumber: 4)
+    }
+    if self.oomKilled != false {
+      try visitor.visitSingularBoolField(value: self.oomKilled, fieldNumber: 5)
+    }
+    try { if let v = self._memoryPeakBytes {
+      try visitor.visitSingularUInt64Field(value: v, fieldNumber: 6)
+    } }()
     try unknownFields.traverse(visitor: &visitor)
   }
 
   public static func ==(lhs: Agentvmm_Host_V1_ExecResponse, rhs: Agentvmm_Host_V1_ExecResponse) -> Bool {
     if lhs.event != rhs.event {return false}
+    if lhs.timedOut != rhs.timedOut {return false}
+    if lhs.oomKilled != rhs.oomKilled {return false}
+    if lhs._memoryPeakBytes != rhs._memoryPeakBytes {return false}
     if lhs.unknownFields != rhs.unknownFields {return false}
     return true
   }

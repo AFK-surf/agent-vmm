@@ -433,4 +433,14 @@ impl ExecInput {
     pub fn resize(&mut self, size: TtySize) -> io::Result<()> {
         self.connection.send(&ClientFrame::Resize(size))
     }
+
+    /// Closes the write half of the stream so the Guest observes disconnect.
+    pub fn shutdown_write(&self) -> io::Result<()> {
+        self.connection.stream.shutdown(Shutdown::Write)
+    }
+
+    /// Closes both halves of the stream to unblock any reader or writer.
+    pub fn shutdown(&self) -> io::Result<()> {
+        self.connection.stream.shutdown(Shutdown::Both)
+    }
 }

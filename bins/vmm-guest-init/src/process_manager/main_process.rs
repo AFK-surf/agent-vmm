@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use vmm_guest_proto::rpc::{CommandSpec, ErrorCode, LogStream, MainState, RpcError};
 
+use super::cgroup::SubCgroup;
 use crate::log_ring::LogRing;
 use crate::reaper::{ExitCell, Reaper};
 use crate::spawn::{self, SpawnContext};
@@ -45,7 +46,12 @@ impl MainProcess {
             workdir: None,
             user: None,
         };
-        let spawned = spawn::command(context, &spec, false).and_then(|mut command| {
+        let sub_cgroup = SubCgroup::create(context.cgroup_dir(), "main");
+        let spawn_ctx = match &sub_cgroup {
+            Some(cg) => context.with_cgroup_procs(cg.procs_path()),
+            None => context.clone(),
+        };
+        let spawned = spawn::command(&spawn_ctx, &spec, false).and_then(|mut command| {
             command
                 .stdin(Stdio::null())
                 .stdout(Stdio::piped())

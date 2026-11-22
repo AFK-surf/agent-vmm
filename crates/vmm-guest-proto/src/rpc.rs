@@ -231,6 +231,8 @@ pub struct ExecResult {
     pub timed_out: bool,
     pub stdout_truncated: bool,
     pub stderr_truncated: bool,
+    pub oom_killed: bool,
+    pub memory_peak_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -259,6 +261,7 @@ pub struct ProcessInfo {
     pub started_unix_nanos: i64,
     /// Offset after the last output byte that the process wrote.
     pub output_end_offset: u64,
+    pub oom_killed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +303,7 @@ pub struct ProcessTailReply {
     pub offset: u64,
     pub next_offset: u64,
     pub state: ProcessState,
+    pub oom_killed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -339,6 +343,8 @@ pub struct WorkspaceListRequest {
     pub target: WorkspaceTarget,
     /// Zero selects [`MAX_LIST_ENTRIES`].
     pub limit: u32,
+    /// Returns entries strictly after this direct child name.
+    pub after: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -347,6 +353,8 @@ pub struct WorkspaceListReply {
     pub entries: Vec<WorkspaceEntry>,
     /// The directory holds more entries than the limit or than one reply carries.
     pub truncated: bool,
+    /// Direct child name of the last returned entry when `truncated` is true.
+    pub next_cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

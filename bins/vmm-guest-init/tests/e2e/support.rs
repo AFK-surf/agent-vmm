@@ -1,6 +1,7 @@
 //! A Guest runtime on a temporary directory, served on a loopback port.
 
 use std::collections::BTreeMap;
+use std::ffi::CString;
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -59,13 +60,21 @@ impl Guest {
     }
 
     pub fn start_argv(main: Option<Vec<String>>, log_limit_bytes: usize) -> Self {
+        Self::start_with_cgroup(main, log_limit_bytes, None)
+    }
+
+    pub fn start_with_cgroup(
+        main: Option<Vec<String>>,
+        log_limit_bytes: usize,
+        cgroup_procs: Option<CString>,
+    ) -> Self {
         let dir = tempfile::tempdir().unwrap();
         for name in ["workspace", "volume", "etc", "outside"] {
             std::fs::create_dir(dir.path().join(name)).unwrap();
         }
         let context = SpawnContext {
             etc_dir: dir.path().join("etc"),
-            cgroup_procs: None,
+            cgroup_procs,
             base_env: vec![
                 format!("PATH={}", std::env::var("PATH").unwrap()),
                 "GUEST_BASE=base".into(),
