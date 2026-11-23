@@ -89,9 +89,23 @@ pub fn sync_unary<T: Message, U: Message + Default>(
         timeout_ms: Some(io.remaining()?.as_millis().try_into().unwrap_or(u64::MAX)),
     })
     .write_sync(&mut io)?;
-    Frame::Message(message.encode_to_vec().into()).write_sync(&mut io)?;
-    Frame::End.write_sync(&mut io)?;
-    io.socket.shutdown(std::net::Shutdown::Write)?;
+    let write_result: Result<(), Status> = (|| {
+        Frame::Message(message.encode_to_vec().into()).write_sync(&mut io)?;
+        Frame::End.write_sync(&mut io)?;
+        match io.socket.shutdown(std::net::Shutdown::Write) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == io::ErrorKind::NotConnected => Ok(()),
+            Err(err) => Err(err.into()),
+        }
+    })();
+    if let Err(write_err) = write_result {
+        if let Ok(Frame::Status(s)) = Frame::read_sync(&mut io)
+            && s.code != crate::Code::Ok
+        {
+            return Err(s);
+        }
+        return Err(write_err);
+    }
     let mut message = None;
     loop {
         match Frame::read_sync(&mut io)? {

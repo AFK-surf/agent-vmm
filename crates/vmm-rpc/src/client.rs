@@ -72,7 +72,11 @@ impl Client {
                     .await?;
             }
             Frame::End.write(&mut writer).await?;
-            writer.shutdown().await?;
+            match writer.shutdown().await {
+                Ok(()) => {}
+                Err(err) if err.kind() == std::io::ErrorKind::NotConnected => {}
+                Err(err) => return Err(err.into()),
+            }
             Ok::<_, Status>(())
         };
         let (sent, done) = tokio::sync::oneshot::channel();
@@ -89,8 +93,24 @@ impl Client {
                         biased;
                         msg = response.message() => { done = Some(sending); msg? },
                         result = &mut sending => {
-                            result.map_err(|_| Status::unavailable("request writer stopped"))??;
-                            response.message().await?
+                            let send_result =
+                                result.map_err(|_| Status::unavailable("request writer stopped"));
+                            match response.message().await {
+                                Ok(Some(msg)) => Some(msg),
+                                Ok(None) => {
+                                    send_result??;
+                                    None
+                                }
+                                Err(err)
+                                    if err.code() == crate::Code::Unavailable
+                                        || (err.code() == crate::Code::DataLoss
+                                            && err.message() == "truncated RPC stream") =>
+                                {
+                                    send_result??;
+                                    return Err(err);
+                                }
+                                Err(err) => return Err(err),
+                            }
                         }
                     }
                 } else {

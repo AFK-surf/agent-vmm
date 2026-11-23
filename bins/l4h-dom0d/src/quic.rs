@@ -105,8 +105,8 @@ fn server_config() -> Result<quinn::ServerConfig> {
     .with_single_cert(vec![cert], key)?;
     tls.alpn_protocols = vec![ALPN.to_vec()];
     let mut transport = quinn::TransportConfig::default();
-    transport.keep_alive_interval(Some(Duration::from_secs(5)));
-    transport.max_idle_timeout(Some(Duration::from_secs(30).try_into()?));
+    transport.keep_alive_interval(None);
+    transport.max_idle_timeout(Some(Duration::from_secs(60).try_into()?));
     transport.max_concurrent_bidi_streams(1024u32.into());
     let mut cfg = quinn::ServerConfig::with_crypto(Arc::new(QuicServerConfig::try_from(tls)?));
     cfg.transport_config(Arc::new(transport));

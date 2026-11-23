@@ -580,13 +580,63 @@ impl Mem {
         true
     }
 
+    /// Next absolute tick deadline when `report_free` has work to do, or `0`
+    /// when the balloon is idle and no timer wakeup is needed.
+    pub fn next_report_deadline(&self, now: u64, delay: u64, tick: u64) -> u64 {
+        if self.reports_off {
+            return 0;
+        }
+        let Some(dev) = &self.balloon else { return 0 };
+        let soonest = now.saturating_add(tick);
+        if dev.busy() {
+            return soonest;
+        }
+        if dev.is_traditional() {
+            let num_pages = dev.num_pages() as usize;
+            let actual_pages = dev.actual_pages() as usize;
+            let uninflated = self.clean_bytes() + self.uninflated_free_bytes();
+            let floor = HOST_RESERVE + HOT_POOL;
+            let mut earliest = u64::MAX;
+            for k in 0..ORDERS {
+                let b_bytes = bytes(k);
+                let b_pages = b_bytes >> 12;
+                if b_pages > balloon::MAX_PFNS || uninflated < floor + b_bytes || actual_pages + b_pages > num_pages {
+                    break;
+                }
+                let head = self.free[k].head;
+                if head != NIL {
+                    earliest = earliest.min(self.table[head as usize].since.saturating_add(delay));
+                }
+            }
+            return if earliest == u64::MAX { 0 } else { earliest.max(soonest) };
+        }
+        let cap = dev.capacity();
+        let mut earliest = u64::MAX;
+        for k in 0..ORDERS {
+            let piece = bytes(k).min(1 << balloon::MAX_DESC_BITS);
+            let per = bytes(k) / piece;
+            if per > cap {
+                break;
+            }
+            if self.clean[k].head != NIL {
+                return soonest;
+            }
+            let head = self.free[k].head;
+            if head != NIL {
+                earliest = earliest.min(self.table[head as usize].since.saturating_add(delay));
+            }
+        }
+        if earliest == u64::MAX { 0 } else { earliest.max(soonest) }
+    }
+
     /// Report (or inflate) the blocks that have been free for `delay` ticks to
-    /// the hypervisor, unless a request is already in flight.  Called periodically.
-    pub fn report_free(&mut self, now: u64, delay: u64) {
-        self.finish_report(false);
-        let Some(dev) = &self.balloon else { return };
+    /// the hypervisor, unless a request is already in flight.  Returns `true`
+    /// when an in-flight batch finished or a new batch was submitted.
+    pub fn report_free(&mut self, now: u64, delay: u64) -> bool {
+        let finished = self.finish_report(false);
+        let Some(dev) = &self.balloon else { return finished };
         if dev.busy() || self.reports_off {
-            return;
+            return finished;
         }
         if dev.is_traditional() {
             let num_pages = dev.num_pages() as usize;
@@ -627,8 +677,9 @@ impl Mem {
             }
             if n != 0 {
                 self.balloon.as_mut().unwrap().inflate(&ranges[..n]);
+                return true;
             }
-            return;
+            return finished;
         }
         let cap = dev.capacity();
         let mut ranges = [(0, 0); balloon::QUEUE_SIZE];
@@ -664,16 +715,18 @@ impl Mem {
         }
         if n != 0 {
             self.balloon.as_mut().unwrap().report(&ranges[..n]);
+            return true;
         }
+        finished
     }
 
     /// Take back the blocks of the report in flight once the device is
     /// done with it; `wait` waits for that, once: a device that did not
     /// return a report in that time is given up on (`reports_off`).
-    fn finish_report(&mut self, wait: bool) {
-        let Some(dev) = &mut self.balloon else { return };
+    fn finish_report(&mut self, wait: bool) -> bool {
+        let Some(dev) = &mut self.balloon else { return false };
         if !dev.busy() {
-            return;
+            return false;
         }
         let wait = wait && !self.reports_off;
         if !dev.done(wait) {
@@ -684,7 +737,7 @@ impl Mem {
                     self.reporting_bytes() >> 20
                 );
             }
-            return;
+            return false;
         }
         let mut bytes_back = 0;
         while self.reporting.head != NIL {
@@ -702,5 +755,6 @@ impl Mem {
             "memd: balloon: reported {} MiB, {} of {} MiB free reported",
             bytes_back >> 20, self.reported_bytes() >> 20, self.free_bytes() >> 20
         );
+        true
     }
 }

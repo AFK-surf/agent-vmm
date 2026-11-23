@@ -27,6 +27,7 @@ dependencies = [
  "image",
  "prost-types",
  "smallvec",
+ "tempfile",
  "tokio",
  "ui",
  "unicode-segmentation",

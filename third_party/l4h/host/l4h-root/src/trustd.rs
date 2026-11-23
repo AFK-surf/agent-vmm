@@ -1042,6 +1042,20 @@ pub fn relay(h: &mut Host, peer: u32, len: usize) -> u64 {
     if cs.send(peer, ty, &[&msg[..len]]) { 0 } else { u64::MAX }
 }
 
+/// Whether attestation notice refill or multikernel relay wakeup needs the fast timer tick.
+pub fn needs_fast_tick(h: &Host) -> bool {
+    if h.vmmgr.as_ref().is_some_and(|v| v.attest_needs_tick()) {
+        return true;
+    }
+    if h.trustd.as_ref().filter(|t| !t.failed).and_then(|t| t.relay).is_some() {
+        let out = unsafe { &*(relay_va(0) as *const trust::RelaySlot) };
+        if out.wake.load(core::sync::atomic::Ordering::Relaxed) != 0 {
+            return true;
+        }
+    }
+    false
+}
+
 /// Root's timer: guests' allowance of attestation notices is new
 /// (trust::AttestNotices); and kick trustd while it waits for an answer
 /// from another partition, so that it can ask again or give up.

@@ -169,10 +169,17 @@ pub(crate) async fn serve_online(
         Ok(())
     };
     let mut observation_stop = stop.subscribe();
+    let active_registrations = registrations.clone();
+    let active_wake = registrations.active_changed();
     let refresh = async {
         tokio::select! {
             _ = observation_stop.changed() => {},
-            _ = crate::observation::refresh(&api, observations) => {},
+            _ = crate::observation::refresh(
+                &api,
+                observations,
+                move || active_registrations.has_active(),
+                active_wake,
+            ) => {},
         }
         Ok(())
     };

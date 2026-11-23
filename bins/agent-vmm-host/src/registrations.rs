@@ -7,7 +7,7 @@ use std::{
     path::Path,
     sync::{Arc, Mutex},
 };
-use tokio::task::JoinHandle;
+use tokio::{sync::Notify, task::JoinHandle};
 use vmm_rpc::Status;
 use vmm_compat::operator::RegistrationControl;
 use vmm_core::Store;
@@ -45,6 +45,7 @@ pub struct ExternalRegistrations {
     state: Mutex<State>,
     credentials: Arc<dyn CredentialStore>,
     disk_capacity: u64,
+    active_changed: Arc<Notify>,
 }
 fn unavailable(_: rusqlite::Error) -> Status {
     Status::unavailable("registration policy unavailable")
@@ -85,12 +86,21 @@ impl ExternalRegistrations {
             core,
             credentials,
             disk_capacity,
+            active_changed: Arc::new(Notify::new()),
             state: Mutex::new(State {
                 database,
                 active: HashMap::new(),
                 runtime: None,
             }),
         })
+    }
+
+    pub fn has_active(&self) -> bool {
+        self.state.lock().is_ok_and(|s| !s.active.is_empty())
+    }
+
+    pub fn active_changed(&self) -> Arc<Notify> {
+        self.active_changed.clone()
     }
     fn lock(&self) -> Result<std::sync::MutexGuard<'_, State>, Status> {
         self.state
@@ -137,6 +147,7 @@ impl ExternalRegistrations {
         }
         state.active.remove(id);
         state.active.insert(id.into(), Active::start(connector));
+        self.active_changed.notify_one();
         Ok(())
     }
 }
@@ -162,6 +173,7 @@ impl RegistrationControl for ExternalRegistrations {
         if let Err(err) = fence() {
             if let Some(connector) = reconnect {
                 state.active.insert(id.into(), Active::start(connector));
+                self.active_changed.notify_one();
             }
             return Err(err);
         }

@@ -1,15 +1,34 @@
 use agent_vmm_proto::{host::v1::HealthState, remote::v1 as r};
-use std::time::Duration;
-use tokio::{sync::watch, time};
+use std::{sync::Arc, time::Duration};
+use tokio::{
+    sync::{Notify, watch},
+    time,
+};
 use vmm_compat::operator::{DiskSample, LocalOperator};
 use vmm_remote_salix::Observation;
 
-pub(super) async fn refresh(api: &LocalOperator, observations: watch::Sender<Observation>) {
-    let period = Duration::from_secs(5);
-    let mut ticks = time::interval_at(time::Instant::now() + period, period);
-    ticks.set_missed_tick_behavior(time::MissedTickBehavior::Skip);
+const ACTIVE_PERIOD: Duration = Duration::from_secs(5);
+const IDLE_PERIOD: Duration = Duration::from_secs(30);
+
+pub(super) async fn refresh(
+    api: &LocalOperator,
+    observations: watch::Sender<Observation>,
+    has_active: impl Fn() -> bool,
+    wake: Arc<Notify>,
+) {
     loop {
-        ticks.tick().await;
+        let period = if has_active() {
+            ACTIVE_PERIOD
+        } else {
+            IDLE_PERIOD
+        };
+        let woke = tokio::select! {
+            _ = time::sleep(period) => false,
+            _ = wake.notified() => true,
+        };
+        if woke && !has_active() {
+            continue;
+        }
         observations.send_replace(sample(api).await);
     }
 }

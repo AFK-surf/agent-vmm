@@ -162,6 +162,7 @@ impl CarrierHypervisor for VzHypervisor {
         }
         let file = File::open(&self.settings.pool)?;
         let size = file.metadata()?.len();
+        let allocated = sparse::allocated_bytes(&file)?;
         Ok(CarrierStatus {
             state,
             boot_id: self.boot.clone(),
@@ -170,8 +171,8 @@ impl CarrierHypervisor for VzHypervisor {
             memory_bytes: self.settings.memory,
             balloon_target_bytes: self.target,
             pool_logical_bytes: size,
-            pool_allocated_bytes: sparse::allocated_bytes(&file)?,
-            pool_hole_bytes: sparse::hole_bytes(&file, size)?,
+            pool_allocated_bytes: allocated,
+            pool_hole_bytes: size.saturating_sub(allocated),
             host_free_bytes: sparse::host_free_bytes(&self.settings.pool)?,
             phys_footprint_bytes: self.footprint(state == State::Running),
             last_error: self.last_error.clone(),

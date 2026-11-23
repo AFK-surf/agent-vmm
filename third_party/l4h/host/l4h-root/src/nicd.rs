@@ -1396,6 +1396,14 @@ pub fn tick(h: &mut Host) {
     }
 }
 
+/// Whether any NIC requires root's fast (100 ms) timer tick.
+pub fn needs_fast_tick() -> bool {
+    nics().iter().any(|n| {
+        matches!(n.state, State::Starting | State::Stopping | State::Backoff)
+            || n.inst.as_ref().is_some_and(|x| x.timer.is_some() || x.cfg_budget < CFG_PER_TICK)
+    })
+}
+
 /// Whether every NIC bound at boot is up or has given up: boot waits
 /// for their MACs (dom0's uplink port takes one).
 pub fn ready() -> bool {

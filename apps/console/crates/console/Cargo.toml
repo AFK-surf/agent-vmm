@@ -35,4 +35,5 @@ vmm-rpc = { path = "../../../../crates/vmm-rpc" }
 
 [dev-dependencies]
 image.workspace = true
+tempfile = "3"
 ui = { path = "../ui", features = ["harness"] }

@@ -609,3 +609,67 @@ fn traditional_balloon_skips_clean_keeps_hot_pool_and_deflates_whole_block() {
     assert_eq!(unsafe { munmap(TABLE_VA as *mut u8, 8192) }, 0);
     drop(guard);
 }
+
+#[test]
+fn next_report_deadline_is_zero_when_idle_and_tracks_aging_and_busy() {
+    let guard = TABLE_LOCK.lock().unwrap();
+    let p = unsafe { mmap(TABLE_VA as *mut u8, 8192, 3, 0x100022, -1, 0) };
+    assert_eq!(p as usize, TABLE_VA);
+    kernel(|k| { k.caps.clear(); k.calls = 0; k.mrs.fill(0); k.refill = None; });
+
+    let mut d = Memd { mem: Mem::new(256) };
+    // 256 MiB clean block at unit 0 (order 7).
+    kernel(|k| { k.caps.insert(xchg(Client::Root, 0).0, (0, 128 << BLOCK_BITS)); });
+    assert_eq!(d.free(Client::Root, &batch(&[(0, BLOCK_BITS + 7)])), 0);
+
+    // No balloon configured: deadline is 0.
+    assert_eq!(d.mem.next_report_deadline(1000, 500, 100), 0);
+
+    // Traditional balloon with only Clean blocks: deadline is 0.
+    d.mem.balloon = Some(balloon::Balloon {
+        traditional: true,
+        returns: true,
+        deflate_ok: true,
+        num_pages: (256 << 20) >> 12,
+        ..Default::default()
+    });
+    assert_eq!(d.mem.next_report_deadline(1000, 500, 100), 0);
+
+    // Allocate 64 x 2 MiB (128 MiB) and free them -> State::Free with since=1000.
+    let mut units = Vec::new();
+    for _ in 0..2 {
+        let paddrs = d.alloc(Client::Vmmgr, BLOCK_BITS, 32).unwrap();
+        units.extend(paddrs.iter().map(|&a| (a >> BLOCK_BITS) as u32));
+    }
+    for chunk in units.chunks(32) {
+        let b: Vec<(u32, usize)> = chunk.iter().map(|&u| (u, BLOCK_BITS)).collect();
+        assert_eq!(d.free(Client::Vmmgr, &batch(&b)), 0);
+    }
+    // Free block awaits aging: since (1000) + delay (500) = 1500.
+    assert_eq!(d.mem.next_report_deadline(1100, 500, 100), 1500);
+    // Once aged past deadline, clamps to now + tick.
+    assert_eq!(d.mem.next_report_deadline(1600, 500, 100), 1700);
+    // Submitting an inflate batch marks busy -> polls at now + tick.
+    assert!(d.mem.report_free(1600, 500));
+    assert!(d.mem.balloon.as_ref().unwrap().busy());
+    assert_eq!(d.mem.next_report_deadline(1600, 500, 100), 1700);
+
+    // Drain until at HOST_RESERVE (32 MiB) + HOT_POOL (128 MiB) = 160 MiB floor.
+    for step in 1..15 {
+        d.mem.report_free(1600 + step * 100, 500);
+    }
+    assert_eq!(d.mem.reported_bytes(), 96 << 20);
+    assert!(!d.mem.report_free(5000, 500));
+    assert_eq!(d.mem.next_report_deadline(5000, 500, 100), 0);
+
+    // Reporting mode: Clean blocks wake at now + tick; once all Reported, deadline is 0.
+    d.mem.balloon = Some(balloon::Balloon { returns: true, ..Default::default() });
+    assert_eq!(d.mem.next_report_deadline(5000, 500, 100), 5100);
+    for step in 0..20 {
+        d.mem.report_free(5000 + step * 100, 500);
+    }
+    assert_eq!(d.mem.next_report_deadline(9000, 500, 100), 0);
+
+    assert_eq!(unsafe { munmap(TABLE_VA as *mut u8, 8192) }, 0);
+    drop(guard);
+}

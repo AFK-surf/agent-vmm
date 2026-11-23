@@ -122,6 +122,11 @@ impl Vmmgr {
         self.flush();
     }
 
+    /// Whether any guest has pending attestation notices or consumed its allowance.
+    pub fn attest_needs_tick(&self) -> bool {
+        self.attest.needs_tick()
+    }
+
     /// Have vmmgr run a monitor command (Notice::Destroy, RestartDom0);
     /// false if the last one still waits for room.
     pub fn monitor(&mut self, cmd: Notice) -> bool {

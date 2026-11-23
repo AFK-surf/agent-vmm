@@ -994,6 +994,11 @@ impl AttestNotices {
     pub fn tick(&mut self) {
         self.left = [ATTEST_NOTICES_PER_TICK; MAX_RECORDS];
     }
+
+    /// Whether any guest has pending notices or reduced allowance in the current window.
+    pub fn needs_tick(&self) -> bool {
+        self.waiting != 0 || self.posted != 0 || self.left.iter().any(|&n| n < ATTEST_NOTICES_PER_TICK)
+    }
 }
 
 impl Default for AttestNotices {

@@ -357,9 +357,11 @@ mod tests {
     #[test]
     fn memory_summary_keeps_each_field_over_the_operator_socket() {
         // The socket path on macOS is limited to 104 bytes.
-        let socket =
-            std::path::PathBuf::from(format!("/tmp/console-memory-{}.sock", std::process::id()));
-        let _ = std::fs::remove_file(&socket);
+        let dir = tempfile::Builder::new()
+            .prefix("vmm-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        let socket = dir.path().join("op.sock");
         let host = tokio::runtime::Builder::new_current_thread()
             .enable_io()
             .enable_time()
@@ -375,12 +377,12 @@ mod tests {
             )
         });
 
-        let backend = Arc::new(UdsBackend::new(socket.clone()).unwrap());
+        let backend = Arc::new(UdsBackend::new(socket).unwrap());
         let memory = futures::executor::block_on(backend.memory()).unwrap();
         let disk = futures::executor::block_on(backend.disk()).unwrap_err();
         stop.send(()).unwrap();
         server.join().unwrap().unwrap();
-        std::fs::remove_file(&socket).unwrap();
+        drop(dir);
 
         let environment = |id: &str, base| EnvironmentMemory {
             environment_id: id.into(),

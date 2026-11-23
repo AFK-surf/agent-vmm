@@ -179,3 +179,53 @@ fn sync_deadline_covers_all_reads_of_a_slow_response() {
     assert_eq!(result.unwrap_err().code(), Code::DeadlineExceeded);
     server.join().unwrap();
 }
+
+#[tokio::test]
+async fn early_server_rejection_preserves_status_over_unix_socket() {
+    struct Reject;
+    #[async_trait]
+    impl Service for Reject {
+        fn name(&self) -> &'static str {
+            "test.Reject"
+        }
+        async fn call(&self, _method: &str, _request: Request<Body>) -> Result<Body, Status> {
+            Err(Status::unimplemented("nope"))
+        }
+    }
+    let dir = tempfile::Builder::new()
+        .prefix("vmm-")
+        .tempdir_in("/tmp")
+        .unwrap();
+    let path = dir.path().join("reject.sock");
+    let listener = tokio::net::UnixListener::bind(&path).unwrap();
+    let server = tokio::spawn(Router::new(Reject).serve_unix(listener, 16, std::future::pending()));
+    let client = Client::unix(&path);
+    let payload = "x".repeat(64 * 1024);
+    for _ in 0..100 {
+        let response = client
+            .call::<String, (), _>(
+                "/test.Reject/Nope",
+                Request::new(stream::iter([payload.clone()])),
+            )
+            .await
+            .unwrap()
+            .into_inner();
+        let err = response.single().await.unwrap_err();
+        assert_eq!(err.code(), Code::Unimplemented);
+    }
+    let sync_path = path.clone();
+    let sync_payload = payload.clone();
+    let err = tokio::task::spawn_blocking(move || {
+        sync_unary::<String, ()>(
+            &sync_path,
+            "/test.Reject/Nope",
+            &sync_payload,
+            std::time::Duration::from_secs(5),
+        )
+        .unwrap_err()
+    })
+    .await
+    .unwrap();
+    assert_eq!(err.code(), Code::Unimplemented);
+    server.abort();
+}

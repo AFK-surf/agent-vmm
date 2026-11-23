@@ -95,6 +95,7 @@ impl ExternalRegistrations {
         state
             .active
             .insert(record.config.id.clone(), Active::start(Arc::new(connector)));
+        self.active_changed.notify_one();
         Ok(())
     }
     /// Restore each durable, enrolled connector once the host can accept session streams.

@@ -87,9 +87,9 @@ fn client_config() -> io::Result<ClientConfig> {
     .with_no_client_auth();
     tls.alpn_protocols = vec![ALPN.to_vec()];
     let mut transport = TransportConfig::default();
-    transport.keep_alive_interval(Some(Duration::from_secs(5)));
+    transport.keep_alive_interval(Some(Duration::from_secs(15)));
     transport.max_idle_timeout(Some(
-        Duration::from_secs(30)
+        Duration::from_secs(60)
             .try_into()
             .map_err(|e| io::Error::other(format!("{e}")))?,
     ));
