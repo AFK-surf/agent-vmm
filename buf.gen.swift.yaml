@@ -1,7 +1,0 @@
-version: v2
-plugins:
-  - local: protoc-gen-swift
-    out: apps/macos/AgentVMM/Generated
-    opt:
-      - Visibility=Public
-      - FileNaming=DropPath

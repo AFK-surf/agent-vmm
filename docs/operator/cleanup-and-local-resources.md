@@ -71,6 +71,7 @@ Read [registration recovery](../protocols/remote.md#registration-recovery) for t
 ## Disk observations and retained data
 
 GetLocalDiskSummary reads the Guest filesystem total. It does not collect CPU or memory metrics.
+GetMemorySummary reads physical memory by layer while the VM runs. It sends no request to a workload VM.
 Local environment and registration pages contain at most 32 indexed records with explicit cursors.
 Private disk details use cached owner samples matched to boot, namespace, and allocation generation.
 The existing bounded workload observer supplies samples for admitted running containers.

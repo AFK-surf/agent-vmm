@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 use super::{
-    DiskExtent, DiskInfo, Error, HypervisorCtl, IsolatedNic, Result, VmInfo, VmSpec, VmState,
+    DiskExtent, DiskInfo, Error, HypervisorCtl, IsolatedNic, Result, VmInfo, VmMemInfo, VmSpec,
+    VmState,
 };
 
 pub struct LinuxL4hCtl(l4hctl::Ctl);
@@ -146,6 +147,21 @@ impl HypervisorCtl for LinuxL4hCtl {
     }
     fn vm_set_mem(&mut self, vm: u64, bytes: u64) -> Result<()> {
         self.0.set_mem(vm, bytes).map_err(control_error)
+    }
+    fn host_mem_info(&self) -> Result<(u64, u64)> {
+        let host = self.0.host_info().map_err(control_error)?;
+        Ok((host.free, host.total))
+    }
+    fn vm_mem_info(&self, vm: u64) -> Result<VmMemInfo> {
+        let mem = self.0.mem_info(vm).map_err(control_error)?;
+        Ok(VmMemInfo {
+            boot_bytes: mem.boot,
+            region_bytes: mem.region,
+            target_bytes: mem.target,
+            plugged_bytes: mem.plugged,
+            reported_bytes: mem.reported,
+            clean_bytes: mem.clean,
+        })
     }
     fn console_read(&self, vm: u64, offset: u64) -> Result<(u64, Vec<u8>, u64)> {
         self.0.console_read(vm, offset).map_err(control_error)

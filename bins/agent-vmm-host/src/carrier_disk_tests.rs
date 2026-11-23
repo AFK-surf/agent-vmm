@@ -117,7 +117,7 @@ fn minimal_oci_archive() -> (Vec<u8>, [u8; 32]) {
 }
 
 #[tokio::test]
-async fn carrier_disk_summary_follows_offline_start_and_active_image_leases() {
+async fn carrier_disk_and_memory_summaries_follow_offline_start_and_active_image_leases() {
     let dir = tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
         .tempdir_in("/tmp")
@@ -168,10 +168,17 @@ async fn carrier_disk_summary_follows_offline_start_and_active_image_leases() {
         assert_eq!(page.boot_id, disk.boot_id);
         assert!(disk.guest_state_fs.is_none());
         assert_eq!(disk.unavailable_reason, "guest state disk is unavailable");
+        let memory = operator
+            .get_memory_summary(h::GetMemorySummaryRequest {})
+            .await
+            .unwrap_err();
+        assert_eq!(memory.code(), vmm_rpc::Code::FailedPrecondition);
+        assert_eq!(memory.message(), "VM is not running");
 
         let dom0 = root.join("dom0");
         let control = UnixListener::bind(&dom0).unwrap();
-        let machine = MockCarrierHypervisor::new(BTreeMap::from([(CONTROL_PORT, dom0)]));
+        let mut machine = MockCarrierHypervisor::new(BTreeMap::from([(CONTROL_PORT, dom0)]));
+        machine.set_phys_footprint_bytes(77 << 20);
         let (stop_carrier, stopped_carrier) = oneshot::channel();
         let carrier = tokio::spawn(serve(
             UnixListener::bind(carrier_socket).unwrap(),
@@ -216,6 +223,59 @@ async fn carrier_disk_summary_follows_offline_start_and_active_image_leases() {
             // Pool-allocated `stage/*` extents are already counted in `pool_allocated_bytes`.
             assert_eq!(fs.import_reservation_bytes, Some(0));
         }
+        // The Carrier gives its footprint. Dom0 gives the memory of the l4h host.
+        let dom0_reply = async {
+            loop {
+                let (mut peer, _) = control.accept().await.unwrap();
+                let mut frame = vec![0; peer.read_u32().await.unwrap() as usize];
+                peer.read_exact(&mut frame).await.unwrap();
+                // The periodic health observation also lists the VMs.
+                if frame != br#"[1,"MemorySummary"]"# {
+                    continue;
+                }
+                let reply = serde_json::to_vec(&json!({"Ok": {
+                    "clean_bytes": 1, "free_bytes": 2, "inflated_bytes": 3,
+                    "guest_plugged_bytes": 4, "dom0_limit_bytes": 5, "dom0_used_bytes": 6,
+                    "environments": [{
+                        "environment_id": "owned",
+                        "boot_bytes": 7, "grant_bytes": 8, "plugged_bytes": 9,
+                    }],
+                }}))
+                .unwrap();
+                peer.write_u32(reply.len() as u32).await.unwrap();
+                peer.write_all(&reply).await.unwrap();
+                break;
+            }
+        };
+        let (memory, ()) = tokio::join!(
+            operator.get_memory_summary(h::GetMemorySummaryRequest {}),
+            dom0_reply
+        );
+        let mut memory = memory.unwrap().into_inner();
+        assert!(memory.sampled_at.take().is_some());
+        assert_eq!(
+            memory,
+            h::GetMemorySummaryResponse {
+                sampled_at: None,
+                carrier_footprint_bytes: 77 << 20,
+                pool: Some(h::MemoryPoolSummary {
+                    clean_bytes: 1,
+                    free_bytes: 2,
+                    inflated_bytes: 3,
+                    guest_plugged_bytes: 4,
+                }),
+                dom0_limit_bytes: 5,
+                dom0_used_bytes: 6,
+                environments: vec![h::EnvironmentMemorySummary {
+                    environment_id: "owned".into(),
+                    boot_bytes: 7,
+                    grant_bytes: 8,
+                    plugged_bytes: 9,
+                    zram_bytes: 0,
+                    ebusy_count: 0,
+                }],
+            }
+        );
         drop(operator);
         stop_carrier.send(()).unwrap();
         carrier.await.unwrap().unwrap();

@@ -18,6 +18,21 @@ On `PLAT_APPLE_VZ`, `clear_boot_memory` scans only the loader boot window and th
 `sel4-kernel-loader` must zero and clean-invalidate (`dc civac`) the compile-time `payload.info.dtb` after `copy_data_out` whenever it is not passed to the kernel.
 Otherwise, a `free_index = 0` boot Untyped retains FDT bytes and corrupts later kernel objects.
 
+## Apple VZ memory accounting
+
+Virtualization.framework runs the VM in the XPC service `com.apple.Virtualization.VirtualMachine`.
+`launchd` starts the service. Its parent PID is 1, and `proc_listchildpids` for the Carrier does not find it.
+macOS charges the guest memory to the service, not to the Carrier.
+Find the service as the process with that executable that holds the pool file open.
+
+## l4h memory hotplug
+
+On aarch64, `l4h_pt_map` ignores its level argument and calls `seL4_ARM_PageTable_Map`.
+The kernel puts the table at the highest level that is missing for the address.
+In a new GiB of the direct map, a table for 4 KiB pages can go one level too high, in a slot that an unplug revokes.
+The map then fails with `seL4_FailedLookup`.
+`l4h_hp_map` must first call `map_kernel_at(large[i], va, 1)` for each block that has a 2 MiB aligned address.
+
 ## Guest init
 
 `std::process::Command` keeps the descriptors of its `Stdio` values until it is dropped.
@@ -54,9 +69,6 @@ Use `otool -L` to require only `libSystem`.
 
 Guest assembly pipes cpio into xz. Without cpio, the pipeline can produce a valid empty initramfs.
 Keep cpio in the Dockerfile tools stage. An empty initramfs leaves the VM in `STARTING`.
-
-Swift generator builds resolve their own transitive dependencies, even when their source checkout came from the app build.
-Copy the app’s `Package.resolved` into each generator package before building it to keep generated output consistent.
 
 ## Host store
 

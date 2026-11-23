@@ -41,8 +41,8 @@ Use `--service-type daemon --service-user USER` for a non-root user managed by a
 Verify the installed helper set before you report the local version.
 
 The Carrier embeds the canonical Guest manifest digest at link time.
-Use Rust 1.96.0, Go, and the Protobuf compiler to build the package.
-Build the debugging app with `make swift-project`.
+Use Rust 1.96.0 and the Protobuf compiler to build the package.
+Build and check the debugging app with `./apps/console/scripts/verify.sh`.
 
 ## Linux Host package
 

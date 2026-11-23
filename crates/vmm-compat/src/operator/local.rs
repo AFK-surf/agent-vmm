@@ -20,7 +20,10 @@ pub struct LocalOperator {
     pub appliances: Option<super::ApplianceOperations>,
     pub mcp: Option<Arc<super::McpManagement>>,
     disk_sample: Option<Arc<dyn Fn() -> vmm_core::Result<DiskSample> + Send + Sync>>,
+    memory_sample: Option<Arc<MemorySample>>,
 }
+
+type MemorySample = dyn Fn() -> vmm_core::Result<h::GetMemorySummaryResponse> + Send + Sync;
 
 impl LocalOperator {
     pub fn open(
@@ -47,6 +50,7 @@ impl LocalOperator {
             mcp: None,
             appliances: None,
             disk_sample: None,
+            memory_sample: None,
         })
     }
 
@@ -55,6 +59,15 @@ impl LocalOperator {
         sample: impl Fn() -> vmm_core::Result<DiskSample> + Send + Sync + 'static,
     ) -> Self {
         self.disk_sample = Some(Arc::new(sample));
+        self
+    }
+
+    /// The sample runs on a blocking thread while the VM runs. The operator sets `sampled_at`.
+    pub fn with_memory_sample(
+        mut self,
+        sample: impl Fn() -> vmm_core::Result<h::GetMemorySummaryResponse> + Send + Sync + 'static,
+    ) -> Self {
+        self.memory_sample = Some(Arc::new(sample));
         self
     }
 
@@ -232,6 +245,33 @@ impl LocalOperator {
         } else {
             None
         }
+    }
+    async fn memory(
+        &self,
+        _: h::GetMemorySummaryRequest,
+    ) -> Result<h::GetMemorySummaryResponse, Status> {
+        let sample = self
+            .memory_sample
+            .clone()
+            .ok_or_else(|| Status::unimplemented("this Host does not sample memory"))?;
+        if !self
+            .snapshot()
+            .await
+            .is_ok_and(|vm| vm.state() == h::VmState::Running)
+        {
+            return Err(Status::failed_precondition("VM is not running"));
+        }
+        let mut summary = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            tokio::task::spawn_blocking(move || sample()),
+        )
+        .await
+        .ok()
+        .and_then(Result::ok)
+        .and_then(Result::ok)
+        .ok_or_else(|| Status::unavailable("memory sample is unavailable"))?;
+        summary.sampled_at = Some(SystemTime::now().into());
+        Ok(summary)
     }
     fn mcp(&self) -> Result<Arc<super::McpManagement>, Status> {
         self.mcp
@@ -500,6 +540,16 @@ impl vmm_rpc::Service for LocalOperatorServer {
                 self.0
                     .disk(
                         req.unary::<h::GetLocalDiskSummaryRequest>()
+                            .await?
+                            .into_inner(),
+                    )
+                    .await?,
+            )
+            .unary_body()),
+            "GetMemorySummary" => Ok(Response::new(
+                self.0
+                    .memory(
+                        req.unary::<h::GetMemorySummaryRequest>()
                             .await?
                             .into_inner(),
                     )

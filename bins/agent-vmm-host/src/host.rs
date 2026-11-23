@@ -122,14 +122,18 @@ impl HostState {
                 &mut api,
                 Arc::new(crate::workspace::Dom0Workspaces(backend.clone())),
             )?;
-            api = api.with_disk_sample(move || {
-                let (used, capacity, import_reservations) = backend.disk_accounting()?;
-                Ok(vmm_compat::operator::DiskSample {
-                    used,
-                    capacity,
-                    import_reservations,
+            let disk = backend.clone();
+            api = api
+                .with_disk_sample(move || {
+                    let (used, capacity, import_reservations) = disk.disk_accounting()?;
+                    Ok(vmm_compat::operator::DiskSample {
+                        used,
+                        capacity,
+                        import_reservations,
+                    })
                 })
-            });
+                // A Linux Host has no Carrier.
+                .with_memory_sample(move || Ok(memory_summary(0, backend.memory_summary()?)));
         }
         Ok((api, registrations))
     }
@@ -216,6 +220,38 @@ impl HostState {
             guest: drivers.guest,
         };
         Ok((runtime, report))
+    }
+}
+
+/// The operator view of a dom0 memory sample. The Host does not sample zram and refused hotplug.
+pub(crate) fn memory_summary(
+    carrier_footprint_bytes: u64,
+    dom0: vmm_dom0::memory::Dom0MemorySummary,
+) -> agent_vmm_proto::host::v1::GetMemorySummaryResponse {
+    use agent_vmm_proto::host::v1 as h;
+    h::GetMemorySummaryResponse {
+        sampled_at: None,
+        carrier_footprint_bytes,
+        pool: Some(h::MemoryPoolSummary {
+            clean_bytes: dom0.clean_bytes,
+            free_bytes: dom0.free_bytes,
+            inflated_bytes: dom0.inflated_bytes,
+            guest_plugged_bytes: dom0.guest_plugged_bytes,
+        }),
+        dom0_limit_bytes: dom0.dom0_limit_bytes,
+        dom0_used_bytes: dom0.dom0_used_bytes,
+        environments: dom0
+            .environments
+            .into_iter()
+            .map(|e| h::EnvironmentMemorySummary {
+                environment_id: e.environment_id,
+                boot_bytes: e.boot_bytes,
+                grant_bytes: e.grant_bytes,
+                plugged_bytes: e.plugged_bytes,
+                zram_bytes: 0,
+                ebusy_count: 0,
+            })
+            .collect(),
     }
 }
 

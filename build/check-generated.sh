@@ -10,9 +10,5 @@ case "${1:-}" in
     PROTOC=$(sh build/protoc.sh "$work") cargo run --locked -p agent-vmm-proto --bin protodoc -- "$work/api-descriptors.binpb" "$work/api-docs"
     diff -r docs/reference/api "$work/api-docs"
     ;;
-  swift)
-    sh build/generate-swift.sh "$work"
-    diff -r apps/macos/AgentVMM/Generated "$work/apps/macos/AgentVMM/Generated"
-    ;;
-  *) echo 'usage: check-generated.sh docs|swift' >&2; exit 2 ;;
+  *) echo 'usage: check-generated.sh docs' >&2; exit 2 ;;
 esac

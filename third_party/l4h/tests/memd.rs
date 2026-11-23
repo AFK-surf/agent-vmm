@@ -539,7 +539,7 @@ fn traditional_balloon_skips_clean_keeps_hot_pool_and_deflates_whole_block() {
     // Boot handover: 256 MiB clean block at unit 0 (order 7: 128 * 2 MiB = 256 MiB).
     kernel(|k| { k.caps.insert(xchg(Client::Root, 0).0, (0, 128 << BLOCK_BITS)); });
     assert_eq!(d.free(Client::Root, &batch(&[(0, BLOCK_BITS + 7)])), 0);
-    assert_eq!(d.mem.state(0), State::Clean);
+    assert!(d.mem.state(0) == State::Clean);
     assert_eq!(d.mem.clean_bytes(), 256 << 20);
     assert_eq!(d.mem.available_bytes(), 256 << 20);
 

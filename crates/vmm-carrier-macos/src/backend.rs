@@ -25,6 +25,9 @@ impl CarrierDom0Backend {
     pub async fn guest_address(&self, boot: &BootIdentity) -> Result<std::net::SocketAddrV4> {
         self.remote.guest_address(boot).await
     }
+    pub async fn memory_summary(&self) -> Result<vmm_dom0::memory::Dom0MemorySummary> {
+        self.remote.memory_summary().await
+    }
     async fn admit_storage(&self, needed: u64) -> Result<()> {
         let available = self.carrier.control(Request::Status).await?.host_free_bytes;
         if available

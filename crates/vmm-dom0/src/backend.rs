@@ -41,6 +41,8 @@ pub struct Options {
     pub helper_image: Option<Digest>,
     pub builder_image: Option<Digest>,
     pub host_shares: BTreeMap<String, PathBuf>,
+    /// The Linux memory report of dom0.
+    pub meminfo: PathBuf,
 }
 
 impl Options {
@@ -61,6 +63,7 @@ impl Options {
             helper_image: None,
             builder_image: None,
             host_shares: BTreeMap::new(),
+            meminfo: "/proc/meminfo".into(),
         }
     }
 }

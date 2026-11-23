@@ -213,6 +213,8 @@ pub struct Status {
     pub free_bytes: u64,
     /// Of those, reported to the hypervisor.
     pub reported_bytes: u64,
+    /// And of those, untouched since the boot handover.
+    pub clean_bytes: u64,
     /// Free blocks, and the size of the largest.
     pub free_blocks: u64,
     pub largest_block: u64,

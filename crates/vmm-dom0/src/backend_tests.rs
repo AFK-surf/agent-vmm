@@ -619,6 +619,145 @@ async fn embedded_open_accepts_config_without_control_socket_and_checks_master_k
 }
 
 #[tokio::test]
+async fn memory_summary_adds_running_workload_vms_by_environment_for_the_host_only() -> Result<()> {
+    use crate::memory::{Dom0MemorySummary, EnvironmentMemory};
+    use crate::remote::{RemoteDom0Client, serve_connection, serve_host_connection};
+    use vmm_l4hctl::{HypervisorCtl, VmMemInfo};
+    const MIB: u64 = 1 << 20;
+
+    let dir = tempfile::tempdir()?;
+    let sectors = 8 * BLOCK_SECTORS;
+    let mock = Arc::new(Mutex::new(MockHypervisorCtl::with_disks(vec![DiskInfo {
+        id: 1,
+        owned: false,
+        failed: false,
+        sectors,
+    }])));
+    let ctl: Control = mock.clone();
+    let pool = Arc::new(Pool::open(
+        &dir.path().join("pool.db"),
+        ctl.clone(),
+        1,
+        DiskExtent { sector: 0, sectors },
+        Arc::new(FilesystemHeadroom(dir.path().into())),
+        0,
+    )?);
+    let mut cfg = options(dir.path());
+    cfg.meminfo = dir.path().join("meminfo");
+    std::fs::write(
+        &cfg.meminfo,
+        "MemTotal:         247808 kB\nMemFree:            1024 kB\nMemAvailable:      30720 kB\n",
+    )?;
+    let b = Arc::new(open(&pool, &ctl, cfg)?);
+
+    // Name, environment, helper, boot, target and plugged MiB. No VM has the name `lost`.
+    let vms = [
+        ("a1", "alpha", false, 128, 1024, 256),
+        ("a2", "alpha", false, 128, 512, 0),
+        ("b1", "beta", false, 256, 256, 0),
+        ("helper", "alpha", true, 64, 64, 0),
+        ("lost", "gamma", false, 128, 128, 0),
+    ];
+    for (slot, (name, scope, helper, boot, target, plugged)) in vms.into_iter().enumerate() {
+        let def = support::definition(scope, name, AccessMode::ReadWrite);
+        b.catalog().save(&SavedBoot {
+            identity: BootIdentity {
+                sandbox: def.key.clone(),
+                instance_id: name.into(),
+                boot_token_hash: [1; 32],
+            },
+            name: name.into(),
+            slot: slot as u32,
+            vm: None,
+            scope: support::scope(scope),
+            definition: def,
+            encrypted_token: vec![],
+            disks: vec![],
+            writers: vec![],
+            retiring: false,
+            retired: false,
+            helper,
+            share_ports: Default::default(),
+        })?;
+        if name == "lost" {
+            continue;
+        }
+        let mut ctl = mock.lock().unwrap();
+        let id = ctl
+            .create_vm(&VmSpec {
+                name,
+                memory_bytes: boot * MIB,
+                vcpus: 1,
+                initrd: &[],
+                cmdline: "",
+                volumes: &[],
+            })
+            .unwrap();
+        ctl.vm_set_mem(id, target * MIB).unwrap();
+        let mut info = ctl.vm_mem_info(id).unwrap();
+        info.plugged_bytes = plugged * MIB;
+        ctl.set_vm_mem(id, info);
+    }
+    {
+        let mut ctl = mock.lock().unwrap();
+        ctl.set_host_mem((4096 + 1536 + 192) * MIB, 8192 * MIB);
+        ctl.set_vm_mem(
+            0,
+            VmMemInfo {
+                boot_bytes: 256 * MIB,
+                reported_bytes: 1536 * MIB,
+                clean_bytes: 4096 * MIB,
+                ..Default::default()
+            },
+        );
+    }
+    let environment = |id: &str, boot, grant, plugged| EnvironmentMemory {
+        environment_id: id.into(),
+        boot_bytes: boot * MIB,
+        grant_bytes: grant * MIB,
+        plugged_bytes: plugged * MIB,
+    };
+    let expected = Dom0MemorySummary {
+        clean_bytes: 4096 * MIB,
+        free_bytes: 192 * MIB,
+        inflated_bytes: 1536 * MIB,
+        guest_plugged_bytes: (256 + 128 + 256 + 128 + 256 + 64) * MIB,
+        dom0_limit_bytes: 256 * MIB,
+        dom0_used_bytes: 212 * MIB,
+        environments: vec![
+            environment("alpha", 256, 1024 + 512, 128 + 256 + 128),
+            environment("beta", 256, 256, 256),
+        ],
+    };
+    assert_eq!(b.memory_summary()?, expected);
+
+    // The socket path on macOS is limited to 104 bytes.
+    let sockets = tempfile::tempdir_in("/tmp")?;
+    let path = sockets.path().join("dom0.sock");
+    let listener = tokio::net::UnixListener::bind(&path)?;
+    let client = RemoteDom0Client::unix(&path);
+    let (served, summary) = tokio::join!(
+        async {
+            let (socket, _) = listener.accept().await?;
+            serve_host_connection(socket, &b).await
+        },
+        client.memory_summary(),
+    );
+    served?;
+    assert_eq!(summary?, expected);
+    let (served, refused) = tokio::join!(
+        async {
+            let (socket, _) = listener.accept().await?;
+            serve_connection(socket, b.as_ref()).await
+        },
+        client.memory_summary(),
+    );
+    served?;
+    assert!(matches!(refused, Err(Error::Fenced)));
+    Ok(())
+}
+
+#[tokio::test]
 async fn carrier_image_upload_releases_unpublished_stage_when_the_host_disconnects() -> Result<()> {
     use crate::remote::{Connect, RemoteImageStage, serve_host_connection};
     use tokio::net::{UnixListener, UnixStream};

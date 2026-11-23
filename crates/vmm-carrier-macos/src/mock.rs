@@ -17,6 +17,9 @@ impl MockCarrierHypervisor {
     pub fn set_host_free_bytes(&mut self, bytes: u64) {
         self.status.host_free_bytes = bytes;
     }
+    pub fn set_phys_footprint_bytes(&mut self, bytes: u64) {
+        self.status.phys_footprint_bytes = bytes;
+    }
     pub fn new(endpoints: BTreeMap<u32, PathBuf>) -> Self {
         Self {
             endpoints,
@@ -33,6 +36,7 @@ impl MockCarrierHypervisor {
                 pool_allocated_bytes: 0,
                 pool_hole_bytes: 64 << 30,
                 host_free_bytes: 128 << 30,
+                phys_footprint_bytes: 0,
                 last_error: None,
             },
         }

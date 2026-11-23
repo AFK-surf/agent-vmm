@@ -308,6 +308,12 @@ collecting compute metrics.
 
 `.agentvmm.host.v1.GetLocalDiskSummaryRequest` → `.agentvmm.host.v1.GetLocalDiskSummaryResponse`
 
+### `GetMemorySummary`
+
+GetMemorySummary reads Host, memory-daemon, and workload VM physical memory accounting.
+
+`.agentvmm.host.v1.GetMemorySummaryRequest` → `.agentvmm.host.v1.GetMemorySummaryResponse`
+
 ### `ListLocalEnvironmentPage`
 
 ListLocalEnvironmentPage reads an indexed bounded page of local environment summaries.
@@ -764,6 +770,12 @@ GetLocalDiskSummaryRequest carries inputs for an operation that reads Guest file
 accounting without scanning every environment or collecting compute metrics.
 
 
+## Message `GetMemorySummaryRequest`
+
+GetMemorySummaryRequest carries inputs for an operation that reads Host, memory-daemon, and
+workload VM physical memory accounting.
+
+
 ## Message `ListLocalEnvironmentPageRequest`
 
 ListLocalEnvironmentPageRequest carries inputs for an operation that reads an indexed bounded
@@ -1034,6 +1046,39 @@ registration, connector observation, and owned allocations.
 GetLocalDiskSummaryResponse carries results from an operation that reads Guest filesystem
 accounting without scanning every environment or collecting compute metrics.
 
+
+## Message `GetMemorySummaryResponse`
+
+GetMemorySummaryResponse carries results from an operation that reads Host, memory-daemon, and
+workload VM physical memory accounting. All sizes are bytes of Host physical memory.
+
+| Field | Number | Type | Description |
+| --- | --- | --- | --- |
+| `carrier_footprint_bytes` | 2 | `uint64` | carrier_footprint_bytes is the physical footprint that macOS charges to the Carrier and its VM service process. It is zero on a Host without a Carrier. |
+| `dom0_limit_bytes` | 4 | `uint64` | dom0_limit_bytes is the boot memory and the plugged memory of dom0. |
+| `dom0_used_bytes` | 5 | `uint64` | dom0_used_bytes is the dom0 memory that Linux does not report as available. |
+
+## Message `MemoryPoolSummary`
+
+MemoryPoolSummary divides the guest physical memory that the memory daemon manages.
+
+| Field | Number | Type | Description |
+| --- | --- | --- | --- |
+| `clean_bytes` | 1 | `uint64` | clean_bytes is free memory that no guest used after boot. The Host does not back it. |
+| `free_bytes` | 2 | `uint64` | free_bytes is free memory that a guest released. The Host backs it. |
+| `inflated_bytes` | 3 | `uint64` | inflated_bytes is free memory that the memory daemon returned to the Host. |
+| `guest_plugged_bytes` | 4 | `uint64` | guest_plugged_bytes is the boot memory and the plugged memory of dom0 and all other VMs. |
+
+## Message `EnvironmentMemorySummary`
+
+EnvironmentMemorySummary adds the memory of the running workload VMs of one environment.
+
+| Field | Number | Type | Description |
+| --- | --- | --- | --- |
+| `grant_bytes` | 3 | `uint64` | grant_bytes is the boot memory and the hotplug target. |
+| `plugged_bytes` | 4 | `uint64` | plugged_bytes is the boot memory and the plugged hotplug memory. |
+| `zram_bytes` | 5 | `uint64` | zram_bytes is the compressed swap in the workload VM. It is zero until the Host samples it. |
+| `ebusy_count` | 6 | `uint64` | ebusy_count is the number of refused hotplug requests. It is zero until the Host samples it. |
 
 ## Message `ListLocalEnvironmentPageResponse`
 

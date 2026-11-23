@@ -157,19 +157,33 @@ impl CarrierImageStaging {
         Ok(())
     }
 
-    pub(crate) fn disk_sample(&self) -> vmm_core::Result<vmm_compat::operator::DiskSample> {
-        let status = tokio::runtime::Handle::current()
-            .block_on(async {
-                tokio::time::timeout(
-                    std::time::Duration::from_secs(4),
-                    self.client.control(Request::Status),
-                )
-                .await
-            })
-            .map_err(|_| vmm_core::Error::Interrupted)??;
+    /// The status of a Carrier whose VM runs.
+    async fn running(&self) -> vmm_core::Result<CarrierStatus> {
+        let status = tokio::time::timeout(
+            std::time::Duration::from_secs(4),
+            self.client.control(Request::Status),
+        )
+        .await
+        .map_err(|_| vmm_core::Error::Interrupted)??;
         if status.state != State::Running {
             return Err(std::io::Error::other("carrier VM is not running").into());
         }
+        Ok(status)
+    }
+
+    /// The Carrier gives its footprint. Dom0 gives the memory of the l4h host inside the VM.
+    pub(crate) fn memory_sample(&self) -> vmm_core::Result<h::GetMemorySummaryResponse> {
+        let backend = self.client.dom0();
+        let (status, dom0) = tokio::runtime::Handle::current()
+            .block_on(async { tokio::join!(self.running(), backend.memory_summary()) });
+        Ok(crate::host::memory_summary(
+            status?.phys_footprint_bytes,
+            dom0?,
+        ))
+    }
+
+    pub(crate) fn disk_sample(&self) -> vmm_core::Result<vmm_compat::operator::DiskSample> {
+        let status = tokio::runtime::Handle::current().block_on(self.running())?;
         // Pool-allocated `stage/*` extents are already included in `pool_allocated_bytes`.
         Ok(vmm_compat::operator::DiskSample {
             used: status.pool_allocated_bytes,

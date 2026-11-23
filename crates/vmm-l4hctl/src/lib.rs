@@ -76,6 +76,19 @@ pub struct VmInfo {
     pub state: VmState,
 }
 
+/// Bytes of host memory. The hotplug values count whole hotplug blocks.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct VmMemInfo {
+    pub boot_bytes: u64,
+    pub region_bytes: u64,
+    pub target_bytes: u64,
+    pub plugged_bytes: u64,
+    /// Free host memory that is returned to the hypervisor. It is the same for each VM.
+    pub reported_bytes: u64,
+    /// Free host memory that no guest used after boot. It is the same for each VM.
+    pub clean_bytes: u64,
+}
+
 #[derive(Debug, Eq, PartialEq)]
 pub enum Error {
     InvalidExtent,
@@ -109,6 +122,10 @@ pub trait HypervisorCtl: Send {
     fn blk_write(&mut self, disk: u64, sector: u64, bytes: &[u8]) -> Result<()>;
     fn blk_flush(&mut self, disk: u64) -> Result<()>;
     fn vm_set_mem(&mut self, vm: u64, bytes: u64) -> Result<()>;
+    /// Free and total bytes of host memory.
+    fn host_mem_info(&self) -> Result<(u64, u64)>;
+    /// VM zero is dom0.
+    fn vm_mem_info(&self, vm: u64) -> Result<VmMemInfo>;
     fn console_read(&self, vm: u64, offset: u64) -> Result<(u64, Vec<u8>, u64)>;
     fn create_vm(&mut self, spec: &VmSpec<'_>) -> Result<u64>;
     fn list_vms(&self) -> Result<Vec<VmInfo>>;
@@ -126,6 +143,8 @@ pub struct MockHypervisorCtl {
 
     vms: BTreeMap<u64, (VmInfo, Vec<DiskVolume>)>,
     discards: Vec<(u64, DiskExtent)>,
+    host_mem: (u64, u64),
+    mem: BTreeMap<u64, VmMemInfo>,
 }
 
 impl MockHypervisorCtl {
@@ -157,6 +176,15 @@ impl MockHypervisorCtl {
 
     pub fn discards(&self) -> &[(u64, DiskExtent)] {
         &self.discards
+    }
+
+    pub fn set_host_mem(&mut self, free: u64, total: u64) {
+        self.host_mem = (free, total);
+    }
+
+    /// Replace the memory of a VM. VM zero is dom0 and needs no `create_vm`.
+    pub fn set_vm_mem(&mut self, vm: u64, info: VmMemInfo) {
+        self.mem.insert(vm, info);
     }
 }
 
@@ -235,7 +263,19 @@ impl HypervisorCtl for MockHypervisorCtl {
             .ok_or(Error::NoSuchVm(vm))?
             .0
             .memory_bytes = bytes;
+        // The mock guest plugs nothing until a test calls `set_vm_mem`.
+        let mem = self.mem.entry(vm).or_default();
+        mem.target_bytes = bytes.saturating_sub(mem.boot_bytes);
+        mem.region_bytes = mem.region_bytes.max(mem.target_bytes);
         Ok(())
+    }
+
+    fn host_mem_info(&self) -> Result<(u64, u64)> {
+        Ok(self.host_mem)
+    }
+
+    fn vm_mem_info(&self, vm: u64) -> Result<VmMemInfo> {
+        self.mem.get(&vm).copied().ok_or(Error::NoSuchVm(vm))
     }
 
     fn console_read(&self, vm: u64, offset: u64) -> Result<(u64, Vec<u8>, u64)> {
@@ -260,6 +300,13 @@ impl HypervisorCtl for MockHypervisorCtl {
             state: VmState::Running,
         };
         self.vms.insert(id, (info, spec.volumes.to_vec()));
+        self.mem.insert(
+            id,
+            VmMemInfo {
+                boot_bytes: spec.memory_bytes,
+                ..Default::default()
+            },
+        );
         Ok(id)
     }
 
@@ -269,6 +316,7 @@ impl HypervisorCtl for MockHypervisorCtl {
 
     fn destroy_vm(&mut self, vm: u64) -> Result<()> {
         self.nics.remove(&vm);
+        self.mem.remove(&vm);
         self.vms.remove(&vm).map(|_| ()).ok_or(Error::NoSuchVm(vm))
     }
 
@@ -324,8 +372,19 @@ mod tests {
         assert_eq!(ctl.blk_write(4, 0, &[2; 4096]), Err(Error::Busy));
         ctl.vm_set_mem(id, 128 << 20)?;
         assert_eq!(ctl.list_vms()?[0].memory_bytes, 128 << 20);
+        assert_eq!(
+            ctl.vm_mem_info(id)?,
+            VmMemInfo {
+                boot_bytes: 64 << 20,
+                region_bytes: 64 << 20,
+                target_bytes: 64 << 20,
+                ..Default::default()
+            }
+        );
+        assert_eq!(ctl.vm_mem_info(0), Err(Error::NoSuchVm(0)));
         assert_eq!(ctl.console_read(id, 5)?, (5, Vec::new(), 0));
         ctl.destroy_vm(id)?;
+        assert_eq!(ctl.vm_mem_info(id), Err(Error::NoSuchVm(id)));
         ctl.blk_discard(4, extent)?;
         assert!(ctl.sectors.is_empty());
         ctl.create_networked_vm(&spec, nic)?;

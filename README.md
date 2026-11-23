@@ -38,7 +38,7 @@ Controllers use the [public protocols](docs/protocols/remote.md).
 The Guest protocol is private to the Host.
 
 The Host package is `Agent VMM Host.app`.
-`apps/macos` is a development and preview debugging tool. Use MCP for workloads.
+`apps/console` is a development and preview debugging tool. Use MCP for workloads.
 
 ## Documentation
 

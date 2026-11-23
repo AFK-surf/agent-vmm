@@ -1,4 +1,5 @@
 mod config;
+mod footprint;
 mod netlink;
 mod quic;
 use crate::{
@@ -58,6 +59,8 @@ pub struct VzHypervisor {
     target: u64,
     shares: Arc<RwLock<Shares>>,
     quic: Option<quic::CarrierQuicClient>,
+    /// The VM service processes of the current boot.
+    vm_services: Vec<libc::pid_t>,
     last_error: Option<String>,
 }
 
@@ -71,6 +74,7 @@ impl VzHypervisor {
             settings,
             shares: Arc::new(RwLock::new(Shares::new())),
             quic: None,
+            vm_services: Vec::new(),
             last_error: None,
         }
     }
@@ -93,6 +97,21 @@ impl VzHypervisor {
             Ok(())
         });
         self.boot = None;
+        self.vm_services.clear();
+    }
+    /// The physical footprint of the Carrier and, while the VM runs, of its VM service process.
+    fn footprint(&mut self, running: bool) -> u64 {
+        let own = footprint::of(std::process::id() as libc::pid_t).unwrap_or(0);
+        if !running {
+            return own;
+        }
+        // A new boot has no known service. A known service can stop.
+        let known = footprint::of_all(&self.vm_services).filter(|_| !self.vm_services.is_empty());
+        own + known.unwrap_or_else(|| {
+            self.vm_services = footprint::holders(&self.settings.pool, footprint::VM_SERVICE)
+                .unwrap_or_default();
+            footprint::of_all(&self.vm_services).unwrap_or(0)
+        })
     }
     fn state(&mut self) -> io::Result<State> {
         self.on_queue(|m, _| match m.vm.as_ref() {
@@ -154,6 +173,7 @@ impl CarrierHypervisor for VzHypervisor {
             pool_allocated_bytes: sparse::allocated_bytes(&file)?,
             pool_hole_bytes: sparse::hole_bytes(&file, size)?,
             host_free_bytes: sparse::host_free_bytes(&self.settings.pool)?,
+            phys_footprint_bytes: self.footprint(state == State::Running),
             last_error: self.last_error.clone(),
         })
     }

@@ -26,6 +26,9 @@ pub struct CarrierStatus {
     pub pool_allocated_bytes: u64,
     pub pool_hole_bytes: u64,
     pub host_free_bytes: u64,
+    /// The physical footprint that macOS charges to the Carrier and its VM service process.
+    #[serde(default)]
+    pub phys_footprint_bytes: u64,
     pub last_error: Option<String>,
 }
 

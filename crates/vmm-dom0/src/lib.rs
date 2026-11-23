@@ -13,6 +13,7 @@ pub mod image;
 pub mod inventory;
 pub mod keys;
 mod launch;
+pub mod memory;
 #[cfg(target_os = "linux")]
 pub mod local;
 pub mod network;

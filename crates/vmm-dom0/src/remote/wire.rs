@@ -43,6 +43,7 @@ pub(super) enum Request {
     GuestAddress(BootIdentity),
     OpenGuestRuntime(BootIdentity),
     AcquireWorkspace(String, Option<String>, AccessMode),
+    MemorySummary,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -105,7 +106,8 @@ pub(super) async fn dispatch(backend: &dyn Dom0Backend, r: Request) -> Result<se
         | Request::StageErofs { .. }
         | Request::AcquireWorkspace(..)
         | Request::OpenGuestRuntime(_)
-        | Request::GuestAddress(_) => {
+        | Request::GuestAddress(_)
+        | Request::MemorySummary => {
             return Err(Error::Fenced);
         }
         Request::ImageInstalled(d) => to_value(backend.image_installed(d).await?),

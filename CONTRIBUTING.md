@@ -3,8 +3,6 @@
 ## Toolchain
 
 Install `buf`, Rust and Cargo, `jq`, and Docker Buildx.
-For macOS development, install Xcode and `xcodegen`.
-Install the Swift protobuf and gRPC generators before you generate Swift code.
 
 Read [the Guest build requirements](docs/build.md#guest).
 SBOM tools also need `syft`. Guest extraction needs `unsquashfs`.
@@ -14,7 +12,6 @@ SBOM tools also need `syft`. Guest extraction needs `unsquashfs`.
 ```sh
 make proto
 make proto-check
-make swift-project
 ```
 
 `make proto-check` runs protobuf lint.
@@ -24,7 +21,6 @@ Authorized retirement can remove an RPC or message. All other `PACKAGE` compatib
 Retained fields, types, tags, JSON names, and RPC shapes must preserve their existing contracts.
 
 `make check-api-docs` compares the regenerated API reference with the source tree.
-`make check-swift-generated` compares regenerated Swift files with the source tree.
 
 ## Check a change
 
@@ -38,13 +34,6 @@ Run the console checks when you change `apps/console`:
 
 ```sh
 ./apps/console/scripts/verify.sh
-```
-
-Run Swift tests when you change the debugging app:
-
-```sh
-xcodebuild test -project apps/macos/AgentVMM/AgentVMM.xcodeproj \
-  -scheme AgentVMM -destination 'platform=macOS' CODE_SIGNING_ALLOWED=NO
 ```
 
 ## Test scope

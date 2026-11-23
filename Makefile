@@ -1,6 +1,6 @@
 PROTO_BASE_REF ?= origin/main
 
-.PHONY: check fmt-check vet test check-api-docs check-swift-generated proto proto-docs proto-check proto-breaking tla swift-project release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
+.PHONY: check fmt-check vet test check-api-docs proto proto-docs proto-check proto-breaking tla release-bundle headless-release install-bundle test-rust lint-rust test-data-worker lint-data-worker audit-data-worker
 
 check: fmt-check vet test proto-check
 
@@ -16,11 +16,7 @@ test:
 check-api-docs:
 	sh build/check-generated.sh docs
 
-check-swift-generated:
-	sh build/check-generated.sh swift
-
 proto:
-	sh build/generate-swift.sh
 	$(MAKE) proto-docs
 
 proto-docs:
@@ -36,9 +32,6 @@ proto-breaking:
 
 tla:
 	sh tools/tla/run.sh
-
-swift-project:
-	cd apps/macos/AgentVMM && xcodegen generate
 
 release-bundle:
 	sh build/host/package.sh

@@ -14,13 +14,13 @@ The console is a Cargo workspace of its own. The Host workspace excludes it, so 
 
 | Page | Operator calls |
 | --- | --- |
-| Host & Memory | `GetVM`, `GetSystemHealthSummary`, `GetLocalDiskSummary`, `GetVMImpactSummary`, `StartVM`, `StopVM`, `GetOperation` |
+| Host & Memory | `GetVM`, `GetSystemHealthSummary`, `GetLocalDiskSummary`, `GetMemorySummary`, `GetVMImpactSummary`, `StartVM`, `StopVM`, `GetOperation` |
 | Environments | `ListLocalEnvironmentPage`, `GetEnvironment`, `PlanResetEnvironment`, `PlanDiscardEnvironment`, `ExecuteCleanup`, `PlanLocalDisposal`, `ExecuteLocalDisposal` |
 | Logs | `Logs` |
 | Access & Appliances | `GetDeviceIdentity`, `ListLocalRegistrationPage`, `ListHostSockets`, `CreateMCPToken`, `RotateMCPTokenKey`, `ApplianceAdminService.ListAppliances`, `ApplianceAdminService.GetApplianceStatus` |
 
 The Host page samples the Host one time each second while the page is in view.
-The memory layers need `GetMemorySummary`. A Host without that call shows a note in their place.
+`GetMemorySummary` gives the memory layers. An older Host without that call shows a note in their place.
 
 ## Fonts
 

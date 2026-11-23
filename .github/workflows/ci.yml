@@ -91,28 +91,6 @@ jobs:
         env:
           CARGO_INCREMENTAL: "0"
         run: ./apps/console/scripts/verify.sh
-      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ${{ runner.temp }}/SourcePackages
-          key: swift-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved') }}
-      - name: Test the macOS app
-        run: >-
-          xcodebuild test
-          -project apps/macos/AgentVMM/AgentVMM.xcodeproj
-          -scheme AgentVMM
-          -destination 'platform=macOS'
-          -clonedSourcePackagesDirPath "$RUNNER_TEMP/SourcePackages"
-          -derivedDataPath "$RUNNER_TEMP/DerivedData"
-          CODE_SIGNING_ALLOWED=NO
-      - name: Build Swift generators from resolved packages
-        run: |
-          package="$RUNNER_TEMP/SourcePackages/checkouts/swift-protobuf"
-          scratch="$RUNNER_TEMP/swift-generator-build/swift-protobuf"
-          cp apps/macos/AgentVMM/AgentVMM.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved "$package/Package.resolved"
-          swift build --package-path "$package" --scratch-path "$scratch" -c release --product protoc-gen-swift
-          swift build --package-path "$package" --scratch-path "$scratch" -c release --show-bin-path >> "$GITHUB_PATH"
-      - name: Check Swift generated code
-        run: make check-swift-generated
       - name: Check generated API reference
         run: make check-api-docs
       - name: Test Host installer resume contract

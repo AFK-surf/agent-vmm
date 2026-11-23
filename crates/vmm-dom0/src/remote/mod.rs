@@ -120,6 +120,12 @@ async fn serve<S: AsyncRead + AsyncWrite + Unpin>(
             .and_then(|local| local.guest_address(&boot).map_err(Fault::from));
         return write(&mut stream, &response).await;
     }
+    if let Request::MemorySummary = r {
+        let response = host
+            .ok_or(Fault::Fenced)
+            .and_then(|local| local.memory_summary().map_err(Fault::from));
+        return write(&mut stream, &response).await;
+    }
     let response = wire::dispatch(backend, r).await.map_err(Fault::from);
     write(&mut stream, &response).await
 }
@@ -147,6 +153,9 @@ impl RemoteDom0Client {
     }
     pub async fn guest_address(&self, boot: &BootIdentity) -> Result<std::net::SocketAddrV4> {
         self.rpc(Request::GuestAddress(boot.clone())).await
+    }
+    pub async fn memory_summary(&self) -> Result<crate::memory::Dom0MemorySummary> {
+        self.rpc(Request::MemorySummary).await
     }
     pub fn transport(connector: Arc<dyn Connect>) -> Self {
         Self(Endpoint::Transport(connector))

@@ -25,13 +25,6 @@ pub struct CallError {
 }
 
 impl CallError {
-    pub fn unimplemented(message: impl Into<String>) -> Self {
-        Self {
-            code: vmm_rpc::Code::Unimplemented,
-            message: message.into(),
-        }
-    }
-
     pub fn is_unimplemented(&self) -> bool {
         self.code == vmm_rpc::Code::Unimplemented
     }
@@ -56,7 +49,7 @@ impl std::fmt::Display for CallError {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MemorySummary {
     pub sampled_at: Option<Timestamp>,
-    /// `phys_footprint` of the carrier process: what macOS charges for the VM.
+    /// `phys_footprint` of the Carrier and its VM service process: what macOS charges for the VM.
     pub carrier_footprint_bytes: u64,
     /// Guest physical memory `l4h-memd` manages, by block state.
     pub pool: MemoryPool,
@@ -95,7 +88,8 @@ pub trait OperatorBackend: Send + Sync + 'static {
     fn vm(&self) -> Call<h::Vm>;
     fn health(&self) -> Call<h::GetSystemHealthSummaryResponse>;
     fn disk(&self) -> Call<h::GetLocalDiskSummaryResponse>;
-    /// A Host without `GetMemorySummary` answers `Unimplemented`.
+    /// A Host from before `GetMemorySummary` answers `Unimplemented`. A Host whose VM does not
+    /// run answers `FailedPrecondition`.
     fn memory(&self) -> Call<MemorySummary>;
     fn vm_impact(&self) -> Call<h::GetVmImpactSummaryResponse>;
     fn start_vm(&self, request_id: String) -> Call<h::Operation>;

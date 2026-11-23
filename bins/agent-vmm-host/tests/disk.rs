@@ -1,7 +1,7 @@
 use agent_vmm_host::{control::serve_local, host::HostState};
 use agent_vmm_proto::host::v1::{
-    GetLocalDiskSummaryRequest, ListLocalEnvironmentPageRequest,
-    operator_service_client::OperatorServiceClient,
+    GetLocalDiskSummaryRequest, GetMemorySummaryRequest, ListLocalEnvironmentPageRequest,
+    MemoryPoolSummary, operator_service_client::OperatorServiceClient,
 };
 use std::{
     fs,
@@ -15,10 +15,10 @@ use vmm_dom0::{
     keys::MasterKey,
     network::MockFirewallDriver,
 };
-use vmm_l4hctl::{DiskExtent, DiskInfo, MockHypervisorCtl};
+use vmm_l4hctl::{DiskExtent, DiskInfo, MockHypervisorCtl, VmMemInfo};
 
 #[tokio::test]
-async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
+async fn operator_socket_reports_memory_pool_and_stage_changes_and_sampling_failure() {
     use std::os::unix::fs::PermissionsExt;
     let dir = tempfile::Builder::new()
         .permissions(fs::Permissions::from_mode(0o700))
@@ -26,12 +26,24 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
         .unwrap();
     let root = dir.path();
     let sectors = 4 * BLOCK_SECTORS;
-    let ctl: Control = Arc::new(Mutex::new(MockHypervisorCtl::with_disks(vec![DiskInfo {
+    let mut ctl = MockHypervisorCtl::with_disks(vec![DiskInfo {
         id: 1,
         owned: false,
         failed: false,
         sectors,
-    }])));
+    }]);
+    ctl.set_host_mem(3 << 30, 8 << 30);
+    ctl.set_vm_mem(
+        0,
+        VmMemInfo {
+            boot_bytes: 256 << 20,
+            plugged_bytes: 128 << 20,
+            reported_bytes: 1 << 30,
+            clean_bytes: 1 << 30,
+            ..Default::default()
+        },
+    );
+    let ctl: Control = Arc::new(Mutex::new(ctl));
     let pool = Arc::new(
         Pool::open(
             &root.join("pool.db"),
@@ -44,11 +56,18 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
         .unwrap(),
     );
     let staging = root.join("archives");
+    let mut options = Options::new(vec![].into(), staging.clone());
+    options.meminfo = root.join("meminfo");
+    fs::write(
+        &options.meminfo,
+        "MemTotal: 393216 kB\nMemAvailable: 131072 kB\n",
+    )
+    .unwrap();
     let backend = Arc::new(
         LocalDom0Backend::open(
             pool.clone(),
             ctl,
-            Options::new(vec![].into(), staging.clone()),
+            options,
             Arc::new(MasterKey([1; 32].into())),
             Arc::new(MockFirewallDriver::default()),
             BootServer::default(),
@@ -90,6 +109,27 @@ async fn operator_socket_reports_pool_and_stage_changes_and_sampling_failure() {
         pool.discard("data").unwrap();
         fs::remove_file(token).unwrap();
         assert_sample(&mut client, &boot, 0, 0).await;
+        let memory = client
+            .get_memory_summary(GetMemorySummaryRequest {})
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(memory.sampled_at.is_some());
+        assert_eq!(memory.carrier_footprint_bytes, 0);
+        assert_eq!(
+            memory.pool,
+            Some(MemoryPoolSummary {
+                clean_bytes: 1 << 30,
+                free_bytes: 1 << 30,
+                inflated_bytes: 1 << 30,
+                guest_plugged_bytes: 384 << 20,
+            })
+        );
+        assert_eq!(
+            (memory.dom0_limit_bytes, memory.dom0_used_bytes),
+            (384 << 20, 256 << 20)
+        );
+        assert!(memory.environments.is_empty());
         fs::rename(&staging, root.join("moved")).unwrap();
         let summary = client
             .get_local_disk_summary(GetLocalDiskSummaryRequest {})

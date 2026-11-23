@@ -170,6 +170,10 @@ service OperatorService {
   rpc GetLocalDiskSummary(GetLocalDiskSummaryRequest) returns (GetLocalDiskSummaryResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
   }
+  // GetMemorySummary reads Host, memory-daemon, and workload VM physical memory accounting.
+  rpc GetMemorySummary(GetMemorySummaryRequest) returns (GetMemorySummaryResponse) {
+    option idempotency_level = NO_SIDE_EFFECTS;
+  }
   // ListLocalEnvironmentPage reads an indexed bounded page of local environment summaries.
   rpc ListLocalEnvironmentPage(ListLocalEnvironmentPageRequest) returns (ListLocalEnvironmentPageResponse) {
     option idempotency_level = NO_SIDE_EFFECTS;
@@ -604,6 +608,10 @@ message SignRegistrationRecoveryResponse {
 // accounting without scanning every environment or collecting compute metrics.
 message GetLocalDiskSummaryRequest {}
 
+// GetMemorySummaryRequest carries inputs for an operation that reads Host, memory-daemon, and
+// workload VM physical memory accounting.
+message GetMemorySummaryRequest {}
+
 // ListLocalEnvironmentPageRequest carries inputs for an operation that reads an indexed bounded
 // page of local environment summaries.
 message ListLocalEnvironmentPageRequest {
@@ -900,6 +908,47 @@ message GetLocalDiskSummaryResponse {
   VMState vm_state = 3;
   DiskAccounting guest_state_fs = 4;
   string unavailable_reason = 5;
+}
+
+// GetMemorySummaryResponse carries results from an operation that reads Host, memory-daemon, and
+// workload VM physical memory accounting. All sizes are bytes of Host physical memory.
+message GetMemorySummaryResponse {
+  google.protobuf.Timestamp sampled_at = 1;
+  // carrier_footprint_bytes is the physical footprint that macOS charges to the Carrier and its
+  // VM service process. It is zero on a Host without a Carrier.
+  uint64 carrier_footprint_bytes = 2;
+  MemoryPoolSummary pool = 3;
+  // dom0_limit_bytes is the boot memory and the plugged memory of dom0.
+  uint64 dom0_limit_bytes = 4;
+  // dom0_used_bytes is the dom0 memory that Linux does not report as available.
+  uint64 dom0_used_bytes = 5;
+  repeated EnvironmentMemorySummary environments = 6;
+}
+
+// MemoryPoolSummary divides the guest physical memory that the memory daemon manages.
+message MemoryPoolSummary {
+  // clean_bytes is free memory that no guest used after boot. The Host does not back it.
+  uint64 clean_bytes = 1;
+  // free_bytes is free memory that a guest released. The Host backs it.
+  uint64 free_bytes = 2;
+  // inflated_bytes is free memory that the memory daemon returned to the Host.
+  uint64 inflated_bytes = 3;
+  // guest_plugged_bytes is the boot memory and the plugged memory of dom0 and all other VMs.
+  uint64 guest_plugged_bytes = 4;
+}
+
+// EnvironmentMemorySummary adds the memory of the running workload VMs of one environment.
+message EnvironmentMemorySummary {
+  string environment_id = 1;
+  uint64 boot_bytes = 2;
+  // grant_bytes is the boot memory and the hotplug target.
+  uint64 grant_bytes = 3;
+  // plugged_bytes is the boot memory and the plugged hotplug memory.
+  uint64 plugged_bytes = 4;
+  // zram_bytes is the compressed swap in the workload VM. It is zero until the Host samples it.
+  uint64 zram_bytes = 5;
+  // ebusy_count is the number of refused hotplug requests. It is zero until the Host samples it.
+  uint64 ebusy_count = 6;
 }
 
 // ListLocalEnvironmentPageResponse carries results from an operation that reads an indexed

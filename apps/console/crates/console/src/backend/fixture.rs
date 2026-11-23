@@ -607,7 +607,7 @@ impl OperatorBackend for FixtureBackend {
         ready(self.with(|state| {
             if state.vm != h::VmState::Running {
                 return Err(CallError {
-                    code: vmm_rpc::Code::Unavailable,
+                    code: vmm_rpc::Code::FailedPrecondition,
                     message: "VM is not running".into(),
                 });
             }

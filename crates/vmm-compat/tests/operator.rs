@@ -149,5 +149,8 @@ mod disposal;
 #[path = "operator/rotation.rs"]
 mod rotation;
 
+#[path = "operator/memory.rs"]
+mod memory;
+
 #[path = "operator/offline.rs"]
 mod offline;

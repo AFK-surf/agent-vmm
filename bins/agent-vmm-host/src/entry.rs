@@ -154,8 +154,10 @@ async fn run_carrier(
     api.backend = Some(backend);
     let adapter = std::sync::Arc::new(crate::carrier::CarrierClientAdapter(client.clone()));
     host.attach_guest(&mut api, adapter.clone())?;
-    let disk = staging.clone();
-    api = api.with_disk_sample(move || disk.disk_sample());
+    let (disk, memory) = (staging.clone(), staging.clone());
+    api = api
+        .with_disk_sample(move || disk.disk_sample())
+        .with_memory_sample(move || memory.memory_sample());
     let (runtime, builds) = host.online_runtime(core.clone(), &api, adapter, staging)?;
     if running {
         builds.recover(&core.store).await?;
