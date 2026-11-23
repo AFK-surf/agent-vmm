@@ -34,6 +34,12 @@ make test-data-worker lint-data-worker
 cargo check --locked --manifest-path crates/agent-vmm-proto/Cargo.toml
 ```
 
+Run the console checks when you change `apps/console`:
+
+```sh
+./apps/console/scripts/verify.sh
+```
+
 Run Swift tests when you change the debugging app:
 
 ```sh

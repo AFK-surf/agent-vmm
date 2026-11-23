@@ -26,7 +26,7 @@ members = [
     "crates/vmm-rpc",
     "crates/vmm-signing",
 ]
-exclude = ["third_party/l4h"]
+exclude = ["apps/console", "third_party/l4h"]
 
 [workspace.package]
 edition = "2024"

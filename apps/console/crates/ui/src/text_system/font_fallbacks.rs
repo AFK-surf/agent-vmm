@@ -1,0 +1,14 @@
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// The fallback fonts that can be configured for a given font.
+/// Fallback fonts family names are stored here.
+#[derive(Default, Clone, Eq, PartialEq, Hash, Debug, Deserialize, Serialize)]
+pub struct FontFallbacks(pub Arc<Vec<String>>);
+
+impl FontFallbacks {
+    /// Get the fallback fonts family names
+    pub fn fallback_list(&self) -> &[String] {
+        self.0.as_slice()
+    }
+}

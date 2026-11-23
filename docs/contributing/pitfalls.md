@@ -145,6 +145,13 @@ Preserve interface addresses, IPv6 scopes, address flags, and route selection wh
 Pakery crypto types implement traits from pakery-core and pakery-spake2.
 Update these crates together. Mixed versions can expose incompatible copies of the same trait.
 
+## Offscreen rendering tests
+
+Tests in one process run on parallel threads.
+On Linux with Mesa `lavapipe`, the process can stop with `SIGSEGV` in `libvulkan` when each test makes a Vulkan instance and device.
+About one run in ten of the `wgpu` atlas tests of `apps/console` stopped this way.
+Make one device for the process and share it between the tests.
+
 ## macOS secret storage
 
 Development packages and releases without a provisioning profile have no Keychain permissions.

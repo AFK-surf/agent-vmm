@@ -1,0 +1,38 @@
+[package]
+name = "agent-vmm-console"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license = "AGPL-3.0-or-later"
+
+[lints]
+workspace = true
+
+[features]
+default = []
+harness = ["ui/harness", "dep:image"]
+
+[[bin]]
+name = "agent-vmm-console"
+path = "src/main.rs"
+
+[[bin]]
+name = "console-harness"
+path = "src/bin/console_harness.rs"
+required-features = ["harness"]
+
+[dependencies]
+agent-vmm-proto = { path = "../../../../crates/agent-vmm-proto" }
+anyhow.workspace = true
+futures.workspace = true
+image = { workspace = true, optional = true }
+prost-types = "0.14.4"
+smallvec.workspace = true
+tokio = { version = "1", features = ["net", "rt", "sync", "time"] }
+ui = { path = "../ui" }
+unicode-segmentation.workspace = true
+vmm-rpc = { path = "../../../../crates/vmm-rpc" }
+
+[dev-dependencies]
+image.workspace = true
+ui = { path = "../ui", features = ["harness"] }

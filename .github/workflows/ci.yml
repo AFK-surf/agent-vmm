@@ -18,13 +18,13 @@ jobs:
   rust-linux:
     name: Rust workspace / Linux
     runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX || 'ubuntu-24.04' }}
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-      - name: Install Protobuf compiler
+      - name: Install Protobuf compiler and console build packages
         run: |
           sudo apt-get update
-          sudo apt-get install --yes protobuf-compiler
+          sudo apt-get install --yes protobuf-compiler libfontconfig1-dev mesa-vulkan-drivers
       - name: Install Rust toolchain
         run: |
           rustup toolchain install 1.96.0 --profile minimal --component clippy,rustfmt
@@ -33,6 +33,10 @@ jobs:
         env:
           CARGO_INCREMENTAL: "0"
         run: make fmt-check test-rust lint-rust
+      - name: Test and lint the console
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: ./apps/console/scripts/verify.sh
 
   linux-arm64:
     name: Protocol and workflows / Linux arm64
@@ -79,10 +83,14 @@ jobs:
       - name: Install Protobuf compiler and Rust toolchain
         run: |
           brew install protobuf
-          rustup toolchain install 1.96.0 --profile minimal --target aarch64-apple-darwin
+          rustup toolchain install 1.96.0 --profile minimal --component clippy,rustfmt --target aarch64-apple-darwin
           rustup default 1.96.0
       - name: Test build tools on macOS
         run: make test
+      - name: Test and lint the console
+        env:
+          CARGO_INCREMENTAL: "0"
+        run: ./apps/console/scripts/verify.sh
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/SourcePackages
