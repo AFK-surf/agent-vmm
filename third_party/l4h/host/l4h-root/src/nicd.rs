@@ -317,7 +317,7 @@ fn windowed(d: &pci::Device, m: &Manifest) -> pci::Device {
 fn bars_for(d: &pci::Device, m: &Manifest) -> Result<u8, &'static str> {
     let w = windowed(d, m);
     let mem = |b: usize| !w.bars[b].is_io && w.bars[b].size != 0;
-    let allow_intx = sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) && m.flags & nicd::F_VIRTIO != 0 && is_modern_virtio(d);
+    let allow_intx = crate::APPLE_VZ && m.flags & nicd::F_VIRTIO != 0 && is_modern_virtio(d);
     if let Some(msix) = d.msix {
         if (msix.table_size as u16) < m.msix_min {
             return Err("too few MSI-X entries");
@@ -881,7 +881,7 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
                 None => {}
             }
         }
-        if let Some(msix) = pdev.msix.filter(|_| !sel4::sel4_cfg_bool!(PLAT_APPLE_VZ)) {
+        if let Some(msix) = pdev.msix.filter(|_| !crate::APPLE_VZ) {
             cfg.msix_table = host::blk::PciRegion {
                 va: (bar_va(msix.table_bar) + msix.table_offset as usize) as u64,
                 len: msix.table_size as u64 * 16,
@@ -1024,7 +1024,7 @@ fn spawn(h: &mut Host, i: usize) -> Result<(), &'static str> {
         h.pci.enable_io(&pdev);
     }
     h.pci.enable(&pdev);
-    if pdev.msix.is_some() && !sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) {
+    if pdev.msix.is_some() && !crate::APPLE_VZ {
         h.pci.enable_msix(&pdev);
     } else {
         h.pci.enable_intx(&pdev);

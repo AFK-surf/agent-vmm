@@ -552,9 +552,12 @@ impl l4h_rt::ipc::Server for Memd {
                 return Some(l4h_rt::ipc::reply(&[e]));
             }
         }
-        let answer = l4h_rt::ipc::serve::<call::Proto>(info, |label, args, out| call::serve(self, label, args, from, out));
+        let answer = l4h_rt::ipc::serve::<call::Proto>(info, |label, args, out| {
+            let res = call::serve(self, label, args, from, out);
+            self.sync_timer();
+            res
+        });
         self.write_status();
-        self.sync_timer();
         answer
     }
 }

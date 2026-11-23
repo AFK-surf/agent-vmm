@@ -73,6 +73,11 @@ use crate::window::{Window, Windows};
 
 pub use crate::vmmgr::MAX_GUEST_DEVICES;
 
+#[cfg(target_arch = "aarch64")]
+pub const APPLE_VZ: bool = sel4::sel4_cfg_bool!(PLAT_APPLE_VZ);
+#[cfg(not(target_arch = "aarch64"))]
+pub const APPLE_VZ: bool = false;
+
 pub const CNODE_SLOTS: usize = 1 << sel4::sel4_cfg_usize!(ROOT_CNODE_SIZE_BITS);
 pub use l4h_task::mem::RETYPE_FAN_OUT;
 static SLOT_STORAGE: StaticCell<mem::SlotStorage<{ CNODE_SLOTS / 64 }, CNODE_SLOTS>> =
@@ -1064,9 +1069,11 @@ impl l4h_ipc::Server for Root<'_> {
     }
 
     fn call(&mut self, from: host::root::Sender, _: u64, info: &sel4::MessageInfo) -> Option<sel4::MessageInfo> {
-        let ans = l4h_ipc::serve::<root_call::Proto>(info, |label, args, out| root_call::serve(&mut vmmgr::Calls(self.h), label, args, from, out));
-        self.maybe_shorten_timer();
-        ans
+        l4h_ipc::serve::<root_call::Proto>(info, |label, args, out| {
+            let res = root_call::serve(&mut vmmgr::Calls(self.h), label, args, from, out);
+            self.maybe_shorten_timer();
+            res
+        })
     }
 
     fn unknown(&mut self, badge: u64, info: &sel4::MessageInfo) {

@@ -68,7 +68,7 @@ pub fn init_uart(alloc: &mut Alloc, _devmem: &mut DevMem, base: u16) -> Option<U
 /// The PL011 of QEMU's virt machine (absent on Apple VZ, which uses virtio-console).
 #[cfg(target_arch = "aarch64")]
 pub fn init_uart(alloc: &mut Alloc, devmem: &mut DevMem, _base: u16) -> Option<Uart> {
-    if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) {
+    if crate::APPLE_VZ {
         return None;
     }
     const PL011: usize = 0x0900_0000;
@@ -78,7 +78,7 @@ pub fn init_uart(alloc: &mut Alloc, devmem: &mut DevMem, _base: u16) -> Option<U
 
 /// A modern virtio-console PCI device (used as the serial output on Apple VZ).
 pub fn is_virtio_console(d: &crate::pci::Device) -> bool {
-    sel4::sel4_cfg_bool!(PLAT_APPLE_VZ)
+    crate::APPLE_VZ
         && d.vendor == 0x1af4
         && d.device == 0x1043
         && crate::blkd::is_modern_virtio(d)

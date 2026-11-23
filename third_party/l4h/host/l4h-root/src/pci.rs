@@ -267,7 +267,7 @@ pub fn msi_irq_core(d: &Device, vector: u64, core: usize, dst: &sel4::AbsoluteCP
     }
     #[cfg(target_arch = "aarch64")]
     {
-        if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) {
+        if crate::APPLE_VZ {
             // Apple VZ has no GICv2m/ITS; PCI slot `dev` INTA maps 1:1 to GICv3 SPI 0x20 + dev (INTID 64 + dev), level-high.
             // Route to the driver's core so ICC_IAR1_EL1 and ICC_DIR_EL1 (irq_handler_ack) execute on the same vCPU.
             slot::IRQ_CONTROL.cap().irq_control_get_trigger_core(64 + d.dev as u64, false, core as u64, dst)
@@ -843,7 +843,7 @@ impl Pci {
         for (n, b) in bars.iter_mut().enumerate() {
             if b.size == 0 || b.is_io { continue; }
             // The size is the device's: a power of two, and the BAR must fit.
-            let bar_limit = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x6ffe_0000 } else { 0x3eff_0000 };
+            let bar_limit = if crate::APPLE_VZ { 0x6ffe_0000 } else { 0x3eff_0000 };
             let align = b.size.max(4096);
             let end = Some(b.size).filter(|s| s.is_power_of_two())
                 .and_then(|s| self.next_bar.get().checked_next_multiple_of(align)?.checked_add(s))
@@ -1035,8 +1035,8 @@ impl Pci {
     pub fn new(alloc: &mut Alloc, devmem: &mut crate::devmem::DevMem) -> Self {
         use sel4::{CapRights, VmAttributes};
         use crate::mem::ObjCtx;
-        let ecam_paddr = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x4000_0000 } else { 0x3f00_0000 };
-        let bar_start = if sel4::sel4_cfg_bool!(PLAT_APPLE_VZ) { 0x5000_0000 } else { 0x1000_0000 };
+        let ecam_paddr = if crate::APPLE_VZ { 0x4000_0000 } else { 0x3f00_0000 };
+        let bar_start = if crate::APPLE_VZ { 0x5000_0000 } else { 0x1000_0000 };
         let frames = devmem.frames(&mut alloc.slots, ecam_paddr, 1 << 24).expect("PCI ECAM frames");
         for (n, frame) in frames.map(crate::devmem::granule).enumerate() {
             crate::vspace::map_frame(&mut ObjCtx::global(alloc), slot::VSPACE.cap(), frame,

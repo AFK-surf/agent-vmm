@@ -1033,18 +1033,21 @@ impl l4h_ipc::Server for Serve<'_> {
     }
 
     fn call(&mut self, from: proto::Sender, badge: u64, info: &sel4::MessageInfo) -> Option<sel4::MessageInfo> {
-        let ans = match from {
+        match from {
             // The VMMs' component ids are their guests'.
             proto::Sender::Vmm(g) if g < MAX_GUESTS => {
-                l4h_ipc::serve::<call::Proto>(info, |label, args, out| call::serve(&mut VmmCalls(self.h), label, args, from, out))
+                l4h_ipc::serve::<call::Proto>(info, |label, args, out| {
+                    let res = call::serve(&mut VmmCalls(self.h), label, args, from, out);
+                    self.reset_idle();
+                    res
+                })
             }
             _ => {
                 self.unknown(badge, info);
+                self.reset_idle();
                 Some(l4h_ipc::refuse())
             }
-        };
-        self.reset_idle();
-        ans
+        }
     }
 
     fn unknown(&mut self, badge: u64, info: &sel4::MessageInfo) {
