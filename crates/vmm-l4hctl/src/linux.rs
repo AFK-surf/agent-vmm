@@ -42,6 +42,7 @@ fn native_spec<'a>(spec: &VmSpec<'a>) -> l4hctl::VmSpec<'a> {
         name: spec.name,
         mem: spec.memory_bytes,
         vcpus: u64::from(spec.vcpus),
+        kernel: None,
         initrd: spec.initrd,
         cmdline: spec.cmdline,
         disks: Vec::new(),
@@ -239,6 +240,7 @@ mod tests {
                 ram: 64 << 20,
                 vcpus: 2,
                 state: native,
+                hvm: false,
             });
             assert_eq!(info.state, state);
         }

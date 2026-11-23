@@ -11,7 +11,7 @@ build/guest/build.sh OUTPUT_DIRECTORY [development|release] [standalone|runtime]
 The legacy `standalone` and `runtime` arguments select the same bundle.
 Set `AGENT_VMM_REFRESH_DEPENDENCIES=1` to refresh the build dependencies.
 The build resolves current Alpine stable packages and BuildKit.
-It builds seL4, the l4h components, and the l4h Linux kernel from `third_party/l4h`.
+It builds FL4, the l4h components, and the l4h Linux kernel from pinned upstream archives.
 It builds `l4h-dom0d` and `vmm-guest-init` with Rust 1.96.0 for musl.
 
 The workload initramfs is at `/usr/lib/agent-vmm/workload-initramfs.cpio` inside the root filesystem.
@@ -19,7 +19,7 @@ The dom0 service requires `/dev/l4hctl`. It reads a deployment configuration at 
 Without that file, the service writes the configuration for the Carrier VM at start.
 
 The bundle contains `Image`, `initramfs.xz`, `rootfs.squashfs`, and `manifest.json`.
-`Image` holds the seL4 loader, seL4, the l4h components, and the l4h Linux kernel.
+`Image` holds the FL4 image loader, FL4, the l4h components, and the l4h Linux kernel.
 The completed Guest manifest records the bundle content identity.
 
 Check the extracted Guest root filesystem on Linux arm64:

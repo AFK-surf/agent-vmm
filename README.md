@@ -1,7 +1,7 @@
 # Agent VMM
 
 Agent VMM is a sandbox runtime for AI agent workloads.
-It runs each workload in its own [l4h](third_party/l4h/README.md) Linux VM on the seL4 microkernel.
+It runs each workload in its own [l4h](https://github.com/losfair/l4h) Linux VM on the FL4 microkernel.
 The Host keeps durable policy and gives each MCP client, operator, and remote controller a fenced scope.
 
 <picture>
@@ -31,8 +31,8 @@ This repository does not publish binaries.
 
 | Platform | Status | Runtime |
 | --- | --- | --- |
-| macOS 15 or later, Apple Silicon | Primary platform | The Carrier runs seL4, l4h, and dom0 in one Virtualization.framework VM |
-| Linux arm64 | Experimental | The Host runs in the dom0 of a native seL4 and l4h computer |
+| macOS 15 or later, Apple Silicon | Primary platform | The Carrier runs FL4, l4h, and dom0 in one Virtualization.framework VM |
+| Linux arm64 | Experimental | The Host runs in the dom0 of a native FL4 and l4h computer |
 | Console in `apps/console` | Development tool | A macOS window, and Linux drawing without a window for tests |
 
 The macOS package is `Agent VMM Host.app`. It contains the Host, `agent-vmm-carrier`, and the Guest bundle.
@@ -55,7 +55,7 @@ flowchart TB
   end
   Host["agent-vmm-host<br/>SQLite policy store, credentials,<br/>authority fences, image import"]
   Carrier["agent-vmm-carrier, macOS only<br/>Virtualization.framework VM,<br/>pool file, memory balloon"]
-  subgraph machine [seL4 and l4h]
+  subgraph machine [FL4 and l4h]
     Dom0["dom0 service in the dom0 Linux VM<br/>extent pool, EROFS images, sealed disk keys,<br/>isolated switch, nftables, DNS, TCP proxies, 9p shares"]
     System["l4h-vmmgr, l4h-memd, l4h-blkd, l4h-netd"]
     VM1["Workload VM<br/>Linux 6.18, vmm-guest-init PID 1,<br/>EROFS root, dm-crypt overlay and volumes"]

@@ -7,7 +7,6 @@
 !build/
 !bins/
 !crates/
-!third_party/l4h/
 !third_party/licenses/
 **/.git
 **/target/

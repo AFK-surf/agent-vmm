@@ -14,9 +14,8 @@ OCI layer import rejects `security.*` xattrs, so `newuidmap` and `newgidmap` can
 
 ## Apple VZ boot
 
-On `PLAT_APPLE_VZ`, `clear_boot_memory` scans only the loader boot window and the user-image neighborhood so untouched host pages stay zero-backed.
-`sel4-kernel-loader` must zero and clean-invalidate (`dc civac`) the compile-time `payload.info.dtb` after `copy_data_out` whenever it is not passed to the kernel.
-Otherwise, a `free_index = 0` boot Untyped retains FDT bytes and corrupts later kernel objects.
+`l4h-fl4-image` passes `fl4_bootinfo::mem::ZEROED` for untouched RAM so FL4 skips zeroing host pages that remain zero-backed.
+`pack-fl4-image.py` embeds `root-dom0.elf` verbatim once so `L4HMODS1` hot-patching finds a unique table in `Image`.
 
 ## Apple VZ memory accounting
 

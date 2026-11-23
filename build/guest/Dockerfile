@@ -17,21 +17,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     bc bison build-essential ca-certificates clang cmake cpio curl \
     device-tree-compiler dwarves flex git libclang-dev \
     libelf-dev libssl-dev libxml2-utils musl-tools ninja-build patch pkg-config python3 \
-    python3-pip python3-venv rsync xz-utils \
+    python3-pip python3-venv ipxe-qemu qemu-system-arm rsync xz-utils \
     && if [ "$(dpkg --print-architecture)" != arm64 ]; then \
          apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu; \
        fi \
     && rm -rf /var/lib/apt/lists/*
-COPY third_party/l4h/tools/sel4-requirements.txt /tmp/sel4-requirements.txt
-RUN python3 -m venv /opt/sel4-venv \
-    && /opt/sel4-venv/bin/pip install --no-cache-dir -r /tmp/sel4-requirements.txt \
-    && rm -f /tmp/sel4-requirements.txt
-RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain nightly-2026-08-21 --profile minimal \
-    && /root/.cargo/bin/rustup component add rust-src --toolchain nightly-2026-08-21 \
-    && /root/.cargo/bin/rustup target add "$(uname -m)-unknown-linux-musl" --toolchain nightly-2026-08-21
+RUN curl -fsSL https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.99.1 --profile minimal --component rust-src --target aarch64-unknown-none-softfloat \
+    && /root/.cargo/bin/rustup toolchain install stable --profile minimal --component rust-src --target aarch64-unknown-none-softfloat \
+    && /root/.cargo/bin/rustup toolchain install nightly-2026-08-21 --profile minimal --component rust-src
 ENV PATH="/opt/sel4-venv/bin:/root/.cargo/bin:${PATH}"
-WORKDIR /l4h-src
-COPY third_party/l4h/ /l4h-src/
+WORKDIR /tmp
 COPY build/guest/l4h-build.sh /usr/local/bin/guest-l4h-build
 ARG BUILD_PROFILE=development
 RUN --mount=type=cache,id=agent-vmm-l4h-downloads,target=/var/cache/l4h-downloads,sharing=locked \
@@ -41,14 +36,13 @@ RUN --mount=type=cache,id=agent-vmm-l4h-downloads,target=/var/cache/l4h-download
     bash /usr/local/bin/guest-l4h-build "$BUILD_PROFILE"
 
 FROM rust:1.96.0-alpine AS compile
-RUN apk add --no-cache build-base linux-headers musl-dev perl protobuf-dev
+RUN apk add --no-cache build-base ca-certificates git linux-headers musl-dev perl protobuf-dev
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY xtask/ xtask/
 COPY .cargo/ .cargo/
 COPY crates/ crates/
 COPY bins/ bins/
-COPY third_party/l4h/ third_party/l4h/
 COPY third_party/licenses/ third_party/licenses/
 COPY api/ api/
 COPY build/guest/compile.sh /usr/local/bin/guest-compile
@@ -65,7 +59,6 @@ COPY --from=compile /binaries/ /binaries/
 COPY --from=l4h-build /l4h-artifacts/ /l4h-artifacts/
 COPY --from=buildkit / /assembly/builder-root/
 COPY third_party/licenses/ /src/third_party/licenses/
-COPY third_party/l4h/tools/add-modules.py /src/third_party/l4h/tools/add-modules.py
 COPY build/guest/l4h.conf /src/build/guest/l4h.conf
 COPY build/guest/root/ /src/build/guest/root/
 COPY build/guest/initramfs/ /src/build/guest/initramfs/

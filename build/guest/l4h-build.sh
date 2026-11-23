@@ -2,13 +2,20 @@
 set -euo pipefail
 
 profile=${1:-development}
-l4h_root=/l4h-src
-dl_cache=/var/cache/l4h-downloads
-build_cache=/l4h-build-cache
-out_dir=/l4h-artifacts
+l4h_root=${L4H_ROOT:-/l4h-src}
+dl_cache=${L4H_DL_CACHE:-/var/cache/l4h-downloads}
+build_cache=${L4H_BUILD_CACHE:-/l4h-build-cache}
+out_dir=${L4H_OUT_DIR:-/l4h-artifacts}
 
-SEL4_COMMIT=62e345c240a15671484530b4e6e069ce266c28d7
-SEL4_SHA256=8cb77d4b4966874c51083d120d6ad39c98d62fa684f709ec3ff478b9fb1d05ae
+L4H_REPO=${L4H_REPO:-darkskygit/l4h}
+L4H_COMMIT=025d8c51b91a57115d6922ce0a6a7c04e2ef63ba
+L4H_SHA256=f62b54551017a7a2f07ca84685759c1c84f57bee5fa7453bacb66fa84f15feb4
+FL4_REPO=${FL4_REPO:-darkskygit/FL4}
+FL4_COMMIT=74c0a2d07d8035277461681d4d0b5e15f7055a00
+FL4_SHA256=598567b82cd43aca901645ad1a8d7c3b3fc3ee15b0910910ac5c4857eb2202ec
+# Build-time Python interface/bitfield generators imported by FL4's CMakeLists.txt
+FL4_VENDOR_SEL4_COMMIT=c98d70adf15e8be7d3b99085c28d057069ba7155
+FL4_VENDOR_SEL4_SHA256=3916dd86885eb693e84858993b26d7ca97f55ea9087cff25f400fa9d123dd85d
 RUST_SEL4_COMMIT=86a0dbf4f53e6766734331c5df61851489ed38a1
 RUST_SEL4_SHA256=1e29856658b0c0ee1a6f1e00b3f65cc330597e590b451c5ea7d2c9d47aa8d19f
 KEMU_COMMIT=e738d0e4b3ab04bd26a75814cc964db8a4bca964
@@ -17,6 +24,7 @@ LINUX_VERSION=6.18.64
 LINUX_SHA256=020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562
 
 mkdir -p "$dl_cache" "$build_cache" "$out_dir"
+export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1700000000}
 
 fetch_cached() {
   local url=$1 dest=$2 sha256=${3:-}
@@ -29,101 +37,88 @@ fetch_cached() {
   fi
 }
 
-# 1. Prepare seL4 source + apply patches
-sel4_src=$build_cache/seL4-src
-sel4_stamp=$build_cache/seL4-src.stamp
-sel4_want=$(cat "$l4h_root"/kernel/patches/*.patch | sha256sum | cut -d' ' -f1)-$SEL4_COMMIT
-if [ ! -d "$sel4_src" ] || [ "$(cat "$sel4_stamp" 2>/dev/null || true)" != "$sel4_want" ]; then
-  rm -rf "$sel4_src"
-  mkdir -p "$sel4_src"
-  if [ -f "$l4h_root/kernel/seL4/CMakeLists.txt" ]; then
-    cp -a "$l4h_root/kernel/seL4/." "$sel4_src/"
-  else
-    fetch_cached "https://github.com/seL4/seL4/archive/${SEL4_COMMIT}.tar.gz" "$dl_cache/seL4-${SEL4_COMMIT}.tar.gz" "$SEL4_SHA256"
-    tar -xzf "$dl_cache/seL4-${SEL4_COMMIT}.tar.gz" --strip-components=1 -C "$sel4_src"
-  fi
-  for p in "$l4h_root"/kernel/patches/*.patch; do
-    patch -d "$sel4_src" -p1 -s < "$p"
-  done
-  echo "$sel4_want" > "$sel4_stamp"
+# 1. Fetch and unpack pinned l4h source + Python venv
+l4h_stamp=$build_cache/l4h-src.stamp
+l4h_want="${L4H_REPO}@${L4H_COMMIT}"
+if [ ! -f "$l4h_root/tools/build-fl4-aarch64.sh" ] || [ "$(cat "$l4h_stamp" 2>/dev/null || true)" != "$l4h_want" ]; then
+  fetch_cached "https://github.com/${L4H_REPO}/archive/${L4H_COMMIT}.tar.gz" \
+    "$dl_cache/l4h-${L4H_COMMIT}.tar.gz" "$L4H_SHA256"
+  mkdir -p "$l4h_root"
+  find "$l4h_root" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+  tar -xzf "$dl_cache/l4h-${L4H_COMMIT}.tar.gz" --strip-components=1 -C "$l4h_root"
+  echo "$l4h_want" > "$l4h_stamp"
 fi
 
-# 2. Build seL4 kernel for apple-vz
-sel4_build=$build_cache/kernel-apple-vz-$profile
-sel4_alt_build=$build_cache/kernel-apple-vz-alt-$profile
-sel4_prefix=$out_dir/sel4-prefix
-debug=ON
-printing=ON
-alt_debug=OFF
-alt_printing=OFF
+venv_dir=${L4H_VENV:-/opt/sel4-venv}
+if [ ! -x "$venv_dir/bin/python3" ]; then
+  python3 -m venv "$venv_dir"
+  "$venv_dir/bin/pip" install --no-cache-dir -r "$l4h_root/tools/sel4-requirements.txt"
+fi
+export PATH="$venv_dir/bin:$PATH"
+ln -sfn "$venv_dir" "$l4h_root/.venv"
+
+mkdir -p "$build_cache/l4h-build"
+rm -rf "$l4h_root/build"
+ln -sfn "$build_cache/l4h-build" "$l4h_root/build"
+
+# 2. Fetch and unpack pinned FL4 + vendor/seL4 into a detached git worktree
+fl4_src=$build_cache/fl4-src
+fl4_stamp=$build_cache/fl4-src.stamp
+fl4_want="${FL4_REPO}@${FL4_COMMIT}+${FL4_VENDOR_SEL4_COMMIT}"
+if [ ! -d "$fl4_src/.git" ] || [ "$(cat "$fl4_stamp" 2>/dev/null || true)" != "$fl4_want" ]; then
+  fetch_cached "https://github.com/${FL4_REPO}/archive/${FL4_COMMIT}.tar.gz" \
+    "$dl_cache/fl4-${FL4_COMMIT}.tar.gz" "$FL4_SHA256"
+  fetch_cached "https://github.com/seL4/seL4/archive/${FL4_VENDOR_SEL4_COMMIT}.tar.gz" \
+    "$dl_cache/seL4-${FL4_VENDOR_SEL4_COMMIT}.tar.gz" "$FL4_VENDOR_SEL4_SHA256"
+  rm -rf "$fl4_src"
+  mkdir -p "$fl4_src"
+  tar -xzf "$dl_cache/fl4-${FL4_COMMIT}.tar.gz" --strip-components=1 -C "$fl4_src"
+  rm -rf "$fl4_src/vendor/seL4"
+  mkdir -p "$fl4_src/vendor/seL4"
+  tar -xzf "$dl_cache/seL4-${FL4_VENDOR_SEL4_COMMIT}.tar.gz" --strip-components=1 -C "$fl4_src/vendor/seL4"
+  git -C "$fl4_src/vendor/seL4" init -q
+  git -C "$fl4_src/vendor/seL4" add -A
+  git -C "$fl4_src/vendor/seL4" -c user.name=l4h -c user.email=l4h@localhost commit -q -m init
+  git -C "$fl4_src" init -q
+  git -C "$fl4_src" config -f .gitmodules submodule.vendor/seL4.url "$fl4_src/vendor/seL4"
+  git -C "$fl4_src" add -A
+  git -C "$fl4_src" -c user.name=l4h -c user.email=l4h@localhost commit -q -m init
+  git -C "$fl4_src" checkout -q --detach HEAD
+  echo "$fl4_want" > "$fl4_stamp"
+fi
+
+# 3. Build FL4 kernel (AArch64) and l4h-fl4-image loader stub
+release_flag=0
 if [ "$profile" = release ]; then
-  debug=OFF
-  printing=OFF
-  alt_debug=ON
-  alt_printing=ON
+  release_flag=1
 fi
-cmake -G Ninja -S "$sel4_src" -B "$sel4_alt_build" \
-  -C "$l4h_root/kernel/configs/l4h-apple-vz.cmake" \
-  -DKernelDebugBuild="$alt_debug" \
-  -DKernelPrinting="$alt_printing" \
-  -DCROSS_COMPILER_PREFIX=aarch64-linux-gnu-
-ninja -C "$sel4_alt_build" kernel.elf
-rm -rf "$sel4_prefix"
-cmake -G Ninja -S "$sel4_src" -B "$sel4_build" \
-  -C "$l4h_root/kernel/configs/l4h-apple-vz.cmake" \
-  -DKernelDebugBuild="$debug" \
-  -DKernelPrinting="$printing" \
-  -DCMAKE_INSTALL_PREFIX="$sel4_prefix" \
-  -DCROSS_COMPILER_PREFIX=aarch64-linux-gnu-
-ninja -C "$sel4_build" all
-ninja -C "$sel4_build" install
+L4H_RELEASE="$release_flag" L4H_FL4_SOURCE="$fl4_src" bash "$l4h_root/tools/build-fl4-aarch64.sh"
+L4H_FL4_SOURCE="$fl4_src" bash "$l4h_root/tools/build-fl4-image-loader.sh" "$out_dir/l4h-fl4-image.bin"
+sel4_prefix="$l4h_root/build/sel4-fl4-aarch64"
+aarch64-linux-gnu-objcopy --strip-debug "$sel4_prefix/bin/kernel.elf" "$out_dir/kernel.elf"
 
-# 3. Prepare rust-sel4 source + apply patches
+# 4. Prepare unpatched rust-sel4 source
 rs_src=$build_cache/rust-sel4-src
 rs_stamp=$build_cache/rust-sel4-src.stamp
-rs_want=$(cat "$l4h_root"/third_party/patches/rust-sel4/*.patch | sha256sum | cut -d' ' -f1)-$RUST_SEL4_COMMIT
-if [ ! -d "$rs_src" ] || [ "$(cat "$rs_stamp" 2>/dev/null || true)" != "$rs_want" ]; then
+if [ ! -f "$rs_src/Cargo.toml" ] || [ "$(cat "$rs_stamp" 2>/dev/null || true)" != "$RUST_SEL4_COMMIT" ]; then
+  fetch_cached "https://github.com/seL4/rust-sel4/archive/${RUST_SEL4_COMMIT}.tar.gz" \
+    "$dl_cache/rust-sel4-${RUST_SEL4_COMMIT}.tar.gz" "$RUST_SEL4_SHA256"
   rm -rf "$rs_src"
   mkdir -p "$rs_src"
-  if [ -f "$l4h_root/third_party/rust-sel4/Cargo.toml" ]; then
-    cp -a "$l4h_root/third_party/rust-sel4/." "$rs_src/"
-  else
-    fetch_cached "https://github.com/seL4/rust-sel4/archive/${RUST_SEL4_COMMIT}.tar.gz" "$dl_cache/rust-sel4-${RUST_SEL4_COMMIT}.tar.gz" "$RUST_SEL4_SHA256"
-    tar -xzf "$dl_cache/rust-sel4-${RUST_SEL4_COMMIT}.tar.gz" --strip-components=1 -C "$rs_src"
-  fi
-  for p in "$l4h_root"/third_party/patches/rust-sel4/*.patch; do
-    patch -d "$rs_src" -p1 -s < "$p"
-  done
-  echo "$rs_want" > "$rs_stamp"
+  tar -xzf "$dl_cache/rust-sel4-${RUST_SEL4_COMMIT}.tar.gz" --strip-components=1 -C "$rs_src"
+  echo "$RUST_SEL4_COMMIT" > "$rs_stamp"
 fi
-# Ensure l4h host workspace sees patched rust-sel4
 rm -rf "$l4h_root/third_party/rust-sel4"
 ln -s "$rs_src" "$l4h_root/third_party/rust-sel4"
 
-# 4. Build sel4-kernel-loader + static musl sel4-kernel-loader-add-payload
-loader_target=$build_cache/loader-target-$profile
-host_musl="$(uname -m)-unknown-linux-musl"
-(
-  cd "$rs_src"
-  CC=aarch64-linux-gnu-gcc SEL4_PREFIX="$sel4_prefix" \
-    cargo +nightly-2026-08-21 build --release \
-    -Z build-std=core,alloc,compiler_builtins -Z build-std-features=compiler-builtins-mem \
-    --target aarch64-unknown-none -p sel4-kernel-loader --target-dir "$loader_target"
-  RUSTFLAGS="-C target-feature=+crt-static" \
-    cargo +nightly-2026-08-21 build --release --target "$host_musl" \
-    -p sel4-kernel-loader-add-payload --target-dir "$loader_target"
-)
-cp "$loader_target/aarch64-unknown-none/release/sel4-kernel-loader" "$out_dir/sel4-kernel-loader"
-cp "$loader_target/$host_musl/release/sel4-kernel-loader-add-payload" "$out_dir/sel4-kernel-loader-add-payload"
-
-# 5. Build l4h host components + l4h-root
+# 5. Build l4h host components + l4h-root against FL4
 host_target=$build_cache/host-target-$profile
 export SEL4_PREFIX="$sel4_prefix"
 export CC_aarch64_sel4=aarch64-linux-gnu-gcc
 export CC_aarch64_sel4_roottask=aarch64-linux-gnu-gcc
 export LIBCLANG_PATH=$(dirname "$(find /usr/lib -name 'libclang.so*' -print -quit)")
 export SOURCE_DATE_EPOCH=1700000000
-export L4H_VERSION=0.1.0-apple-vz
+export L4H_VERSION=0.1.0-fl4
 
 (
   cd "$l4h_root/host"
@@ -159,20 +154,19 @@ export L4H_VERSION=0.1.0-apple-vz
 )
 
 # 6. Prepare kemu + linux-6.18.64 and build ARCH=l4h SUBARCH=aarch64 vmlinux
-if [ ! -f "$l4h_root/third_party/kemu/overlay/kernel/kemu/Kconfig" ]; then
-  kemu_src=$build_cache/kemu-src
-  if [ ! -f "$kemu_src/overlay/kernel/kemu/Kconfig" ]; then
-    rm -rf "$kemu_src"
-    mkdir -p "$kemu_src"
-    fetch_cached "https://github.com/losfair/kemu/archive/${KEMU_COMMIT}.tar.gz" "$dl_cache/kemu-${KEMU_COMMIT}.tar.gz" "$KEMU_SHA256"
-    tar -xzf "$dl_cache/kemu-${KEMU_COMMIT}.tar.gz" --strip-components=1 -C "$kemu_src"
-    git -C "$kemu_src" init -q
-    git -C "$kemu_src" add -A
-    git -C "$kemu_src" -c user.name=l4h -c user.email=l4h@localhost commit -q -m init
-  fi
-  rm -rf "$l4h_root/third_party/kemu"
-  ln -s "$kemu_src" "$l4h_root/third_party/kemu"
+kemu_src=$build_cache/kemu-src
+if [ ! -f "$kemu_src/overlay/kernel/kemu/Kconfig" ]; then
+  rm -rf "$kemu_src"
+  mkdir -p "$kemu_src"
+  fetch_cached "https://github.com/losfair/kemu/archive/${KEMU_COMMIT}.tar.gz" \
+    "$dl_cache/kemu-${KEMU_COMMIT}.tar.gz" "$KEMU_SHA256"
+  tar -xzf "$dl_cache/kemu-${KEMU_COMMIT}.tar.gz" --strip-components=1 -C "$kemu_src"
+  git -C "$kemu_src" init -q
+  git -C "$kemu_src" add -A
+  git -C "$kemu_src" -c user.name=l4h -c user.email=l4h@localhost commit -q -m init
 fi
+rm -rf "$l4h_root/third_party/kemu"
+ln -s "$kemu_src" "$l4h_root/third_party/kemu"
 
 linux_src=$build_cache/linux-6.18
 if [ ! -f "$linux_src/Makefile" ]; then
@@ -182,10 +176,14 @@ if [ ! -f "$linux_src/Makefile" ]; then
   mkdir -p "$linux_src"
   tar -xJf "$dl_cache/linux-${LINUX_VERSION}.tar.xz" --strip-components=1 -C "$linux_src"
 fi
-mkdir -p "$l4h_root/build" "$build_cache/linux-l4h-aarch64"
+mkdir -p "$build_cache/linux-l4h-aarch64"
 ln -sfn "$linux_src" "$l4h_root/build/linux-6.18"
 ln -sfn "$build_cache/linux-l4h-aarch64" "$l4h_root/build/linux-l4h-aarch64"
-L4H_ARCH=aarch64 bash "$l4h_root/tools/build-linux.sh" vmlinux
+SEL4_PREFIX="$sel4_prefix" L4H_ARCH=aarch64 bash "$l4h_root/tools/build-linux.sh" vmlinux
 aarch64-linux-gnu-objcopy --strip-debug "$build_cache/linux-l4h-aarch64/vmlinux" "$out_dir/vmlinux.stripped"
+
+# 7. Export assembly helpers for downstream assemble.sh
+cp "$l4h_root/tools/add-modules.py" "$out_dir/add-modules.py"
+cp "$l4h_root/tools/pack-fl4-image.py" "$out_dir/pack-fl4-image.py"
 
 ls -lh "$out_dir"

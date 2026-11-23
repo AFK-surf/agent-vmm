@@ -63,7 +63,7 @@ pub(super) fn configuration(
         let boot = VZLinuxBootLoader::initWithKernelURL(VZLinuxBootLoader::alloc(), &kernel);
         boot.setCommandLine(&NSString::from_str("console=hvc0 panic=-1 psi=1"));
         cfg.setBootLoader(Some(&boot));
-        cfg.setCPUCount(settings.cpus);
+        cfg.setCPUCount(settings.cpus.clamp(1, 16));
         cfg.setMemorySize(settings.memory);
         let serial = VZVirtioConsoleDeviceSerialPortConfiguration::new();
         let file = VZFileSerialPortAttachment::initWithURL_append_error(

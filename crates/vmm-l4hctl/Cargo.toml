@@ -6,7 +6,7 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [target.'cfg(target_os = "linux")'.dependencies]
-l4hctl = { path = "../../third_party/l4h/tools/l4hctl" }
+l4hctl = { git = "https://github.com/darkskygit/l4h.git", branch = "feat/apple-vz-and-elastic-memory" }
 
 [lints.rust]
 unsafe_code = "forbid"

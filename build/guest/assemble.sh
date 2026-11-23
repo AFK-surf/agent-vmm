@@ -63,49 +63,29 @@ else
 fi
 xz $initramfs_xz --check=crc32 -c "$work/dom0-initrd.cpio" >"$bundle/initramfs.xz"
 
-# Assemble the l4h Apple VZ flat ARM64 Image (seL4 GICv3 + l4h-root + ARCH=l4h Linux 6.18.64 dom0 + dom0-initrd + l4h.conf).
+# Assemble the l4h Apple VZ flat ARM64 Image (FL4 + l4h-root + ARCH=l4h Linux 6.18.64 dom0 + dom0-initrd + l4h.conf).
 l4h_dir=${L4H_ARTIFACTS_DIR:-/l4h-artifacts}
-python3 "$repository/third_party/l4h/tools/add-modules.py" \
+python3 "$l4h_dir/add-modules.py" \
   "$l4h_dir/l4h-root.stripped" "$work/root-dom0.elf" \
   "guest-kernel=$l4h_dir/vmlinux.stripped" \
   "dom0-initrd=$work/dom0-initrd.cpio.gz" \
   "l4h-config=$repository/build/guest/l4h.conf"
-"$l4h_dir/sel4-kernel-loader-add-payload" \
-  --loader "$l4h_dir/sel4-kernel-loader" \
-  --sel4-prefix "$l4h_dir/sel4-prefix" \
-  --app "$work/root-dom0.elf" \
-  -o "$work/l4h-dom0.elf"
-python3 - "$work/l4h-dom0.elf" "$bundle/Image" << 'PY'
-import struct, sys
-elf = open(sys.argv[1], "rb").read()
-phoff = struct.unpack_from("<Q", elf, 32)[0]
-phentsize, phnum = struct.unpack_from("<HH", elf, 54)
-loads = []
-for i in range(phnum):
-    p_type, p_flags, p_offset, p_vaddr, p_paddr, p_filesz, p_memsz, p_align = struct.unpack_from("<IIQQQQQQ", elf, phoff + i * phentsize)
-    if p_type == 1 and p_memsz > 0:
-        loads.append((p_paddr, p_offset, p_filesz, p_memsz))
-base = min(x[0] for x in loads)
-file_end = max(x[0] + x[2] for x in loads)
-mem_end = max(x[0] + x[3] for x in loads)
-img = bytearray(file_end - base)
-for p_paddr, p_offset, p_filesz, p_memsz in loads:
-    if p_filesz > 0:
-        img[p_paddr - base : p_paddr - base + p_filesz] = elf[p_offset : p_offset + p_filesz]
-image_size = ((mem_end - base) + 0x1fffff) & ~0x1fffff
-struct.pack_into("<Q", img, 16, image_size)
-open(sys.argv[2], "wb").write(img)
-PY
+python3 "$l4h_dir/pack-fl4-image.py" \
+  "$l4h_dir/l4h-fl4-image.bin" \
+  "$l4h_dir/kernel.elf" \
+  "$work/root-dom0.elf" \
+  "$bundle/Image"
+python3 -c 'import sys; d=open(sys.argv[1],"rb").read(); assert d.count(b"L4HMODS1")==1' "$bundle/Image"
 test -s "$bundle/Image"
 
 cat >> "$bundle/THIRD_PARTY_NOTICES" << 'NOTICE'
 
 ================================================================================
-seL4 Microkernel (GPL-2.0-only) / rust-sel4 (Apache-2.0 / MIT) / l4h / Linux 6.18.64 (GPL-2.0-only)
+FL4 Microkernel (GPL-2.0-only) / rust-sel4 (Apache-2.0 / MIT) / l4h / Linux 6.18.64 (GPL-2.0-only)
 ================================================================================
-This guest image embeds the seL4 microkernel (aarch64 apple-vz GICv3),
-sel4-kernel-loader, l4h host components (l4h-root, l4h-logd, l4h-memd, l4h-blkd,
-l4h-netd, l4h-nicd-virtio, l4h-vmmgr, l4h-vmm), and the ARCH=l4h Linux 6.18.64 kernel.
+This guest image embeds the FL4 microkernel (aarch64), l4h-fl4-image loader,
+l4h host components (l4h-root, l4h-logd, l4h-memd, l4h-blkd, l4h-netd,
+l4h-nicd-virtio, l4h-vmmgr, l4h-vmm), and the ARCH=l4h Linux 6.18.64 kernel.
 NOTICE
 
 workload_initramfs=$work/workload-initramfs

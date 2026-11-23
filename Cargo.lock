@@ -2303,6 +2303,7 @@ dependencies = [
 [[package]]
 name = "l4hctl"
 version = "0.1.0"
+source = "git+https://github.com/darkskygit/l4h.git?branch=feat%2Fapple-vz-and-elastic-memory#025d8c51b91a57115d6922ce0a6a7c04e2ef63ba"
 
 [[package]]
 name = "lazy_static"

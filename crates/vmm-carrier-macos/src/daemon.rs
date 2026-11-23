@@ -106,10 +106,10 @@ async fn run_args(args: Args) -> io::Result<()> {
     let memory = args
         .memory_bytes
         .unwrap_or((host.physicalMemory() / 2).min(available) & !((1 << 20) - 1));
-    const MAX_L4H_CPUS: usize = 8;
+    const MAX_L4H_CPUS: usize = 16;
     let cpus = args
         .cpus
-        .unwrap_or((host.processorCount() / 2).clamp(1, MAX_L4H_CPUS));
+        .unwrap_or((host.processorCount() / 2).clamp(1, 8));
     if cpus == 0
         || cpus > host.processorCount().min(MAX_L4H_CPUS)
         || memory < 512 << 20
