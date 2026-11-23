@@ -5,12 +5,12 @@ Recheck dependency-specific behavior when its module version changes.
 
 ## Guest runtime
 
-Workload processes have an empty capability set.
-A root entrypoint cannot initialize a mode-0700 volume owned by another numeric UID.
+A workload process that runs as a non-root user has an empty capability set.
+PID 1 sets the owner and mode of a volume only when it formats the empty volume.
 Start the workload with the UID and GID that own the volume.
 
 Disposable build VMs (`BuildVm`) set `subid_caps` so `vmm-guest-init` retains only ambient `CAP_SETGID`, `CAP_SETUID`, and `CAP_SETPCAP` across the UID 1000 drop, and align `BUILDKIT_HOST` to `unix:///workspace/runtime/buildkit/buildkitd.sock`.
-OCI layer import strips `security.*` xattrs and root mounts carry `MS_NOSUID`, so `newuidmap` and `newgidmap` cannot rely on setuid bits or file capabilities.
+OCI layer import rejects `security.*` xattrs, so `newuidmap` and `newgidmap` cannot use file capabilities.
 
 ## Apple VZ boot
 
@@ -28,19 +28,20 @@ Find the service as the process with that executable that holds the pool file op
 ## l4h memory hotplug
 
 On aarch64, `l4h_pt_map` ignores its level argument and calls `seL4_ARM_PageTable_Map`.
-The kernel puts the table at the highest level that is missing for the address.
-In a new GiB of the direct map, a table for 4 KiB pages can go one level too high, in a slot that an unplug revokes.
+The kernel puts the table at the highest level that the address lacks.
+In a new GiB of the direct map, a table for 4 KiB pages can go one level too high.
+An unplug revokes that slot.
 The map then fails with `seL4_FailedLookup`.
 `l4h_hp_map` must first call `map_kernel_at(large[i], va, 1)` for each block that has a 2 MiB aligned address.
 
 ## Guest init
 
-`std::process::Command` keeps the descriptors of its `Stdio` values until it is dropped.
+`std::process::Command` keeps the descriptors of its `Stdio` values until its drop.
 Drop the command after the spawn, or the output pipe of the child never reports its end.
 The standard library waits for a child whose `exec` failed.
 The reaper must hold the child table lock while it calls `waitpid(-1)`. Otherwise it collects that child first and the spawn panics.
 
-A `/proc/self/fd/N` path names the directory that the descriptor opened, also after a filesystem is mounted on it.
+A `/proc/self/fd/N` path names the directory that the descriptor opened, also after a mount on that directory.
 Resolve the path again to reach the mounted filesystem.
 Move `/proc` into the workload root last. Descriptor paths stop resolving after the move.
 
@@ -48,7 +49,7 @@ Plain dm-crypt does not detect a wrong key.
 Only dom0 knows that a disk is empty. The Guest formats a disk only when the boot configuration says so.
 
 Device-mapper loads a writable table on a read-only block device without an error.
-Load the table with `DM_READONLY_FLAG`, so the mapping is read-only too.
+Load the table with `DM_READONLY_FLAG`, so the mapping also rejects writes.
 
 ## Build and install
 
@@ -56,14 +57,15 @@ A shared data reset fences old install requests before it removes their plans.
 Project that exact-request fence when reading status, even if the historical receipt still says retryable.
 The fence does not prove reset completion or cloud revocation. Do not infer a missing Registration target.
 Old successful installs delete their plan after they write a version 1 completion.
+
 Use that completion as identity proof when converting an unbound historical receipt. Do not require a live plan for success.
 
 Distribution ZIPs omit resource forks and extended attributes.
 Default `ditto` archives can emit AppleDouble `._` entries for those attributes.
-JavaScript extractors create ordinary files from those entries, which fail the bundle's strict code signature check.
+JavaScript extractors create ordinary files from those entries, which fail the strict code signature check of the bundle.
 Keep the signed file bytes and Unix modes in the archive.
 
-Rust's macOS linker can record `libiconv` even when the service executor does not use it.
+The macOS linker of Rust can record `libiconv` even when the service executor does not use it.
 Use `-dead_strip_dylibs` when linking the executor.
 Use `otool -L` to require only `libSystem`.
 
@@ -86,20 +88,15 @@ On macOS, setting `SO_RCVTIMEO` on a Unix socket can return `EINVAL` after the p
 The receive buffer can still contain the terminal status.
 Use readiness polling with the remaining RPC timeout before reading the buffer.
 
-A macOS network interception path can accept the system TLS client while Go handshakes fail before HTTP.
-Runtime archive downloads use the system curl adapter on macOS.
-Keep address admission, the pinned destination, and Guest content checks across that adapter.
+A macOS network interception path can accept the system TLS client while other TLS clients fail before HTTP.
+Runtime archive downloads use the system curl.
+Keep address admission, the pinned destination, and content checks across that adapter.
 
 ## Guest network
 
-Nftables v0.3.0 sends an atomic batch before reading ACKs and rule echoes.
-The default receive buffer overflowed with seven public namespaces.
-Keep the explicit per-reconcile receive buffer and five-second deadline.
-Run the kernel regression in its private network namespace.
-Its sixteen-namespace fixture is not a product capacity limit.
-
 When the host runs a TUN Fake-IP proxy (`198.18.0.0/15`), upstream DNS returns RFC 2544 addresses.
-`dom0` records only DNS-resolved, non-gateway Fake-IPs (excluding `198.18.0.0..=2` and `198.19.255.255`) for `PublicInternet` sandboxes into `@resolved_fake_ips` with their DNS TTL, and matches that set before the bogon drop rule.
+`dom0` records only DNS-resolved Fake-IPs for `PublicInternet` sandboxes into `@resolved_fake_ips`, with a bounded DNS TTL.
+It excludes `198.18.0.0..=2` and `198.19.255.255`. The table matches that set before the bogon drop rule.
 
 ## Filesystems and quota
 
@@ -112,44 +109,30 @@ Add O_NONBLOCK only to ordinary beneath descriptors.
 An O_PATH socket descriptor cannot open device contents or block.
 Keep O_CLOEXEC, no-follow resolution, and the socket type check.
 
-Keep control metadata and system private volumes on the control filesystem.
-OCI content and system, builder, and workload snapshots belong on the pool filesystem.
-An incompatible disk requires an explicitly approved new installation. Never reformat it during boot.
+Keep the pool allocation database on the dom0 control filesystem, outside the pool.
+An existing pool database needs its original master key.
+The dom0 service creates a pool only with `--init-pool`. Never create a key or a pool for a disk that has a database.
 
-OCI startup prepares fixed roots without traversing imported snapshot contents.
-Quota access uses no-follow descriptors for regular files and directories.
-Preserve project inheritance and each writable snapshot's upper/work pairing.
-Older snapshots can have the wrong workdir project.
-Limit offline audit and repair to that snapshot. Do not restore startup scans or discard the disk.
-
-An unprivileged macOS `ditto --clone` copy can succeed while changing GIDs to the destination directory's group.
+An unprivileged macOS `ditto --clone` copy can succeed while changing GIDs to the group of the destination directory.
 Compare byte hashes and numeric owners after copying a stopped state root.
 Use a copy account with the required ownership permissions, or a destination that preserves the source ownership.
 
-Linux fallocate reserves physical backing for unwritten extents that SEEK_HOLE can report as holes.
-Preserve fallocate restoration without zero writes. The Darwin repair loop would rewrite the entire Linux disk.
-Skip disk restoration and serial rotation while the VMM instance lock proves that the VM runs.
-
-Ext4 can report `ENOENT` when `Q_GETNEXTQUOTA` reaches the last allocated project.
-Confirm ordinary quota access before treating this result as the end of a usage sample.
-A missing device or disabled quotas must leave usage unknown.
-
-A concurrent fork can inherit the open file description of an exclusive `File::try_lock()` lock.
+A concurrent fork can inherit the open file description that holds an exclusive `File::try_lock()` lock.
 `O_CLOEXEC` closes the child descriptor at exec.
 A `Drop` that only closes the parent descriptor can leave the lock held until then.
 An immediate reopen can fail with `EWOULDBLOCK`, for example during a concurrent `mkfs.erofs` spawn.
-Call `File::unlock()` explicitly in the lock owner's `Drop`.
+Call `File::unlock()` explicitly in the `Drop` of the lock owner.
 
 ## Appliance lifecycle
 
 Keep the launch request and boot nonce stable for retries of one launch.
-Include volume ID in launch identity to separate reinstalls. Preserve the Guest's complete fingerprint check.
+Include volume ID in launch identity to separate reinstalls. Preserve the complete fingerprint check of the Guest.
 Frequent appliance reconciliation must preserve an already-current private controller route and frontend runtime.
 Recreating either on each tick changes loopback ports and drops controller sessions.
 
 ## Dependency behavior
 
-The macOS data worker has crashed inside SystemConfiguration's localized interface-name API.
+The macOS data worker has crashed inside the localized interface-name API of SystemConfiguration.
 Netwatch discards this optional name after interface enumeration.
 The macOS interface adapter reads BSD network facts without SystemConfiguration metadata.
 Preserve interface addresses, IPv6 scopes, address flags, and route selection when changing this adapter.

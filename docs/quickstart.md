@@ -3,7 +3,7 @@
 ## Prerequisites
 
 Use macOS 15 or later on Apple Silicon.
-Build or obtain a Host package. This repository does not publish binaries.
+Build or get a Host package. This repository does not publish binaries.
 Use [the build guide](build.md) to create a package.
 
 ## Install and start
@@ -16,7 +16,7 @@ Use [the build guide](build.md) to create a package.
 
    Expect the lifecycle JSON result to report `outcome: succeeded`.
 
-2. Add `~/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/Helpers` to your shell's `PATH`.
+2. Add `~/Library/Application Support/Agent VMM Host/current/Agent VMM Host.app/Contents/Helpers` to the `PATH` of your shell.
    Expect `agent-vmm inspect --json` to return one JSON object.
 
 3. Start the VM:
@@ -26,8 +26,8 @@ Use [the build guide](build.md) to create a package.
    agent-vmm vm status --json
    ```
 
-   Expect the VM status to report a running Guest.
-   Starting or stopping the VM affects every workload in it.
+   Expect the VM status to report `running`.
+   The VM contains seL4, l4h, and dom0. A VM start or stop affects every workload VM.
 
 ## Run a container
 

@@ -11,10 +11,15 @@ build/guest/build.sh OUTPUT_DIRECTORY [development|release] [standalone|runtime]
 The legacy `standalone` and `runtime` arguments select the same bundle.
 Set `AGENT_VMM_REFRESH_DEPENDENCIES=1` to refresh the build dependencies.
 The build resolves current Alpine stable packages and BuildKit.
+It builds seL4, the l4h components, and the l4h Linux kernel from `third_party/l4h`.
 It builds `l4h-dom0d` and `vmm-guest-init` with Rust 1.96.0 for musl.
-The workload initramfs is at `/usr/lib/agent-vmm/workload-initramfs.cpio` inside the root filesystem.
-The dom0 service requires `/dev/l4hctl` and a deployment configuration at `/etc/agent-vmm/dom0.json`.
 
+The workload initramfs is at `/usr/lib/agent-vmm/workload-initramfs.cpio` inside the root filesystem.
+The dom0 service requires `/dev/l4hctl`. It reads a deployment configuration at `/etc/agent-vmm/dom0.json`.
+Without that file, the service writes the configuration for the Carrier VM at start.
+
+The bundle contains `Image`, `initramfs.xz`, `rootfs.squashfs`, and `manifest.json`.
+`Image` holds the seL4 loader, seL4, the l4h components, and the l4h Linux kernel.
 The completed Guest manifest records the bundle content identity.
 
 Check the extracted Guest root filesystem on Linux arm64:
@@ -35,14 +40,15 @@ OUTPUT_DIRECTORY=HOST_DIRECTORY build/host/install.sh --service-type agent
 
 Use the same `OUTPUT_DIRECTORY` for packaging and installation.
 The installer rejects positional paths.
-Use `--service-type agent` for a logged-in user's GUI launchd domain.
+Use `--service-type agent` for the GUI launchd domain of a logged-in user.
 Use `--service-type daemon --service-user USER` for a non-root user managed by a LaunchDaemon.
-`auto` selects daemon with administrator access. Otherwise, it requires the user's GUI domain.
+`auto` selects daemon with administrator access. Otherwise, it requires the GUI domain of the user.
+
 Verify the installed helper set before you report the local version.
 
 The Carrier embeds the canonical Guest manifest digest at link time.
 Use Rust 1.96.0 and the Protobuf compiler to build the package.
-Build and check the debugging app with `./apps/console/scripts/verify.sh`.
+Build and check the console with `./apps/console/scripts/verify.sh`.
 
 ## Linux Host package
 
@@ -56,7 +62,7 @@ AGENT_VMM_GUEST_BUNDLE=GUEST_DIRECTORY \
 Set `AGENT_VMM_HOST_BIN` to use an existing `agent-vmm` executable with the selected release ID.
 Set `AGENT_VMM_DATA_WORKER` to include an existing data worker in the archive.
 The script writes a tar archive and a JSON artifact record.
-The release's `release.json` lists its files, sizes, and SHA-256 content identities.
+The `release.json` file of the release lists its files, sizes, and SHA-256 content identities.
 Read [Install and update](operator/install-and-update.md) for installation and updates.
 
 ## Signing

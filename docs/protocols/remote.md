@@ -6,11 +6,9 @@ Controllers generate their stream decoders from this file. Integrations must not
 
 ## Protocol window
 
-The controller defines integer `ProtocolVersion=4` and `MinProtocolVersion=4`.
-Hello sends the version as a decimal integer string.
-The controller accepts the inclusive range between those values.
-Versions 1 through 3 are unsupported. The first window contains only version 4.
-A later window can retain the previous version only when its message and operation semantics remain implemented.
+The Host connector sends protocol version 5 in Hello, as a decimal integer string.
+The controller defines its minimum and maximum versions and accepts that inclusive range.
+A later window can retain a previous version only when its message and operation semantics remain implemented.
 The window does not promise that an older controller can interpret a newer Host.
 
 An unsupported or malformed version returns gRPC `FailedPrecondition` with `google.rpc.ErrorInfo`.
@@ -21,15 +19,17 @@ Registration identity, connection epoch, and command target checks retain their 
 
 A connector that recognizes this refusal starts with its existing 30-second capped backoff and jitter.
 The refusal does not revoke credentials, change admission, or stop independent children and accepted work.
+
 Registration `ConnectorStatus.remote_protocol` records only the current refusal.
 A successful connection or a later status without this refusal clears it.
 The Host keeps this diagnostic in memory. After Host restart, it remains absent until another refusal arrives.
-An older Host does not acquire these diagnostic fields through a server update.
+An older Host does not get these diagnostic fields through a server update.
 
 ## Registration claim
 
 The product creates a pending Registration after it verifies the current product owner.
 The Host saves one random candidate credential, its identity, the service origin, and the exact request before claim.
+
 A TLS claim atomically binds that Host and candidate to the Registration.
 The response contains public Gateway, TLS, and pool configuration. It contains no new secret.
 `ApplyRemoteRegistration` saves the candidate in the selected secret backend and starts the control connection.
@@ -48,12 +48,14 @@ A remote-compute connection cannot observe local environments or another registr
 
 Each accepted connection has a nonzero unpredictable epoch and an ordered command sequence.
 Hello carries bounded inventory and its watermark. Ready acknowledges that exact watermark and epoch.
-The command carries its ID, sequence, epoch, relative `timeout_millis`, target revision.
+The command carries its ID, sequence, epoch, relative `timeout_millis`, and target revision.
+
 The receiver measures the timeout from local receipt. It does not compare controller and Host wall clocks.
 A zero or unrepresentable timeout fails before dispatch.
 
-The controller claims the command's durable delivery slot before it sends it.
-`ControlSession` validates and sends that exact identity. It does not allocate another sequence.
+The controller claims the durable delivery slot of the command before it sends it.
+The control session validates and sends that exact identity. It does not allocate another sequence.
+
 An exact next sequence consumes its slot even when timeout or target-fence validation rejects the command.
 A stale epoch or sequence gap does not consume the slot.
 The connector sends admission, execution, and terminal evidence for that identity.
@@ -70,7 +72,7 @@ The controller reads authoritative state before it decides another action.
 
 An allocation projection failure can contain the allocation that the Host already accepted.
 The controller must settle that allocation before it considers the attempt complete.
-Ensure with the same identity and unchanged inputs reuses the allocation.
+`Ensure` with the same identity and unchanged inputs reuses the allocation.
 It does not change that allocation to a new policy through retry.
 
 ## Admission and draining
@@ -82,7 +84,7 @@ See [what ends what](../design/overview.md#what-ends-what).
 ## Runtime session replacement
 
 OpenSession for the current allocation generation replaces its runtime connection.
-The connector first closes the old tunnel and confirms revocation of that exact session.
+The connector first closes the old tunnel and confirms that it revoked that exact session.
 Failed revocation preserves the session record and rejects replacement.
 A later request retries that revocation within its deadline.
 Replacement does not stop the workload or settle an unknown execution.
@@ -96,9 +98,8 @@ Build also binds the original execution, container, and instance.
 Copy binds source and target allocation IDs and generations under the same registration.
 Observation permits stopped allocations while preserving ownership and generation checks.
 
-The Guest retains receipts in its private containerd metadata namespace.
-The key binds actor namespace, operation kind, and request ID.
-Deleting an actor namespace does not delete that receipt.
+The Host retains receipts in its database.
+The key binds the operation domain, the actor environment, and the request ID.
 A controller preserves the receipt before it removes its own allocation record.
 A missing image does not prove operation failure.
 `NOT_FOUND` from observation means no accepted operation record exists.
@@ -107,20 +108,20 @@ A receipt reports `RUNNING`, `SUCCEEDED`, `FAILED`, `STOPPED`, or `UNKNOWN`.
 `writer_settled` independently confirms writer exit and temporary resource cleanup.
 A canceled RPC or expired deadline does not prove settlement.
 Accepted execution survives a client disconnect. Its accepted deadline and explicit cancellation still apply.
-The Guest publishes the terminal result only after it saves the receipt.
+The Host publishes the terminal result only after it saves the receipt.
 
 Recovery can recover a lost result from an exact content-bound image receipt.
-VMMD replaces its previous socket-owned containerd process and confirms its exit before accepting the replacement.
-It preserves independent ordinary workload shims.
-The recorded daemon lifetime proves whether an old in-process unpack writer can still run.
-Exact builder and lease cleanup must also settle before `writer_settled` becomes true.
+After a restart, the Host recovers each pending build from its build ledger.
+The dom0 service reclaims the build VM and its disks before a build lease settles.
+Exact builder and lease cleanup must settle before `writer_settled` becomes true.
 Unavailable business results remain `UNKNOWN`, even after writer settlement.
 An unsettled unknown result does not authorize source deletion or a replacement writer.
 
 ## Cleanup and absent allocations
 
-Cleanup planning is read-only. Its revision binds the current allocation generation and exact namespace.
+Cleanup planning does not change state. Its revision binds the current allocation generation and exact namespace.
 Execute confirms the current volume set under the admission fence.
+
 After durable acceptance, the Host revokes capabilities and confirms workload stop before deletion.
 Reset retains named volumes and the allocation. Discard removes the confirmed resources and owner record.
 A retirement failure stops deletion and retains a failed receipt.
@@ -146,7 +147,8 @@ Both decimal fields also end with a newline.
 The nonce decodes to 32 bytes. Revision is nonzero.
 `controller_binding` is opaque to the Host.
 The candidate hash uses standard base64 of SHA-256 over the candidate credential bytes.
-The controller checks current product permission, the original root, revision, and challenge consumption.
+
+The controller checks current product permission, the original root, revision, and challenge use.
 Recovery replaces the credential while preserving the Registration, allocations, and files.
 An absent local row can use the original root. Explicit revocation and local disposal disable proof for that target.
-The [wire fixture](../../internal/host/trust/testdata/registration_recovery_wire.json) records this exact encoding.
+The [wire fixture](../../crates/vmm-signing/tests/testdata/registration_recovery_wire.json) records this exact encoding.

@@ -4,6 +4,10 @@ An installation owns one selected artifact, private controller registration, and
 The Host owns lifecycle receipts and publication. The appliance owns its application and controller behavior.
 The wire owner is [appliance.proto](../../api/appliance/v1/appliance.proto).
 
+The Host now serves planning, installation, staging, status, and operation watch.
+It serves the built-in MCP service as the installation `agent-vmm-mcp`.
+It returns `UNIMPLEMENTED` for the other methods of `ApplianceAdminService`.
+
 ## Manifest and build
 
 `ControllerApplianceManifest` contract version is `1`.
@@ -25,18 +29,12 @@ Dependencies use `content/<archive_sha256>.oci.tar` and digest-bound content ref
 The CLI uploads missing content before lifecycle admission.
 Each archive must match its exact size, SHA-256, platform, and OCI manifest digest.
 
-An appliance image provides fixed mount targets, including `/run/agent-vmm`, `/var/lib/agent-vmm`,
-`/etc/resolv.conf`, and `/.agent-vmm-supervisor`.
-Parent directories cannot be symbolic links. The Guest does not alter shared image contents to repair missing targets.
-The supervisor mount is executable and read-only. Runtime and data mounts remain non-executable.
-Runsc uses `host-uds=create` for the projected private sockets.
-It does not grant general Host Unix socket access.
-
 ## Bootstrap
 
 A launch claim binds installation, artifact, volume-derived launch identity, Guest boot, container instance, and configuration revision.
 The Host preserves the same launch request and boot nonce while retrying one launch.
 A reinstall uses a different volume identity. The Guest checks the complete request fingerprint.
+
 The signed claim includes the approved grant and exact dependency content mounts.
 The controller receives authorized dependencies read-only at `/opt/agent-vmm/content`.
 Workload allocations cannot access that mount.
@@ -44,8 +42,10 @@ Workload allocations cannot access that mount.
 The installation CLI reads the optional bootstrap seed from stdin.
 It sends the seed through the operator gRPC request. The Host stores an opaque envelope through its selected secret backend.
 Keep seeds and management credentials out of arguments, environment variables, and logs.
+
 The envelope binds installation and bootstrap ID.
 Bootstrap returns consumption receipt, health, and explicit stream closure in protocol order.
+
 The Host clears consumed ciphertext. Repeating the same bootstrap ID is idempotent. Mismatched launch facts fail.
 Ordinary restart does not replay the original management seed.
 
@@ -57,7 +57,8 @@ Read [trust and service](trust-service.md) for the renewal contract.
 
 A static frontend declares its socket, transport, exposure, and stream bounds.
 `HOST_LOOPBACK` accepts connections from every local user. MCP authenticates issued Bearer tokens.
-After first publication, the Host binds only the saved port. An occupied port returns `FRONTEND_PORT_UNAVAILABLE`.
+The Host binds only the configured MCP port. The Host does not start when another process holds that port.
+
 `LAN_HTTP` requires explicit approval and application authentication.
 The Host reports the actual endpoint and its availability through appliance status.
 An already-current route and runtime remain published across ordinary reconciliation ticks.
@@ -71,14 +72,15 @@ One sender owns each gRPC stream. Half-close waits for both copy directions befo
 
 Stop closes runtime publication and retains installation data, managed trust, and private registration.
 Restart waits for the exact old writer before it launches another instance.
-Revoke retires the installation's private controller authority and owned workloads.
-Remove requires a fresh impact plan, matching revision, and explicit confirmation of the exact resource set.
+Revoke retires the private controller authority and owned workloads of the installation.
+
+Remove requires a fresh impact plan, matching revision, and explicit approval of the exact resource set.
 Remove retains its pending operation until Guest cleanup succeeds and the private domain is empty.
 Background retries use that original operation. Other installations remain observable.
 
-The data volume has an independent project quota on the control filesystem.
-Its projected directory uses numeric UID/GID 1000 and mode 0700.
-`data_volume_bytes` is a hard limit. Stop does not unmount or delete it.
+The data volume has its own quota.
+`data_volume_bytes` is a hard limit. Stop does not delete the volume.
+
 `SEALED` denotes an integrity failure.
 A sealed installation cannot start or restart. Stop and revoke preserve the sealed state.
 Removal still requires the current approved plan.
@@ -95,6 +97,7 @@ Target bootstrap and health decide activation success.
 A client disconnect leaves accepted Update running.
 Host restart resumes the saved phase while its deadline remains valid.
 Failure retains the phase, target, data, and receipt.
+
 Recover resumes that exact operation with an explicitly extended deadline and current observation fence.
 An older observation cannot change its deadline.
 Stop, Revoke, or confirmed Remove can interrupt a failed update through their existing lifecycle owners.

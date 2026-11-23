@@ -10,6 +10,50 @@ The console is a Cargo workspace of its own. The Host workspace excludes it, so 
 | `crates/console` | The application: four pages, the operator backend, the log viewer. |
 | `crates/ui` | The GPU UI library. Read [`crates/ui/VENDOR.md`](crates/ui/VENDOR.md). |
 
+## Overview
+
+The pictures show the fixture Host. `scripts/media.sh picture` draws them with the real renderer.
+
+### Host & Memory
+
+The page shows the VM state, component health, and the state disk. It shows the physical memory layers and the memory of each environment.
+
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/console/host-dark.png">
+<source media="(prefers-color-scheme: light)" srcset="../../docs/assets/console/host-light.png">
+<img alt="The Host and Memory page" src="../../docs/assets/console/host-light.png" width="100%">
+</picture>
+
+### Environments
+
+The page shows the policy, resources, containers, and volumes of one environment. It starts reset, discard, and local disposal.
+
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/console/environments-dark.png">
+<source media="(prefers-color-scheme: light)" srcset="../../docs/assets/console/environments-light.png">
+<img alt="The Environments page" src="../../docs/assets/console/environments-light.png" width="100%">
+</picture>
+
+### Logs
+
+The page follows the output of one container. It filters the stream, searches the lines, and reports gaps.
+
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/console/logs-dark.png">
+<source media="(prefers-color-scheme: light)" srcset="../../docs/assets/console/logs-light.png">
+<img alt="The Logs page" src="../../docs/assets/console/logs-light.png" width="100%">
+</picture>
+
+### Access & Appliances
+
+The page shows the device identity, registrations, appliances, and Host sockets. It creates MCP tokens and rotates the token key.
+
+<picture>
+<source media="(prefers-color-scheme: dark)" srcset="../../docs/assets/console/access-dark.png">
+<source media="(prefers-color-scheme: light)" srcset="../../docs/assets/console/access-light.png">
+<img alt="The Access and Appliances page" src="../../docs/assets/console/access-light.png" width="100%">
+</picture>
+
 ## Pages
 
 | Page | Operator calls |
@@ -24,7 +68,7 @@ The Host page samples the Host one time each second while the page is in view.
 
 ## Fonts
 
-`crates/console/assets/fonts` contains Inter and IBM Plex Mono. The console draws with these fonts on each platform, so text has the same measure in tests and on the screen.
+`crates/console/assets/fonts` contains Inter and IBM Plex Mono. The console draws with these fonts on each platform. Text has the same measure in tests and on the screen.
 Each font has the SIL Open Font License 1.1. The license texts are `Inter-OFL.txt` and `IBMPlexMono-OFL.txt` in that directory.
 
 ## Run
