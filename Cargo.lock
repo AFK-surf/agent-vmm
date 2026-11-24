@@ -2303,7 +2303,7 @@ dependencies = [
 [[package]]
 name = "l4hctl"
 version = "0.1.0"
-source = "git+https://github.com/losfair/l4h.git?rev=62ce7f517bbdd909b5445f49929cebe779567630#62ce7f517bbdd909b5445f49929cebe779567630"
+source = "git+https://github.com/losfair/l4h.git?rev=6caa3139f0859734427fe15035298eb7bfa56d90#6caa3139f0859734427fe15035298eb7bfa56d90"
 
 [[package]]
 name = "lazy_static"
