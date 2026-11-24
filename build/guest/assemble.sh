@@ -63,7 +63,7 @@ else
 fi
 xz $initramfs_xz --check=crc32 -c "$work/dom0-initrd.cpio" >"$bundle/initramfs.xz"
 
-# Assemble the l4h Apple VZ flat ARM64 Image (FL4 + l4h-root + ARCH=l4h Linux 6.18.64 dom0 + dom0-initrd + l4h.conf).
+# Assemble the l4h Apple VZ flat ARM64 Image (FL4 + l4h-root + ARCH=l4h Linux 6.18.65 dom0 + dom0-initrd + l4h.conf).
 l4h_dir=${L4H_ARTIFACTS_DIR:-/l4h-artifacts}
 python3 "$l4h_dir/add-modules.py" \
   "$l4h_dir/l4h-root.stripped" "$work/root-dom0.elf" \
@@ -81,11 +81,11 @@ test -s "$bundle/Image"
 cat >> "$bundle/THIRD_PARTY_NOTICES" << 'NOTICE'
 
 ================================================================================
-FL4 Microkernel (GPL-2.0-only) / rust-sel4 (Apache-2.0 / MIT) / l4h / Linux 6.18.64 (GPL-2.0-only)
+FL4 Microkernel (GPL-2.0-only) / rust-sel4 (Apache-2.0 / MIT) / l4h / Linux 6.18.65 (GPL-2.0-only)
 ================================================================================
 This guest image embeds the FL4 microkernel (aarch64), l4h-fl4-image loader,
 l4h host components (l4h-root, l4h-logd, l4h-memd, l4h-blkd, l4h-netd,
-l4h-nicd-virtio, l4h-vmmgr, l4h-vmm), and the ARCH=l4h Linux 6.18.64 kernel.
+l4h-nicd-virtio, l4h-vmmgr, l4h-vmm, l4h-hvm), and the ARCH=l4h Linux 6.18.65 kernel.
 NOTICE
 
 workload_initramfs=$work/workload-initramfs

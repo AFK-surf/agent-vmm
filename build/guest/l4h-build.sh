@@ -7,21 +7,21 @@ dl_cache=${L4H_DL_CACHE:-/var/cache/l4h-downloads}
 build_cache=${L4H_BUILD_CACHE:-/l4h-build-cache}
 out_dir=${L4H_OUT_DIR:-/l4h-artifacts}
 
-L4H_REPO=${L4H_REPO:-darkskygit/l4h}
-L4H_COMMIT=025d8c51b91a57115d6922ce0a6a7c04e2ef63ba
-L4H_SHA256=f62b54551017a7a2f07ca84685759c1c84f57bee5fa7453bacb66fa84f15feb4
-FL4_REPO=${FL4_REPO:-darkskygit/FL4}
-FL4_COMMIT=74c0a2d07d8035277461681d4d0b5e15f7055a00
-FL4_SHA256=598567b82cd43aca901645ad1a8d7c3b3fc3ee15b0910910ac5c4857eb2202ec
+L4H_REPO=${L4H_REPO:-losfair/l4h}
+L4H_COMMIT=62ce7f517bbdd909b5445f49929cebe779567630
+L4H_SHA256=15f841bd01940eba92f4954e5ff256d0ca9ff3b17bcbe72bfcc0af2d7995ce6a
+FL4_REPO=${FL4_REPO:-losfair/FL4}
+FL4_COMMIT=99320e2b2558e5eecd65af7032c9827149cc91be
+FL4_SHA256=b9b29f717a79aacd31a625aeaad312db7c7284050d07a7788d41f122ff037658
 # Build-time Python interface/bitfield generators imported by FL4's CMakeLists.txt
 FL4_VENDOR_SEL4_COMMIT=c98d70adf15e8be7d3b99085c28d057069ba7155
 FL4_VENDOR_SEL4_SHA256=3916dd86885eb693e84858993b26d7ca97f55ea9087cff25f400fa9d123dd85d
 RUST_SEL4_COMMIT=86a0dbf4f53e6766734331c5df61851489ed38a1
 RUST_SEL4_SHA256=1e29856658b0c0ee1a6f1e00b3f65cc330597e590b451c5ea7d2c9d47aa8d19f
-KEMU_COMMIT=e738d0e4b3ab04bd26a75814cc964db8a4bca964
-KEMU_SHA256=acb23280248c60db18c54c42138362a27b4000029a5db61a84c06121f6be62a0
-LINUX_VERSION=6.18.64
-LINUX_SHA256=020d45510c539972e6f14c5c71566878d3b7ef56fb082b3e09134f2ebaade562
+KEMU_COMMIT=6bd4fa37efc1f6dc3c5b2d27715942dc830ca94c
+KEMU_SHA256=e7ca2b5ea064ac45fa541e193ac6734389723f25560b6b8a21c370206759e193
+LINUX_VERSION=6.18.65
+LINUX_SHA256=c92606f956f09dc50b5a0e2af9e86763fce27ada1647de97f8d1ac8cfc95801d
 
 mkdir -p "$dl_cache" "$build_cache" "$out_dir"
 export SOURCE_DATE_EPOCH=${SOURCE_DATE_EPOCH:-1700000000}
@@ -127,12 +127,12 @@ export L4H_VERSION=0.1.0-fl4
   for d in "${nicds[@]}"; do nicd_pkgs+=(-p "l4h-nicd-$d"); done
   cargo +nightly-2026-08-21 build --release --target aarch64-sel4 --target-dir "$host_target" \
     -Z build-std=core,alloc,compiler_builtins -Z build-std-features=compiler-builtins-mem \
-    -p l4h-vmm -p l4h-blkd -p l4h-netd -p l4h-trustd -p l4h-memd -p l4h-logd -p l4h-usbd \
+    -p l4h-vmm -p l4h-hvm -p l4h-blkd -p l4h-netd -p l4h-trustd -p l4h-memd -p l4h-logd -p l4h-usbd \
     "${nicd_pkgs[@]}"
 
   out="$host_target/aarch64-sel4/release"
   mkdir -p "$out/stripped"
-  for c in vmm blkd netd trustd memd logd usbd "${nicds[@]/#/nicd-}"; do
+  for c in vmm hvm blkd netd trustd memd logd usbd "${nicds[@]/#/nicd-}"; do
     aarch64-linux-gnu-objcopy --strip-debug "$out/l4h-$c.elf" "$out/stripped/l4h-$c.elf"
     export "L4H_$(echo "$c" | tr a-z- A-Z_)_ELF=$out/stripped/l4h-$c.elf"
   done
@@ -153,9 +153,10 @@ export L4H_VERSION=0.1.0-fl4
   aarch64-linux-gnu-objcopy --strip-debug "$host_target/aarch64-sel4-roottask/release/l4h-root.elf" "$out_dir/l4h-root.stripped"
 )
 
-# 6. Prepare kemu + linux-6.18.64 and build ARCH=l4h SUBARCH=aarch64 vmlinux
+# 6. Prepare kemu + linux-${LINUX_VERSION} and build ARCH=l4h SUBARCH=aarch64 vmlinux
 kemu_src=$build_cache/kemu-src
-if [ ! -f "$kemu_src/overlay/kernel/kemu/Kconfig" ]; then
+kemu_stamp=$build_cache/kemu-src.stamp
+if [ ! -f "$kemu_src/overlay/kernel/kemu/Kconfig" ] || [ "$(cat "$kemu_stamp" 2>/dev/null || true)" != "$KEMU_COMMIT" ]; then
   rm -rf "$kemu_src"
   mkdir -p "$kemu_src"
   fetch_cached "https://github.com/losfair/kemu/archive/${KEMU_COMMIT}.tar.gz" \
@@ -164,17 +165,20 @@ if [ ! -f "$kemu_src/overlay/kernel/kemu/Kconfig" ]; then
   git -C "$kemu_src" init -q
   git -C "$kemu_src" add -A
   git -C "$kemu_src" -c user.name=l4h -c user.email=l4h@localhost commit -q -m init
+  echo "$KEMU_COMMIT" > "$kemu_stamp"
 fi
 rm -rf "$l4h_root/third_party/kemu"
 ln -s "$kemu_src" "$l4h_root/third_party/kemu"
 
 linux_src=$build_cache/linux-6.18
-if [ ! -f "$linux_src/Makefile" ]; then
+linux_stamp=$build_cache/linux-src.stamp
+if [ ! -f "$linux_src/Makefile" ] || [ "$(cat "$linux_stamp" 2>/dev/null || true)" != "$LINUX_VERSION" ]; then
   fetch_cached "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-${LINUX_VERSION}.tar.xz" \
     "$dl_cache/linux-${LINUX_VERSION}.tar.xz" "$LINUX_SHA256"
   rm -rf "$linux_src"
   mkdir -p "$linux_src"
   tar -xJf "$dl_cache/linux-${LINUX_VERSION}.tar.xz" --strip-components=1 -C "$linux_src"
+  echo "$LINUX_VERSION" > "$linux_stamp"
 fi
 mkdir -p "$build_cache/linux-l4h-aarch64"
 ln -sfn "$linux_src" "$l4h_root/build/linux-6.18"
