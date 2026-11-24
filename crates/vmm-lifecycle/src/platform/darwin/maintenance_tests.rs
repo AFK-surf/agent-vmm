@@ -359,6 +359,13 @@ fn a_reset_fences_old_install_requests_and_an_uninstall_closes_the_installation(
     let mut fixture = fixture();
     let legacy = LifecycleOperation { operation_id: "op-1".into(), outcome: "failed".into(), retryable: true, ..LifecycleOperation::unknown("install-1", "install-managed") };
     journal::persist(&fixture.context, &fixture.paths, &legacy).unwrap();
+    let claimed = LifecycleOperation {
+        operation_id: "op-2".into(),
+        target_registration_id: "reg-1".into(),
+        outcome: "succeeded".into(),
+        ..LifecycleOperation::unknown("install-2", "registration-claim")
+    };
+    journal::persist(&fixture.context, &fixture.paths, &claimed).unwrap();
     let journal = Journal::open(&fixture.context, &fixture.paths).unwrap();
     journal.plan_dir("install-2", true).unwrap();
     drop(journal);
@@ -369,11 +376,24 @@ fn a_reset_fences_old_install_requests_and_an_uninstall_closes_the_installation(
     assert_eq!(fixture.actions.take_log(), ["stop", "reset", "remove", "verify"]);
     assert!(receipt.progress.data_cleared && receipt.progress.software_removed);
     let state = fixture.state();
-    assert!(state.uninstalled && state.blocked("install-1") && state.blocked("install-2"));
+    assert!(state.uninstalled && state.blocked("install-1") && state.blocked("install-2") && state.registration_request("reg-1").is_empty());
 
-    // The fence outranks the historical receipt, which still says retryable.
+    // The fence outranks the historical receipt, which still says retryable, while a new rebind request reads null.
     let arguments = ["--request-id".to_string(), "install-1".to_string()];
     assert_eq!(crate::report::operation(&fixture.context, &fixture.paths, &arguments).unwrap_err().kind, Kind::RequestBlocked("install-1".into()));
+    let rebind_args = ["--request-id".to_string(), "rebind-1".to_string(), "--registration-id".to_string(), "reg-1".to_string()];
+    assert_eq!(crate::report::operation(&fixture.context, &fixture.paths, &rebind_args).unwrap(), serde_json::Value::Null);
+
+    // Even when an older reset left registration_requests pointing at a fenced claim, a new request reads null.
+    let journal = Journal::open(&fixture.context, &fixture.paths).unwrap();
+    let mut legacy_reset_state = journal.state().unwrap();
+    legacy_reset_state.registration_requests.insert("reg-1".into(), "install-2".into());
+    journal.write_state(&legacy_reset_state).unwrap();
+    drop(journal);
+    assert_eq!(crate::report::operation(&fixture.context, &fixture.paths, &rebind_args).unwrap(), serde_json::Value::Null);
+    let old_claim_args = ["--request-id".to_string(), "install-2".to_string(), "--registration-id".to_string(), "reg-1".to_string()];
+    assert_eq!(crate::report::operation(&fixture.context, &fixture.paths, &old_claim_args).unwrap_err().kind, Kind::RequestBlocked("install-2".into()));
+
     let (_, result) = operation::run(&fixture.context, &fixture.paths, operation::Request::new("repair", "repair-1"), &mut || Ok(()));
     assert_eq!(result.unwrap_err().message, "the local owner removed this registration or Host installation");
     assert_eq!(journal::lock_mutation(&fixture.context, &fixture.paths).err().unwrap().kind, Kind::HostUninstalled);

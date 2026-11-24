@@ -14,6 +14,16 @@ pub fn collect_install_ids(context: &Context, paths: &Paths, journal: &Journal, 
     if let Some(old) = journal::read_latest(context, paths).filter(|old| old.kind == "install-managed") {
         state.blocked_installs.insert(old.request_id, true);
     }
+    let indexed: Vec<String> = state.operation_requests.values().chain(state.registration_requests.values()).cloned().collect();
+    for request_id in indexed {
+        if valid_id(&request_id)
+            && journal
+                .receipt(&request_id)
+                .is_ok_and(|receipt| matches!(receipt.kind.as_str(), "install-managed" | "registration-claim" | "registration-recover"))
+        {
+            state.blocked_installs.insert(request_id, true);
+        }
+    }
     for directory in ["install-operations", "install-completions"] {
         let names = match journal.dir().child(directory) {
             Ok(directory) => directory.names()?,
@@ -27,6 +37,7 @@ pub fn collect_install_ids(context: &Context, paths: &Paths, journal: &Journal, 
             }
         }
     }
+    state.registration_requests.clear();
     Ok(())
 }
 

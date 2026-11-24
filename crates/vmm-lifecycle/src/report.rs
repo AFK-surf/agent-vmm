@@ -53,12 +53,17 @@ fn read_correlated(context: &Context, paths: &Paths, requested: &str, registrati
         }
         return Ok(Some(report));
     }
-    let canonical = match Journal::open(context, paths) {
-        Ok(journal) => journal.state()?.registration_request(registration_id).to_string(),
+    let (canonical, blocked) = match Journal::open(context, paths) {
+        Ok(journal) => {
+            let state = journal.state()?;
+            let id = state.registration_request(registration_id).to_string();
+            let blocked = !id.is_empty() && state.blocked(&id);
+            (id, blocked)
+        }
         Err(error) if error.not_found() => return Ok(None),
         Err(error) => return Err(error),
     };
-    if canonical.is_empty() {
+    if canonical.is_empty() || blocked {
         return Ok(None);
     }
     let report = read_by_id(context, paths, &canonical)?.ok_or_else(|| err("accepted registration receipt is unavailable"))?;
