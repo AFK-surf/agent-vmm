@@ -31,7 +31,7 @@ jobs:
           rustup default 1.96.0
       - name: Set up persistent Guest builder
         if: startsWith(vars.AGENT_VMM_RUNNER_LINUX_ARM, 'blacksmith-') && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main'))
-        uses: useblacksmith/setup-docker-builder@19215110ab936351210feebdfa5b440b4493e184 # v2
+        uses: useblacksmith/setup-docker-builder@9657a6e02ca6445e6d6ce5ffaf370f4828dea50d # v2
         with:
           cache-key: build/guest/Dockerfile@trusted
           platforms: linux/arm64
