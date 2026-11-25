@@ -15,4 +15,4 @@ Recheck netwatch's consumed API when updating that dependency.
 The source-address lookup and IPv6 flag mapping adapt netdev 0.46.3 code.
 Upstream: https://github.com/shellrow/netdev/tree/v0.46.3
 The required copyright and MIT license are in the repository [NOTICE](../../NOTICE).
-Other code is Copyright (c) 2026 AFK AI, Inc., AGPL-3.0-or-later.
+Other code is Copyright (c) 2026 AFK AI, Inc., AGPL-3.0-only.

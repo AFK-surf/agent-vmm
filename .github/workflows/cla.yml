@@ -1,0 +1,167 @@
+name: CLA
+
+on:
+  issue_comment:
+    types: [created]
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+  statuses: write
+
+concurrency:
+  group: cla-signatures
+  cancel-in-progress: false
+
+jobs:
+  cla-assistant:
+    name: CLA Assistant
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Run CLA Assistant
+        uses: contributor-assistant/github-action@ca4a40a7d1004f18d9960b404b97e5f30a505a08 # v2.6.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          path-to-signatures: signatures/version1/cla.json
+          path-to-document: https://github.com/AFK-surf/agent-vmm/blob/main/CLA.md
+          branch: cla-signatures
+          allowlist: darkskygit,CommaBot,losfair,L-Sun,zzj3720,JimmFly,pengx17,akumatus,CatsJuice,IveTian,zanwei,akinazuki,aaaa-zhen,HeJiachen-PM,donqu1xotevincent,QoQ-dev,Hydrangea958,Jc-H-AFK,S0rrow1,riri-ren,garrett4wade,*[bot]
+          lock-pullrequest-aftermerge: "false"
+
+  cla-check:
+    name: CLA Check
+    needs: [cla-assistant]
+    if: >-
+      always() && (
+        github.event_name == 'pull_request_target' ||
+        (github.event_name == 'issue_comment' && github.event.issue.pull_request != null && github.event.comment.user.type != 'Bot')
+      )
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Verify CLA signatures and commit attribution
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          ASSISTANT_RESULT: ${{ needs.cla-assistant.result }}
+          ALLOWLIST: darkskygit,CommaBot,losfair,L-Sun,zzj3720,JimmFly,pengx17,akumatus,CatsJuice,IveTian,zanwei,akinazuki,aaaa-zhen,HeJiachen-PM,donqu1xotevincent,QoQ-dev,Hydrangea958,Jc-H-AFK,S0rrow1,riri-ren,garrett4wade
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import subprocess
+          import sys
+
+          repo = os.environ["REPO"]
+          pr_number = os.environ["PR_NUMBER"]
+          assistant_result = os.environ["ASSISTANT_RESULT"]
+          allowlist = {u.strip() for u in os.environ["ALLOWLIST"].split(",") if u.strip()}
+
+          def gh_api(endpoint, method="GET", fields=None):
+              cmd = ["gh", "api", "--method", method, endpoint]
+              for k, v in (fields or {}).items():
+                  cmd.extend(["-f", f"{k}={v}"])
+              out = subprocess.check_output(cmd, text=True)
+              return json.loads(out) if out.strip() else {}
+
+          def gh_api_paginated(endpoint):
+              cmd = ["gh", "api", "--paginate", "--slurp", endpoint]
+              pages = json.loads(subprocess.check_output(cmd, text=True))
+              items = []
+              for page in pages:
+                  items.extend(page)
+              return items
+
+          pr = gh_api(f"repos/{repo}/pulls/{pr_number}")
+          head_sha = pr["head"]["sha"]
+          pr_author = pr["user"]["login"]
+          pr_author_id = pr["user"]["id"]
+
+          def set_status(state, description):
+              gh_api(
+                  f"repos/{repo}/statuses/{head_sha}",
+                  method="POST",
+                  fields={
+                      "state": state,
+                      "context": "cla/check",
+                      "description": description[:140],
+                      "target_url": f"https://github.com/{repo}/blob/main/CLA.md",
+                  },
+              )
+
+          def is_allowed(login):
+              return bool(login) and (login in allowlist or login.endswith("[bot]"))
+
+          try:
+              sig_blob = gh_api(f"repos/{repo}/contents/signatures/version1/cla.json?ref=cla-signatures")
+              sig_data = json.loads(base64.b64decode(sig_blob["content"]).decode("utf-8"))
+          except Exception as exc:
+              set_status("failure", "CLA signature store is unavailable.")
+              print(f"Failed to read cla-signatures: {exc}", file=sys.stderr)
+              sys.exit(1)
+
+          signed_ids = {int(entry["id"]) for entry in sig_data.get("signedContributors", []) if "id" in entry}
+          signed_logins = {entry.get("name") for entry in sig_data.get("signedContributors", []) if entry.get("name")}
+
+          def is_covered(login, user_id):
+              if is_allowed(login):
+                  return True
+              if user_id is not None and int(user_id) in signed_ids:
+                  return True
+              return bool(login) and login in signed_logins
+
+          missing = []
+          unlinked = []
+
+          if not is_covered(pr_author, pr_author_id):
+              missing.append(pr_author)
+
+          commits = gh_api_paginated(f"repos/{repo}/pulls/{pr_number}/commits?per_page=100")
+          for item in commits:
+              sha = item["sha"][:12]
+              author_user = item.get("author")
+              committer_user = item.get("committer")
+              raw_author = item.get("commit", {}).get("author", {})
+              if author_user and author_user.get("login"):
+                  login = author_user["login"]
+                  uid = author_user.get("id")
+                  if not is_covered(login, uid) and login not in missing:
+                      missing.append(login)
+              elif committer_user and is_allowed(committer_user.get("login", "")):
+                  continue
+              else:
+                  ident = f"{raw_author.get('name', '?')} <{raw_author.get('email', '?')}> ({sha})"
+                  unlinked.append(ident)
+
+          if unlinked:
+              msg = f"Unlinked commit author: {unlinked[0]}"
+              set_status("failure", msg)
+              print(f"Commits without linked GitHub accounts cannot satisfy CLA: {unlinked}", file=sys.stderr)
+              sys.exit(1)
+
+          if missing:
+              msg = f"CLA signature required from: {', '.join(missing)}"
+              set_status("failure", msg)
+              print(msg, file=sys.stderr)
+              sys.exit(1)
+
+          if assistant_result not in ("success", "skipped"):
+              msg = f"CLA Assistant finished with status: {assistant_result}"
+              set_status("failure", msg)
+              print(msg, file=sys.stderr)
+              sys.exit(1)
+
+          set_status("success", "All contributors satisfy the CLA.")
+          print("All contributors satisfy the CLA.")
+          PY

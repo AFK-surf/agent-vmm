@@ -2,7 +2,7 @@
 name = "vmm-comma-contract-tests"
 version = "0.1.0"
 edition = "2021"
-license = "AGPL-3.0-or-later"
+license = "AGPL-3.0-only"
 publish = false
 description = "Golden contract suite: what AFK-surf/Cue (Comma Electron, salix-vmm-gateway, Salix) requires of agent-vmm."
 

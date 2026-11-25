@@ -156,5 +156,6 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before you send a change.
 
 ## License
 
-The source uses `AGPL-3.0-or-later`. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
+The source uses `AGPL-3.0-only`. See [LICENSE](LICENSE) and [NOTICE](NOTICE).
 Derived files retain the licenses listed in NOTICE.
+External contributions require [CLA.md](CLA.md).

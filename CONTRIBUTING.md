@@ -88,7 +88,14 @@ When a fix addresses a repeatable operational failure, update its runbook in the
 Do not add one-time failures or validation diaries to the runbook.
 Keep current procedures aligned with their code owners.
 
+## Contributor License Agreement
+
+External contributors must sign [CLA.md](CLA.md) before a pull request can merge.
+CLA Assistant posts the signing prompt on each pull request.
+The CLA check verifies every commit author.
+
 ## License of contributions
 
-Contributions use `AGPL-3.0-or-later`. The project copyright holder is AFK AI, Inc.
+Contributions use `AGPL-3.0-only` under [CLA.md](CLA.md).
+The project copyright holder is AFK AI, Inc.
 Preserve third-party notices and the licenses of derived files.
