@@ -14,8 +14,8 @@ permissions:
   statuses: write
 
 concurrency:
-  group: cla-signatures
-  cancel-in-progress: false
+  group: cla-${{ github.event_name == 'issue_comment' && 'signatures' || format('pr-{0}', github.event.pull_request.number) }}
+  cancel-in-progress: ${{ github.event_name != 'issue_comment' }}
 
 jobs:
   cla-assistant:
