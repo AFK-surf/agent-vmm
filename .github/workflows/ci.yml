@@ -20,7 +20,7 @@ jobs:
     runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX || 'ubuntu-24.04' }}
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install Protobuf compiler and console build packages
         run: |
           sudo apt-get update
@@ -43,7 +43,7 @@ jobs:
     runs-on: ${{ vars.AGENT_VMM_RUNNER_LINUX_ARM || 'ubuntu-24.04-arm' }}
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
@@ -75,7 +75,7 @@ jobs:
     runs-on: ${{ vars.AGENT_VMM_RUNNER_MACOS || 'macos-15' }}
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: bufbuild/buf-action@8c6a16e16f12ba20b6470afa9c2ba9b5ba8c97c3 # v1
         with:
           version: 1.69.0
